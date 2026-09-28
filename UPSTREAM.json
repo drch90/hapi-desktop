@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/tiann/hapi",
+  "commit": "0239edf38e2da653d662f31039e24ccea04c7837",
+  "license": "AGPL-3.0-only",
+  "imports": [
+    "web/src",
+    "web/scripts/fixtures",
+    "web/public",
+    "shared/src",
+    "shared/fixtures",
+    "hub/src/notifications/eventParsing.ts"
+  ],
+  "desktopChanges": [
+    "API transport injection",
+    "disable message-history disk persistence",
+    "open request_user_input URLs through desktop IPC",
+    "notification parser protocol import",
+    "ShareTurnDialog optional desktop image rendering, clipboard and save hooks",
+    "Question footers support bounded scrolling with fixed navigation"
+  ],
+  "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices."
+}

@@ -1,0 +1,569 @@
+import { createServer, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import type { Session, DecryptedMessage, SyncEvent } from '@hapi/protocol/schemas'
+import { CURRENT_MACHINE_CAPABILITIES } from '@hapi/protocol'
+
+export function fixtureSession(id: string, name: string, flavor: string, active = true): Session {
+  return {
+    id,
+    namespace: 'test',
+    seq: 1,
+    createdAt: Date.now() - 600_000,
+    updatedAt: Date.now(),
+    active,
+    activeAt: Date.now(),
+    metadata: { path: '/home/dev/hapi-desktop', host: 'linux-dev-01', name, flavor, machineId: 'linux-1' },
+    metadataVersion: 1,
+    agentState: { requests: {} },
+    agentStateVersion: 1,
+    thinking: false,
+    thinkingAt: 0,
+    model: null,
+    modelReasoningEffort: null,
+    effort: null,
+    serviceTier: null,
+    permissionMode: 'default',
+  }
+}
+
+export function fixtureMessage(id: string, seq: number, text: string, user = false): DecryptedMessage {
+  const content = user
+    ? { role: 'user', content: { type: 'text', text } }
+    : {
+        role: 'agent',
+        content: {
+          type: 'output',
+          data: {
+            type: 'assistant',
+            uuid: id,
+            message: { role: 'assistant', content: [{ type: 'text', text }] },
+          },
+        },
+      }
+  return {
+    id,
+    seq,
+    localId: null,
+    createdAt: Date.now() - (10 - seq) * 30_000,
+    invokedAt: Date.now(),
+    content,
+  }
+}
+
+export class FixtureHub {
+  sessions = new Map([
+    ['design', fixtureSession('design', '桌面工作台 · 界面与交互', 'codex')],
+    ['review', fixtureSession('review', '审查连接与恢复流程', 'claude')],
+    ['history', fixtureSession('history', 'OpenCode · 历史会话', 'opencode', false)],
+  ])
+  messages = new Map<string, DecryptedMessage[]>([
+    [
+      'design',
+      [
+        fixtureMessage('d1', 1, '把远程 Agent 整合到一个清晰的桌面工作台。', true),
+        fixtureMessage(
+          'd2',
+          2,
+          '已完成工作区的主要结构。\n\n### 会话始终在手边\n\n- 按 **机器与项目** 分组，快速找到正在进行的工作\n- 两个会话并排打开，草稿和滚动位置各自保存\n- 工具调用和待审批操作集中呈现\n\n```typescript\nconst workspace = {\n  panes: ["design", "review"],\n  connection: "HAPI Hub",\n  transport: "HTTPS + SSE"\n}\n```\n\n接下来可以检查右侧的变更预览。',
+        ),
+      ],
+    ],
+    [
+      'review',
+      [
+        fixtureMessage('r1', 1, '检查认证和断线重连，先列出需要关注的点。', true),
+        fixtureMessage(
+          'r2',
+          2,
+          '已经核对 API 契约，重点关注三处：\n\n| 场景 | 处理方式 |\n| --- | --- |\n| SSE 断线 | 带游标恢复，缺失时重新同步 |\n| 消息响应丢失 | 保留草稿，先查询接收状态 |\n| 会话恢复 | 迁移到 Hub 返回的会话 ID |\n\n需要运行一次本地测试来确认实现。',
+        ),
+      ],
+    ],
+    ['history', [fixtureMessage('h1', 1, '这是一段可以恢复的远程会话。')]],
+  ])
+  requests: { path: string; method: string; body: Record<string, unknown> }[] = []
+  streams = new Set<ServerResponse>()
+  eventId = 0
+  failSend: 'none' | 'absent' | 'accepted' = 'none'
+  holdMessages = false
+  steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' = 'steered'
+  emitQueueEvents = true
+  commandEvents = false
+  failSetting = false
+  failModelDiscovery = false
+  failDelete = false
+  emitDeleteEvents = true
+  spawnCount = 0
+  readonly server = createServer(async (request, response) => {
+    const url = new URL(request.url!, 'http://fixture')
+    const path = url.pathname
+    let raw = ''
+    for await (const chunk of request) raw += String(chunk)
+    const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+    this.requests.push({ path, method: request.method!, body })
+    const reply = (value: unknown, status = 200) => {
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end(JSON.stringify(value))
+    }
+    if (path === '/health') {
+      reply({ status: 'ok', protocolVersion: 1 })
+      return
+    }
+    if (path === '/api/auth') {
+      reply({
+        token: `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 14400 })).toString('base64url')}.fixture-signature`,
+        user: { id: 1 },
+      })
+      return
+    }
+    if (!request.headers.authorization?.startsWith('Bearer ')) {
+      reply({}, 401)
+      return
+    }
+    if (path === '/api/events') {
+      response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+      response.write(
+        `data: ${JSON.stringify({ type: 'connection-changed', data: { status: 'connected', subscriptionId: 'fixture', resume: 'gap' } })}\n\n`,
+      )
+      this.streams.add(response)
+      request.on('close', () => this.streams.delete(response))
+      return
+    }
+    if (path === '/api/visibility') {
+      reply({ ok: true })
+      return
+    }
+    if (path === '/api/sessions') {
+      reply({
+        sessions: [...this.sessions.values()].map((s) => ({
+          ...s,
+          todosUpdatedAt: 0,
+          todoProgress: null,
+          pendingRequestsCount: Object.keys(s.agentState?.requests ?? {}).length,
+          pendingRequestKinds: [],
+          pendingRequests: [],
+          backgroundTaskCount: s.backgroundTaskCount ?? 0,
+          futureScheduledMessageCount: 0,
+          nextScheduledAt: null,
+        })),
+      })
+      return
+    }
+    if (path === '/api/machines') {
+      reply({
+        machines: [
+          {
+            id: 'linux-1',
+            namespace: 'test',
+            active: true,
+            activeAt: Date.now(),
+            seq: 1,
+            updatedAt: Date.now(),
+            createdAt: 1,
+            metadataVersion: 1,
+            runnerStateVersion: 1,
+            runnerState: {},
+            metadata: {
+              host: 'linux-dev-01',
+              platform: 'linux',
+              happyCliVersion: '0.30.7',
+              workspaceRoots: ['/home/dev'],
+              capabilities: [...CURRENT_MACHINE_CAPABILITIES],
+            },
+          },
+        ],
+      })
+      return
+    }
+    if (path.endsWith('/agent-availability')) {
+      reply({ agents: ['codex', 'claude', 'opencode'].map((agent) => ({ agent, available: true })) })
+      return
+    }
+    if (path.endsWith('/codex-models')) {
+      reply(
+        this.failModelDiscovery
+          ? { success: false }
+          : {
+              success: true,
+              models: [
+                {
+                  id: 'fixture-codex',
+                  displayName: 'Fixture Codex',
+                  isDefault: true,
+                  supportedReasoningEfforts: ['low', 'high', 'xhigh'],
+                  serviceTiers: ['standard', 'fast'],
+                },
+                {
+                  id: 'fixture-fast',
+                  displayName: 'Fixture Fast',
+                  supportedReasoningEfforts: ['low', 'medium'],
+                },
+              ],
+            },
+      )
+      return
+    }
+    if (path === '/api/machines/linux-1/spawn') {
+      const id = ++this.spawnCount === 1 ? 'created' : `created-${this.spawnCount}`
+      const s = fixtureSession(id, '新建远程会话', String(body.agent))
+      s.metadata!.path = String(body.directory)
+      s.model = (body.model as string) ?? null
+      s.permissionMode = body.permissionMode as Session['permissionMode']
+      s.collaborationMode = body.collaborationMode as Session['collaborationMode']
+      s.effort = (body.effort as string) ?? null
+      s.modelReasoningEffort = (body.modelReasoningEffort as string) ?? null
+      this.sessions.set(s.id, s)
+      this.messages.set(s.id, [])
+      reply({ type: 'success', sessionId: s.id })
+      this.emit({ type: 'session-added', sessionId: s.id, data: s })
+      return
+    }
+    if (path === '/api/machines/linux-1/paths/exists') {
+      reply({ exists: Object.fromEntries((body.paths as string[]).map((p) => [p, !p.endsWith('/missing')])) })
+      return
+    }
+    if (path === '/api/machines/linux-1/list-directory') {
+      reply({
+        success: true,
+        entries:
+          body.path === '/home/dev'
+            ? [
+                { name: 'project', type: 'directory', isGitRepo: true },
+                { name: 'notes.txt', type: 'file' },
+                ...(body.includeHidden ? [{ name: '.private', type: 'directory' }] : []),
+              ]
+            : [{ name: 'nested', type: 'directory' }],
+      })
+      return
+    }
+    if (path === '/api/machines/linux-1/opencode-models') {
+      reply({
+        success: true,
+        availableModels: [
+          { modelId: 'fixture/opencode', name: 'Fixture OpenCode' },
+          { modelId: 'fixture/other', name: 'Fixture Other' },
+        ],
+        currentModelId: 'fixture/opencode',
+      })
+      return
+    }
+    if (path === '/api/machines/linux-1/opencode-model-variants') {
+      reply({ success: true, variants: { 'fixture/opencode': ['balanced', 'deep'], 'fixture/other': [] } })
+      return
+    }
+    const match = /^\/api\/sessions\/([^/]+)(.*)$/.exec(path)
+    if (!match) {
+      reply({}, 404)
+      return
+    }
+    const [, id, action] = match
+    const session = this.sessions.get(id)
+    if (!session) {
+      reply({}, 404)
+      return
+    }
+    if (!action) {
+      if (request.method === 'DELETE') {
+        if (session.active || this.failDelete) {
+          reply({ error: 'Cannot delete session' }, 409)
+          return
+        }
+        this.sessions.delete(id)
+        this.messages.delete(id)
+        reply({ ok: true })
+        if (this.emitDeleteEvents) this.emit({ type: 'session-removed', sessionId: id })
+        return
+      }
+      if (request.method === 'PATCH') {
+        session.metadata!.name = String(body.name)
+        session.metadataVersion++
+        this.emit({ type: 'session-updated', sessionId: id, data: session })
+      }
+      reply({ session })
+      return
+    }
+    if (action === '/opencode-models') {
+      reply({
+        success: true,
+        availableModels: [
+          { modelId: 'fixture/opencode', name: 'Fixture OpenCode' },
+          { modelId: 'fixture/other', name: 'Fixture Other' },
+        ],
+        currentModelId: session.model,
+      })
+      return
+    }
+    if (action === '/opencode-reasoning-effort-options') {
+      reply({
+        success: true,
+        currentModelId: session.model,
+        options:
+          session.model === 'fixture/other'
+            ? [{ value: 'minimal', name: 'Minimal' }]
+            : [
+                { value: 'balanced', name: 'Balanced' },
+                { value: 'deep', name: 'Deep' },
+              ],
+        currentValue: session.modelReasoningEffort,
+      })
+      return
+    }
+    if (
+      ['/collaboration-mode', '/permission-mode', '/model', '/model-reasoning-effort', '/effort'].includes(
+        action,
+      )
+    ) {
+      if (this.failSetting) {
+        reply({ error: 'Fixture rejected setting' }, 409)
+        return
+      }
+      if (action === '/permission-mode') session.permissionMode = body.mode as Session['permissionMode']
+      if (action === '/collaboration-mode')
+        session.collaborationMode = body.mode as Session['collaborationMode']
+      if (action === '/model') session.model = body.model as string | null
+      if (action === '/model-reasoning-effort')
+        session.modelReasoningEffort = body.modelReasoningEffort as string | null
+      if (action === '/effort') session.effort = body.effort as string | null
+      session.updatedAt += 60_000
+      reply({ ok: true })
+      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      return
+    }
+    if (action === '/slash-commands') {
+      reply({
+        success: true,
+        commands: [
+          {
+            name: 'project-check',
+            description: 'Project diagnostics',
+            source: 'project',
+            content: 'Inspect the project',
+          },
+        ],
+      })
+      return
+    }
+    if (action === '/clear') {
+      const next = { ...session, id: 'cleared', active: true }
+      this.sessions.set(next.id, next)
+      this.messages.set(next.id, [])
+      this.emit({ type: 'session-added', sessionId: next.id, data: next })
+      reply({ sessionId: next.id })
+      return
+    }
+    if (action === '/resume') {
+      const nextId = session.active ? id : 'resumed'
+      const next = { ...session, id: nextId, active: true }
+      this.sessions.set(nextId, next)
+      this.messages.set(nextId, this.messages.get(id) ?? [])
+      reply({ sessionId: nextId })
+      return
+    }
+    if (action === '/messages/queued-state') {
+      const ids = body.localIds as string[]
+      const candidates = (this.messages.get(id) ?? []).filter((m) => m.localId && ids.includes(m.localId))
+      reply({
+        queuedLocalIds: candidates
+          .filter((m) => m.invokedAt === null && m.deliveryState !== 'indeterminate')
+          .map((m) => m.localId),
+        indeterminateLocalIds: candidates
+          .filter((m) => m.invokedAt === null && m.deliveryState === 'indeterminate')
+          .map((m) => m.localId),
+        invokedLocalMessages: candidates
+          .filter((m) => m.invokedAt != null)
+          .map((m) => ({ localId: m.localId, invokedAt: m.invokedAt })),
+      })
+      return
+    }
+    const queueAction = /^\/messages\/([^/]+)(?:\/(steer|retry))?$/.exec(action)
+    if (queueAction) {
+      const message = this.messages.get(id)?.find((m) => m.id === decodeURIComponent(queueAction[1]))
+      if (!message) {
+        reply({ status: 'cancelled', localId: null })
+        return
+      }
+      if (queueAction[2] === 'steer') {
+        if (this.steerOutcome === 'failed') {
+          reply({ status: 'failed', error: 'Turn already ended', localId: message.localId })
+          return
+        }
+        if (this.steerOutcome === 'indeterminate') {
+          message.deliveryState = 'indeterminate'
+          this.emit({ type: 'messages-indeterminate', sessionId: id, localIds: [message.localId!] })
+          reply({ status: 'failed', error: 'Outcome unknown', localId: message.localId })
+          return
+        }
+        message.invokedAt = Date.now()
+        if (this.emitQueueEvents)
+          this.emit({
+            type: 'messages-consumed',
+            sessionId: id,
+            localIds: [message.localId!],
+            invokedAt: message.invokedAt,
+            steered: true,
+          })
+        reply(
+          this.steerOutcome === 'invoked'
+            ? { status: 'invoked', message }
+            : { status: 'steered', localId: message.localId },
+        )
+        return
+      }
+      if (queueAction[2] === 'retry') {
+        message.deliveryState = undefined
+        this.emit({ type: 'messages-requeued', sessionId: id, localIds: [message.localId!] })
+        reply({ status: 'retried', localId: message.localId })
+        return
+      }
+      if (request.method === 'DELETE') {
+        if (message.invokedAt != null) {
+          reply({ status: 'invoked', message })
+          return
+        }
+        if (message.deliveryState === 'indeterminate') {
+          reply({ status: 'busy', localId: message.localId })
+          return
+        }
+        this.messages.set(
+          id,
+          this.messages.get(id)!.filter((m) => m.id !== message.id),
+        )
+        if (this.emitQueueEvents)
+          this.emit({
+            type: 'message-cancelled',
+            sessionId: id,
+            messageId: message.id,
+            localId: message.localId!,
+          })
+        reply({ status: 'cancelled', localId: message.localId })
+        return
+      }
+    }
+    if (action === '/messages') {
+      if (request.method === 'POST') {
+        const message = {
+          ...fixtureMessage(
+            `sent-${Date.now()}`,
+            (this.messages.get(id)?.length ?? 0) + 1,
+            String(body.text),
+            true,
+          ),
+          localId: String(body.localId),
+          invokedAt: this.holdMessages && body.deliveryMode !== 'steer' ? null : Date.now(),
+        }
+        if (this.failSend !== 'absent') {
+          this.messages.set(id, [...(this.messages.get(id) ?? []), message])
+          this.emit({ type: 'message-received', sessionId: id, message })
+        }
+        if (this.failSend !== 'none') {
+          response.destroy()
+          return
+        }
+        if (this.commandEvents && String(body.text).startsWith('/')) {
+          const event = {
+            ...fixtureMessage(`command-${message.id}`, (this.messages.get(id)?.length ?? 0) + 1, ''),
+            content: {
+              role: 'agent',
+              content: {
+                type: 'event',
+                id: `event-${message.id}`,
+                data:
+                  body.text === '/compact'
+                    ? { type: 'compact', trigger: 'manual', preTokens: 1000 }
+                    : { type: 'message', message: `**Command result**\n\n${body.text}` },
+              },
+            },
+          }
+          this.messages.get(id)!.push(event)
+          this.emit({ type: 'message-received', sessionId: id, message: event })
+        }
+        reply({ ok: true })
+        return
+      }
+      const messages = this.messages.get(id) ?? []
+      reply({
+        messages,
+        page: {
+          direction: 'latest',
+          limit: 20,
+          epoch: 1,
+          reset: false,
+          nextBeforeSeq: messages[0]?.seq ?? null,
+          nextBeforeAt: messages[0]?.createdAt ?? null,
+          nextAfterSeq: messages.at(-1)?.seq ?? null,
+          nextAfterAt: messages.at(-1)?.createdAt ?? null,
+          snapshotHeadSeq: messages.at(-1)?.seq ?? null,
+          snapshotHeadAt: messages.at(-1)?.createdAt ?? null,
+          hasMore: false,
+        },
+      })
+      return
+    }
+    if (action.startsWith('/permissions/')) {
+      const key = decodeURIComponent(action.split('/')[2])
+      delete session.agentState!.requests![key]
+      session.agentStateVersion++
+      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      reply({ ok: true })
+      return
+    }
+    if (action === '/abort' || action === '/archive') {
+      session.active = false
+      session.thinking = false
+      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      reply({ ok: true })
+      return
+    }
+    if (action === '/directory') {
+      reply({
+        success: true,
+        entries: [
+          { name: 'src', type: 'directory' },
+          { name: 'README.md', type: 'file' },
+          { name: 'package.json', type: 'file' },
+        ],
+      })
+      return
+    }
+    if (action === '/file') {
+      reply({
+        success: true,
+        content: Buffer.from('# HAPI Desktop\n\nA workspace for remote agents.\n').toString('base64'),
+      })
+      return
+    }
+    if (action === '/git-status') {
+      reply({
+        success: true,
+        stdout: '# branch.head main\n1 .M N... 100644 100644 100644 abc def src/main.ts\n',
+      })
+      return
+    }
+    if (action === '/git-diff-numstat') {
+      reply({ success: true, stdout: url.searchParams.get('staged') === 'true' ? '' : '4\t1\tsrc/main.ts\n' })
+      return
+    }
+    if (action === '/git-diff-file') {
+      reply({
+        success: true,
+        stdout:
+          'diff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,5 @@\n-connectDirectly()\n+const hub = connectHub()\n+hub.on("reconnect", restoreCursor)\n+hub.on("approval", notifyUser)\n+openWorkspace()\n',
+      })
+      return
+    }
+    reply({}, 404)
+  })
+  async start() {
+    await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve))
+    return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
+  }
+  emit(event: SyncEvent) {
+    for (const response of this.streams)
+      response.write(`id: fixture-${++this.eventId}\ndata: ${JSON.stringify(event)}\n\n`)
+  }
+  async close() {
+    for (const stream of this.streams) stream.end()
+    this.server.closeAllConnections()
+    await new Promise<void>((resolve) => this.server.close(() => resolve()))
+  }
+}

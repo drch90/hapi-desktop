@@ -1,0 +1,229 @@
+--- a/vendor/hapi/hub/src/notifications/eventParsing.ts
++++ b/vendor/hapi/hub/src/notifications/eventParsing.ts
+@@ -1,5 +1,5 @@
+ import { isObject } from '@hapi/protocol'
+-import type { SyncEvent } from '../sync/syncEngine'
++import type { SyncEvent } from '@hapi/protocol'
+ 
+ type EventEnvelope = {
+     type?: unknown
+--- a/vendor/hapi/web/src/api/client.ts
++++ b/vendor/hapi/web/src/api/client.ts
+@@ -113,6 +113,7 @@
+ }
+ 
+ type ApiClientOptions = {
++    transport?: <T>(path: string, init?: RequestInit) => Promise<T>
+     baseUrl?: string
+     getToken?: () => string | null
+     onUnauthorized?: () => Promise<string | null>
+@@ -149,12 +150,14 @@
+ }
+ 
+ export class ApiClient {
++    private readonly transport?: <T>(path: string, init?: RequestInit) => Promise<T>
+     private token: string
+     private readonly baseUrl: string | null
+     private readonly getToken: (() => string | null) | null
+     private readonly onUnauthorized: (() => Promise<string | null>) | null
+ 
+     constructor(token: string, options?: ApiClientOptions) {
++        this.transport = options?.transport
+         this.token = token
+         this.baseUrl = options?.baseUrl ?? null
+         this.getToken = options?.getToken ?? null
+@@ -178,6 +181,7 @@
+         attempt: number = 0,
+         overrideToken?: string | null
+     ): Promise<T> {
++        if (this.transport) return this.transport<T>(path, init)
+         const headers = new Headers(init?.headers)
+         const liveToken = this.getToken ? this.getToken() : null
+         const authToken = overrideToken !== undefined
+--- a/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx
++++ b/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx
+@@ -16,6 +16,10 @@
+         role?: 'user' | 'assistant'
+     }>
+     sourceContentWidth?: number | null
++    renderImage?: (element: HTMLElement, width: number, preserveSourceLayout: boolean) => Promise<Blob>
++    copyImage?: (blob: Blob) => Promise<void>
++    saveImage?: (blob: Blob, fileName: string) => Promise<void>
++    nativeShare?: boolean
+     onClose: () => void
+ }
+ 
+@@ -622,7 +626,7 @@
+         naturalWidth: number
+         naturalHeight: number
+     } | null>(null)
+-    const showNativeShareButton = true
++    const showNativeShareButton = props.nativeShare !== false
+     const usesCoarsePrimaryPointer = window.matchMedia('(pointer: coarse)').matches
+     const preserveSourceLayout = Boolean(
+         props.sourceContentWidth
+@@ -690,7 +694,7 @@
+ 
+         let cancelled = false
+         setPreparedBlob(null)
+-        void elementToPngBlob(capture, exportWidth, preserveSourceLayout).then((blob) => {
++        void (props.renderImage ?? elementToPngBlob)(capture, exportWidth, preserveSourceLayout).then((blob) => {
+             if (!cancelled) setPreparedBlob(blob)
+         }).catch((err) => {
+             if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to create image')
+@@ -794,7 +798,7 @@
+         setBusy(mode)
+         setError(null)
+         try {
+-            const blob = await elementToPngBlob(capture, exportWidth, preserveSourceLayout)
++            const blob = await (props.renderImage ?? elementToPngBlob)(capture, exportWidth, preserveSourceLayout)
+             await action(blob)
+             if (mode === 'copy') setCopied(true)
+         } catch (err) {
+@@ -896,7 +900,7 @@
+                 <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                     <button
+                         type="button"
+-                        onClick={() => { void withPng(copyImageBlob, 'copy') }}
++                        onClick={() => { void withPng(props.copyImage ?? copyImageBlob, 'copy') }}
+                         disabled={busy !== null || !ready}
+                         className="hidden rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50 sm:inline-block sm:w-32"
+                     >
+@@ -923,7 +927,7 @@
+                     <button
+                         type="button"
+                         onClick={() => {
+-                            void withPng((blob) => downloadBlob(blob, getShareFileName(props.title)), 'download')
++                            void withPng((blob) => (props.saveImage ?? downloadBlob)(blob, getShareFileName(props.title)), 'download')
+                         }}
+                         disabled={busy !== null || !ready}
+                         className="rounded-md bg-[var(--app-button)] px-3 py-2 text-sm text-[var(--app-button-text)] disabled:opacity-50 sm:w-32"
+--- a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
+@@ -95,6 +95,7 @@
+     tool: ChatToolCall
+     disabled: boolean
+     onDone: () => void
++    scrollable?: boolean
+ }) {
+     const { t } = useTranslation()
+     const { haptic } = usePlatform()
+@@ -330,8 +331,8 @@
+     }
+ 
+     return (
+-        <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
+-            <div className="flex items-start justify-between gap-3">
++        <div className={cn('rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable && 'flex h-full min-h-0 flex-col')}>
++            <div className="flex shrink-0 items-start justify-between gap-3">
+                 <div className="min-w-0">
+                     <div className="flex items-center gap-2">
+                         <Badge variant="default">
+@@ -345,13 +346,13 @@
+             </div>
+ 
+             {error ? (
+-                <div className="mt-2 text-xs text-red-600">
++                <div className="mt-2 shrink-0 text-xs text-red-600">
+                     {error}
+                 </div>
+             ) : null}
+ 
+             {questions.length === 0 ? (
+-                <div className="mt-3">
++                <div className={cn('mt-3', props.scrollable && 'min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]')}>
+                     <div className="text-sm text-[var(--app-hint)]">
+                         {t('tool.askUserQuestion.fallback')}
+                     </div>
+@@ -364,7 +365,7 @@
+                     />
+                 </div>
+             ) : (
+-                <div className="mt-3">
++                <div key={clampedStep} className={cn('mt-3', props.scrollable && 'min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]')}>
+                     <div className="flex items-start justify-between gap-3">
+                         <div className="min-w-0 flex-1">
+                             {questions[clampedStep]?.header ? (
+@@ -423,7 +424,7 @@
+                 </div>
+             )}
+ 
+-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--app-border)] pt-3">
++            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--app-border)] pt-3">
+                 <div className="flex items-center gap-2">
+                     {questions.length > 1 ? (
+                         <Button
+--- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
+@@ -74,6 +74,7 @@
+     tool: ChatToolCall
+     disabled: boolean
+     onDone: () => void
++    scrollable?: boolean
+ }) {
+     const { t } = useTranslation()
+     const { haptic } = usePlatform()
+@@ -198,8 +199,8 @@
+     const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
+ 
+     return (
+-        <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
+-            <div className="flex items-start justify-between gap-3">
++        <div className={cn('rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable ? 'flex h-full min-h-0 flex-col' : 'mt-3')}>
++            <div className="flex shrink-0 items-start justify-between gap-3">
+                 <div className="min-w-0">
+                     <div className="flex items-center gap-2">
+                         <Badge variant="default">
+@@ -213,13 +214,13 @@
+             </div>
+ 
+             {error ? (
+-                <div className="mt-2 text-xs text-red-600">
++                <div className="mt-2 shrink-0 text-xs text-red-600">
+                     {error}
+                 </div>
+             ) : null}
+ 
+             {currentQuestion ? (
+-                <div className="mt-3">
++                <div key={clampedStep} className={cn('mt-3', props.scrollable && 'min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]')}>
+                     {currentQuestion.question ? (
+                         <div>
+                             <MarkdownRenderer content={currentQuestion.question} />
+@@ -274,7 +275,7 @@
+                 </div>
+             ) : null}
+ 
+-            <div className="mt-3 flex items-center justify-between gap-2">
++            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
+                 <div className="flex items-center gap-2">
+                     {questions.length > 1 ? (
+                         <Button
+--- a/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts
++++ b/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts
+@@ -44,6 +44,14 @@
+ }
+ 
+ export function openRequestUserInputUrl(url: string): boolean {
++    if (window.desktop) {
++        try {
++            const target = new URL(url)
++            if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password) return false
++            void window.desktop.openExternal(target.href)
++            return true
++        } catch { return false }
++    }
+     const opened = window.open('about:blank', '_blank')
+     if (!opened) return false
+     try {
+--- a/vendor/hapi/web/src/lib/message-window-store.ts
++++ b/vendor/hapi/web/src/lib/message-window-store.ts
+@@ -140,7 +140,7 @@
+ 
+ function isSessionStorageAvailable(): boolean {
+     try {
+-        return typeof sessionStorage?.getItem === 'function'
++        return false // Desktop: transcripts stay in memory, not browser storage.
+     } catch {
+         return false
+     }

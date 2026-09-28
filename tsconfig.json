@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"], "jsx": "react-jsx",
+    "strict": true, "skipLibCheck": true, "resolveJsonModule": true,
+    "esModuleInterop": true, "allowImportingTsExtensions": true, "noEmit": true,
+    "types": ["node", "vite/client"], "baseUrl": ".",
+    "paths": {
+      "@/*": ["vendor/hapi/web/src/*"],
+      "@desktop/*": ["src/*"],
+      "@/components/MarkdownRenderer": ["src/renderer/components/Markdown.tsx"]
+    }
+  },
+  "include": ["src", "tests", "electron.vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
+}

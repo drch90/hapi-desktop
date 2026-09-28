@@ -1,0 +1,49 @@
+import { ApiClient, ApiError } from '@/api/client'
+import type { Result } from '../../shared/bridge'
+
+export async function unwrap<T>(promise: Promise<Result<T>>): Promise<T> {
+  const result = await promise
+  if (!result.ok)
+    throw new ApiError(
+      result.error.message,
+      result.error.status ?? 0,
+      result.error.code ?? result.error.message,
+    )
+  return result.value
+}
+
+export const api = new ApiClient('', {
+  transport: async <T>(path: string, init?: RequestInit): Promise<T> =>
+    unwrap(
+      window.desktop.request({
+        path,
+        method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'DELETE',
+        ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
+      }),
+    ) as Promise<T>,
+})
+
+export function errorKey(error: unknown): string {
+  const code = error instanceof ApiError ? error.code : error instanceof Error ? error.message : ''
+  switch (code) {
+    case 'HTTPS_REQUIRED':
+      return 'Use HTTPS, or HTTP with a private IP address or localhost.'
+    case 'INVALID_HUB_URL':
+      return 'Enter a valid Hub origin without a path or query.'
+    case 'INVALID_ACCESS_TOKEN':
+    case 'SIGN_IN_REQUIRED':
+      return 'The access token is invalid or has been revoked.'
+    case 'INCOMPATIBLE_PROTOCOL':
+      return 'This Hub uses an unsupported protocol version.'
+    case 'NETWORK_ERROR':
+    case 'HUB_UNAVAILABLE':
+    case 'AUTH_UNAVAILABLE':
+      return 'Connection failed. Check the Hub address and network.'
+    case 'DELIVERY_UNKNOWN':
+      return 'Delivery is unconfirmed. Check before sending again.'
+    case 'HTTP_404':
+      return 'This session is unavailable.'
+    default:
+      return 'The request failed. Refresh and try again.'
+  }
+}
