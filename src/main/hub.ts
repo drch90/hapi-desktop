@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { SyncEventSchema, type SyncEvent } from '@hapi/protocol/schemas'
-import type { ConnectionState, DesktopEvent, HubRequest } from '../shared/bridge'
-import { normalizeHubUrl, hubRequestSchema } from '../shared/policy'
+import type { ConnectionState, DesktopEvent, HubRequest, RemoteFile, RemoteFileData } from '../shared/bridge'
+import { normalizeHubUrl, hubRequestSchema, remoteFileSchema } from '../shared/policy'
 import { SseDecoder } from './sse'
 
 export class HubError extends Error {
@@ -151,7 +151,38 @@ export class HubConnection {
     return this.authorizedRequest(request.path, request.method, request.body)
   }
 
-  private async authorizedRequest(path: string, method: string, body?: unknown): Promise<unknown> {
+  get signal(): AbortSignal {
+    return this.lifetime.signal
+  }
+
+  async readFile(input: RemoteFile): Promise<RemoteFileData> {
+    const source = remoteFileSchema.parse(input)
+    const path = `/api/sessions/${encodeURIComponent(source.sessionId)}`
+    if (source.kind === 'generated') {
+      return (await this.authorizedRequest(
+        `${path}/generated-images/${encodeURIComponent(source.imageId)}`,
+        'GET',
+        undefined,
+        'binary',
+      )) as RemoteFileData
+    }
+    const result = (await this.authorizedRequest(
+      `${path}/file?${new URLSearchParams({ path: source.path })}`,
+      'GET',
+    )) as { success?: boolean; content?: unknown }
+    if (!result || result.success !== true || typeof result.content !== 'string')
+      throw new HubError('FILE_UNAVAILABLE')
+    const bytes = Buffer.from(result.content, 'base64')
+    if (bytes.toString('base64') !== result.content) throw new HubError('INVALID_RESPONSE')
+    return { bytes: new Uint8Array(bytes), mimeType: 'application/octet-stream' }
+  }
+
+  private async authorizedRequest(
+    path: string,
+    method: string,
+    body?: unknown,
+    format: 'json' | 'binary' = 'json',
+  ): Promise<unknown> {
     const generation = this.generation
     const origin = this.state.hubUrl
     let token = await this.token()
@@ -166,7 +197,7 @@ export class HubConnection {
           ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
           signal: AbortSignal.any([
             this.lifetime.signal,
-            AbortSignal.timeout(method === 'GET' ? 20_000 : 60_000),
+            AbortSignal.timeout(method === 'GET' && format === 'json' ? 20_000 : 60_000),
           ]),
         })
       } catch {
@@ -190,17 +221,52 @@ export class HubConnection {
           method !== 'GET' && response.status >= 500 ? 'DELIVERY_UNKNOWN' : `HTTP_${response.status}`
         throw new HubError(code, response.status)
       }
-      if (response.status === 204) return undefined
-      let text: string
+      if (response.status === 204) {
+        if (format === 'binary') throw new HubError('FILE_UNAVAILABLE')
+        return undefined
+      }
+      let bytes: Buffer
       try {
-        text = await response.text()
-      } catch {
+        // Enforce the bound while reading, including responses without Content-Length.
+        // HAPI's generated-media protocol allows up to 25 MiB per file.
+        const limit = (format === 'binary' ? 25 : 24) * 1024 * 1024
+        if (Number(response.headers.get('content-length')) > limit) {
+          await response.body?.cancel()
+          throw new HubError('RESPONSE_TOO_LARGE')
+        }
+        const chunks: Uint8Array[] = []
+        let size = 0
+        const reader = response.body?.getReader()
+        if (reader) {
+          try {
+            while (true) {
+              const next = await reader.read()
+              if (next.done) break
+              size += next.value.byteLength
+              if (size > limit) throw new HubError('RESPONSE_TOO_LARGE')
+              chunks.push(next.value)
+            }
+          } finally {
+            await reader.cancel().catch(() => {})
+            reader.releaseLock()
+          }
+        }
+        bytes = Buffer.concat(chunks, size)
+      } catch (error) {
+        if (generation !== this.generation) throw new HubError('CONNECTION_CHANGED')
+        if (error instanceof HubError) throw error
         throw new HubError(method === 'GET' ? 'NETWORK_ERROR' : 'DELIVERY_UNKNOWN')
       }
       if (generation !== this.generation) throw new HubError('CONNECTION_CHANGED')
-      if (text.length > 24 * 1024 * 1024) throw new HubError('RESPONSE_TOO_LARGE')
+      if (format === 'binary') {
+        const mime = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() ?? ''
+        return {
+          bytes: new Uint8Array(bytes),
+          mimeType: /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mime) ? mime : 'application/octet-stream',
+        }
+      }
       try {
-        return JSON.parse(text)
+        return JSON.parse(bytes.toString('utf8'))
       } catch {
         throw new HubError(method === 'GET' ? 'INVALID_RESPONSE' : 'DELIVERY_UNKNOWN')
       }

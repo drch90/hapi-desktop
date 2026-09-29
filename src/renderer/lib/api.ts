@@ -47,3 +47,12 @@ export function errorKey(error: unknown): string {
       return 'The request failed. Refresh and try again.'
   }
 }
+
+export function fileErrorKey(error: unknown): string {
+  const code = error instanceof ApiError ? error.code : error instanceof Error ? error.message : ''
+  if (code === 'HTTP_404' || code === 'FILE_UNAVAILABLE')
+    return 'File unavailable. It may have expired or the remote session is offline.'
+  if (code === 'RESPONSE_TOO_LARGE') return 'File is too large to load.'
+  if (code === 'FILE_SAVE_FAILED') return 'Could not save the file. Choose another location and try again.'
+  return errorKey(error)
+}

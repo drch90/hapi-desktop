@@ -15,14 +15,22 @@ import {
   Tray,
 } from 'electron'
 import { existsSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { writeFile, rename, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { dirname, join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import { HubConnection, HubError } from './hub'
 import { DesktopStorage } from './storage'
 import { NotificationTracker } from './notifications'
-import { connectSchema, normalizeHubUrl, settingsUpdateSchema } from '../shared/policy'
+import {
+  connectSchema,
+  normalizeHubUrl,
+  settingsUpdateSchema,
+  remoteFileSchema,
+  saveFileSchema,
+  downloadFileName,
+} from '../shared/policy'
 import type { DesktopEvent, Result } from '../shared/bridge'
 import { translate } from '../shared/i18n'
 import { decodeExportPng, imageExportSchema } from './image-export'
@@ -215,6 +223,31 @@ function registerIpc() {
     updateTray()
   })
   handle('request', (input) => hub.request(input as never))
+  handle('read-file', (input) => hub.readFile(remoteFileSchema.parse(input)))
+  handle('save-file', async (input) => {
+    const data = saveFileSchema.parse(input)
+    const lifetime = hub.signal
+    const result = await dialog.showSaveDialog(window!, {
+      title: translate(storage.settings.locale, 'Save file'),
+      defaultPath: downloadFileName(data.fileName),
+    })
+    if (result.canceled || !result.filePath) return { saved: false }
+    if (lifetime.aborted) throw new HubError('CONNECTION_CHANGED')
+    const file = await hub.readFile(data.source)
+    if (lifetime.aborted) throw new HubError('CONNECTION_CHANGED')
+    const staging = join(dirname(result.filePath), `.hapi-download-${randomUUID()}.tmp`)
+    try {
+      await writeFile(staging, file.bytes, { flag: 'wx', mode: 0o600 })
+      if (lifetime.aborted) throw new HubError('CONNECTION_CHANGED')
+      await rename(staging, result.filePath)
+    } catch (error) {
+      if (error instanceof HubError) throw error
+      throw new HubError('FILE_SAVE_FAILED')
+    } finally {
+      await rm(staging, { force: true }).catch(() => {})
+    }
+    return { saved: true }
+  })
   handle('settings', (input) => {
     const settings = { ...storage.settings, ...settingsUpdateSchema.parse(input) }
     if (settings.launchAtLogin !== storage.settings.launchAtLogin) {
@@ -279,7 +312,7 @@ if (singleInstance)
       const headers = new Headers(response.headers)
       headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'",
       )
       return new Response(response.body, { status: response.status, headers })
     })

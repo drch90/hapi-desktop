@@ -1,5 +1,5 @@
 import { test, expect, _electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { FixtureHub } from './fake-server'
@@ -38,6 +38,179 @@ test.afterEach(async () => {
   await electron?.close()
   await server?.close()
   if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
+})
+
+test('HAPI display tools preview images, play media and save exact file bytes', async () => {
+  await page.getByTestId('session-design').click()
+  const png = await readFile('resources/icon.png')
+  // A synthetic one-second 16x16 VP8 video; no external media or runtime encoder needed.
+  const video = Buffer.from(
+    'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIxEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEfTbuMU6uEHFO7a1OsggIb7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNTguNDUuMTAwV0GNTGF2ZjU4LjQ1LjEwMESJiECPQAAAAAAAFlSua8KuAQAAAAAAADnXgQFzxYhkHXKudPvW+pyBACK1nIN1bmSGhVZfVlA4g4EBI+ODhB3NZQDgAQAAAAAAAAawgRC6gRASVMNnQJlzcwEAAAAAAAAnY8CAZ8gBAAAAAAAAGkWjh0VOQ09ERVJEh41MYXZmNTguNDUuMTAwc3MBAAAAAAAAXmPAi2PFiGQdcq50+9b6Z8gBAAAAAAAAIUWjh0VOQ09ERVJEh5RMYXZjNTguOTEuMTAwIGxpYnZweGfIokWjiERVUkFUSU9ORIeUMDA6MDA6MDEuMDAwMDAwMDAwAAAfQ7Z12OeBAKO8gQAAgLACAJ0BKhAAEAAARwiFhYiFhIgCAgJ1qgP4Agz9KAD+/00S//xYV/FhX8WFf/FhX/z8zu3F/OYAo5WBAfQAsQEABRCsABgAGFgv9AAIAAAcU7trkbuPs4EAt4r3gQHxggG+8IED',
+    'base64',
+  )
+  const audio = Buffer.alloc(8044, 128)
+  audio.write('RIFF', 0)
+  audio.writeUInt32LE(8036, 4)
+  audio.write('WAVEfmt ', 8)
+  audio.writeUInt32LE(16, 16)
+  audio.writeUInt16LE(1, 20)
+  audio.writeUInt16LE(1, 22)
+  audio.writeUInt32LE(8000, 24)
+  audio.writeUInt32LE(8000, 28)
+  audio.writeUInt16LE(1, 32)
+  audio.writeUInt16LE(8, 34)
+  audio.write('data', 36)
+  audio.writeUInt32LE(8000, 40)
+  const binary = Buffer.from([0, 255, 128, 10, 13, 65, 66])
+  server.displayMedia('design', 'inline-png', 'preview.png', 'image/png', png)
+  const imageCard = page.getByRole('article', { name: 'preview.png', exact: true })
+  await expect
+    .poll(() =>
+      imageCard
+        .getByRole('img', { name: 'preview.png' })
+        .evaluate((el) => (el as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await imageCard.getByRole('img', { name: 'preview.png' }).click()
+  await expect(page.getByRole('dialog', { name: 'preview.png' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'preview.png' })).toHaveCount(0)
+  server.displayMedia('design', 'inline-video', 'clip.webm', 'video/webm', video)
+  server.displayMedia('design', 'inline-audio', 'sound.wav', 'audio/wav', audio)
+  server.displayMedia('design', 'inline-file', 'report.bin', 'application/octet-stream', binary)
+  const videoCard = page.getByRole('article', { name: 'clip.webm', exact: true })
+  const audioCard = page.getByRole('article', { name: 'sound.wav', exact: true })
+  const fileCard = page.getByRole('article', { name: 'report.bin', exact: true })
+  await expect(fileCard).toBeVisible()
+  expect(
+    server.requests.filter((r) => /generated-images\/inline-(video|audio|file)$/.test(r.path)),
+  ).toHaveLength(0)
+  await videoCard.getByRole('button', { name: '加载视频' }).click()
+  await audioCard.getByRole('button', { name: '加载音频' }).click()
+  for (const media of [videoCard.locator('video'), audioCard.locator('audio')]) {
+    await expect
+      .poll(() => media.evaluate((el) => (el as HTMLMediaElement).readyState))
+      .toBeGreaterThanOrEqual(2)
+    await media.evaluate(async (el) => {
+      const m = el as HTMLMediaElement
+      m.muted = true
+      await m.play()
+      m.pause()
+    })
+  }
+  const output = join(dataDirectory, 'report.bin')
+  await electron.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+  }, output)
+  await fileCard.getByRole('button', { name: '下载文件' }).click()
+  await expect(fileCard.getByRole('status')).toHaveText('文件已保存')
+  expect(await readFile(output)).toEqual(binary)
+  const imageOutput = join(dataDirectory, 'preview.png')
+  await electron.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+  }, imageOutput)
+  await imageCard.getByRole('button', { name: '下载文件' }).click()
+  await expect(imageCard.getByRole('status')).toHaveText('文件已保存')
+  expect(await readFile(imageOutput)).toEqual(png)
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  await page.getByRole('button', { name: 'README.md', exact: true }).click()
+  const textOutput = join(dataDirectory, 'README.md')
+  await electron.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+  }, textOutput)
+  await page.locator('.file-preview').getByRole('button', { name: '下载文件' }).click()
+  await expect(page.locator('.file-preview').getByRole('status')).toHaveText('文件已保存')
+  expect(await readFile(textOutput, 'utf8')).toBe('# HAPI Desktop\n\nA workspace for remote agents.\n')
+  expect((await readdir(dataDirectory)).some((name) => name.startsWith('.hapi-download-'))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('HAPI media errors can be retried; cancellation and write failure leave no saved file', async () => {
+  await page.getByTestId('session-design').click()
+  server.displayMedia('design', 'missing-png', 'later.png', 'image/png')
+  const card = page.getByRole('article', { name: 'later.png' })
+  await expect(card.getByRole('alert')).toContainText('文件不可用')
+  server.generatedMedia.set('missing-png', {
+    mimeType: 'image/png',
+    content: await readFile('resources/icon.png'),
+  })
+  await card.getByRole('button', { name: '重试', exact: true }).click()
+  await expect
+    .poll(() =>
+      card.getByRole('img', { name: 'later.png' }).evaluate((el) => (el as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await electron.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = async () => ({ canceled: true, filePath: '' })
+  })
+  const before = server.requests.filter((r) => r.path.includes('/generated-images/')).length
+  await card.getByRole('button', { name: '下载文件' }).click()
+  await expect(card.getByRole('button', { name: '下载文件' })).toBeEnabled()
+  expect(server.requests.filter((r) => r.path.includes('/generated-images/'))).toHaveLength(before)
+  await expect(card.getByText('文件已保存')).toHaveCount(0)
+  const existing = join(dataDirectory, 'keep-original.png')
+  await writeFile(existing, 'original-file')
+  await electron.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+  }, existing)
+  server.generatedMedia.delete('missing-png')
+  await card.getByRole('button', { name: '下载文件' }).click()
+  await expect(card.getByRole('alert')).toContainText('文件不可用')
+  expect(await readFile(existing, 'utf8')).toBe('original-file')
+  server.generatedMedia.set('missing-png', {
+    mimeType: 'image/png',
+    content: await readFile('resources/icon.png'),
+  })
+  await electron.evaluate(
+    ({ dialog }, filePath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+    },
+    join(dataDirectory, 'missing', 'file.png'),
+  )
+  await card.getByRole('button', { name: '下载文件' }).click()
+  await expect(card.getByRole('alert')).toContainText('无法保存文件')
+  expect((await readdir(dataDirectory)).some((name) => name.startsWith('.hapi-download-'))).toBe(false)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await expect(card.getByRole('button', { name: '下载文件' })).toBeVisible()
+  expect(await card.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('HAPI downloads cannot cross a disconnect while the native save dialog is open', async () => {
+  const output = join(dataDirectory, 'must-not-save.bin')
+  server.generatedMedia.set('private-file', {
+    content: Buffer.from('fixture-private-file'),
+    mimeType: 'application/octet-stream',
+  })
+  await electron.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = () =>
+      new Promise((resolve) => {
+        ;(globalThis as unknown as { finishSaveDialog: typeof resolve }).finishSaveDialog = resolve
+      })
+  })
+  const pending = page.evaluate(() =>
+    window.desktop.saveFile({
+      source: { kind: 'generated', sessionId: 'design', imageId: 'private-file' },
+      fileName: '../../private.bin',
+    }),
+  )
+  await expect
+    .poll(() =>
+      electron.evaluate(
+        () => typeof (globalThis as unknown as { finishSaveDialog?: unknown }).finishSaveDialog,
+      ),
+    )
+    .toBe('function')
+  await page.evaluate(() => window.desktop.disconnect())
+  await electron.evaluate((_electron, filePath) => {
+    ;(
+      globalThis as unknown as { finishSaveDialog: (result: { canceled: boolean; filePath: string }) => void }
+    ).finishSaveDialog({ canceled: false, filePath })
+  }, output)
+  expect(await pending).toMatchObject({ ok: false, error: { code: 'CONNECTION_CHANGED' } })
+  expect(server.requests.some((r) => r.path.includes('/generated-images/private-file'))).toBe(false)
+  await expect(stat(output)).rejects.toThrow()
 })
 
 test('two panes, isolated drafts, read-only files, approvals, rename and secure bridge', async () => {

@@ -5,6 +5,7 @@ import { File, Folder, ArrowUp, RefreshCw, X, GitBranch, LockKeyhole } from 'luc
 import { CodeBlock } from '@/components/CodeBlock'
 import { buildGitStatusFiles } from '@/lib/gitParsers'
 import { api, errorKey } from '../lib/api'
+import { SaveFileButton } from './SaveFileButton'
 
 export function FilePanel({
   sessionId,
@@ -182,6 +183,11 @@ export function FilePanel({
         {selected ? (
           <>
             <h3 title={selected.path}>{selected.path}</h3>
+            <SaveFileButton
+              key={selected.path}
+              source={{ kind: 'file', sessionId, path: selected.path }}
+              fileName={selected.path.split(/[\\/]/).pop() || 'download'}
+            />
             {content.isPending && <p className="muted">{t('Loading…')}</p>}
             {content.isError && <p className="error">{t(errorKey(content.error))}</p>}
             {content.data?.binary && <p className="muted">{t('Binary file cannot be previewed')}</p>}

@@ -50,6 +50,7 @@ import { MessageActions } from './MessageActions'
 import { ToolExecutionTimes } from './ToolExecutionTimes'
 import { QueuedMessages } from './QueuedMessages'
 import { SessionConfiguration } from './SessionConfiguration'
+import { GeneratedMediaCard } from './GeneratedMediaCard'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
 
@@ -925,6 +926,7 @@ function MessageBlock({
         <CodeBlock code={JSON.stringify(block.review, null, 2)} language="json" scrollY />
       </details>
     )
-  if (block.kind === 'generated-image') return <p className="event-message">{block.fileName}</p>
+  if (block.kind === 'generated-image' && session)
+    return <GeneratedMediaCard key={`${session.id}:${block.imageId}`} sessionId={session.id} block={block} />
   return null
 }

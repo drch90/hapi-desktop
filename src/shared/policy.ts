@@ -1,5 +1,40 @@
 import { z } from 'zod'
 
+const resourceId = z
+  .string()
+  .min(1)
+  .max(512)
+  .regex(/^[A-Za-z0-9_-]+$/)
+export const remoteFileSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('generated'), sessionId: resourceId, imageId: resourceId }).strict(),
+  z
+    .object({
+      kind: z.literal('file'),
+      sessionId: resourceId,
+      path: z
+        .string()
+        .min(1)
+        .max(8192)
+        .regex(/^[^\x00-\x1f]+$/),
+    })
+    .strict(),
+])
+export const saveFileSchema = z
+  .object({
+    source: remoteFileSchema,
+    fileName: z.string().min(1).max(4096),
+  })
+  .strict()
+
+export function downloadFileName(input: string): string {
+  const name = (input.split(/[\\/]/).pop() ?? '')
+    .replace(/[<>:"|?*\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, '_')
+    .slice(0, 200)
+    .replace(/[. ]+$/, '')
+  if (!name || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) return 'download'
+  return name
+}
+
 export function normalizeHubUrl(input: string): string {
   const url = new URL(input.trim())
   // URL canonicalizes IP literals before classification. Do not infer that a

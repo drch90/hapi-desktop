@@ -82,6 +82,23 @@ export class FixtureHub {
     ['history', [fixtureMessage('h1', 1, '这是一段可以恢复的远程会话。')]],
   ])
   requests: { path: string; method: string; body: Record<string, unknown> }[] = []
+  generatedMedia = new Map<string, { content: Buffer; mimeType: string }>()
+  displayMedia(sessionId: string, imageId: string, fileName: string, mimeType: string, content?: Buffer) {
+    if (content) this.generatedMedia.set(imageId, { content, mimeType })
+    const messages = this.messages.get(sessionId)!
+    const message = {
+      id: `display-${imageId}`,
+      seq: messages.length + 1,
+      localId: null,
+      createdAt: Date.now(),
+      content: {
+        role: 'agent',
+        content: { type: 'codex', data: { type: 'generated-image', imageId, fileName, mimeType } },
+      },
+    }
+    messages.push(message)
+    this.emit({ type: 'message-received', sessionId, message })
+  }
   streams = new Set<ServerResponse>()
   eventId = 0
   failSend: 'none' | 'absent' | 'accepted' = 'none'
@@ -523,6 +540,16 @@ export class FixtureHub {
           { name: 'package.json', type: 'file' },
         ],
       })
+      return
+    }
+    if (action.startsWith('/generated-images/')) {
+      const media = this.generatedMedia.get(action.slice('/generated-images/'.length))
+      if (!media) {
+        reply({ error: 'Fixture media missing' }, 404)
+        return
+      }
+      response.writeHead(200, { 'content-type': media.mimeType, 'content-length': media.content.length })
+      response.end(media.content)
       return
     }
     if (action === '/file') {

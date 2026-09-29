@@ -50,6 +50,109 @@ class FakeHub {
 }
 
 const connections: HubConnection[] = []
+
+describe('remote file transport', () => {
+  it('reads exact binary bytes through the Hub with one authentication refresh', async () => {
+    const { fake, hub } = await connected()
+    const bytes = new Uint8Array([0, 255, 128, 10, 13])
+    let reads = 0
+    fake.route = async () =>
+      ++reads === 1
+        ? new Response('not authorized', { status: 401 })
+        : new Response(bytes, { headers: { 'content-type': 'audio/wav' } })
+    const result = await hub.readFile({ kind: 'generated', sessionId: 's', imageId: 'audio-1' })
+    expect(result).toEqual({ bytes, mimeType: 'audio/wav' })
+    expect(fake.authCalls).toBe(2)
+    const requests = fake.requests.filter((r) => r.path.includes('/generated-images/'))
+    expect(requests).toHaveLength(2)
+    for (const request of requests) {
+      expect(request.path).toBe('/api/sessions/s/generated-images/audio-1')
+      expect(request.init?.headers).toHaveProperty('authorization')
+      expect(request.init?.redirect).toBe('error')
+    }
+    expect(JSON.stringify(result)).not.toContain('signature-')
+  })
+
+  it('decodes remote files and preserves empty files without exposing server errors', async () => {
+    const { fake, hub } = await connected()
+    fake.route = async () =>
+      Response.json({ success: true, content: Buffer.from([0, 255, 1]).toString('base64') })
+    await expect(hub.readFile({ kind: 'file', sessionId: 's', path: '/tmp/report.bin' })).resolves.toEqual({
+      bytes: new Uint8Array([0, 255, 1]),
+      mimeType: 'application/octet-stream',
+    })
+    fake.route = async () => Response.json({ success: true, content: '' })
+    await expect(
+      hub.readFile({ kind: 'file', sessionId: 's', path: '/tmp/empty.txt' }),
+    ).resolves.toMatchObject({ bytes: new Uint8Array() })
+    fake.route = async () => Response.json({ success: false, error: 'sensitive-path-and-token' })
+    await expect(hub.readFile({ kind: 'file', sessionId: 's', path: '/tmp/missing' })).rejects.toThrow(
+      'FILE_UNAVAILABLE',
+    )
+  })
+
+  it('rejects invalid identifiers before network access and suppresses HTTP error bodies', async () => {
+    const { fake, hub } = await connected()
+    const before = fake.requests.length
+    for (const imageId of ['../auth', '..', 'x?token=secret', 'x%2fy', 'https://evil.example']) {
+      await expect(hub.readFile({ kind: 'generated', sessionId: 's', imageId })).rejects.toThrow()
+    }
+    expect(fake.requests).toHaveLength(before)
+    fake.route = async () => new Response('sensitive-server-error', { status: 404 })
+    await expect(hub.readFile({ kind: 'generated', sessionId: 's', imageId: 'missing' })).rejects.toThrow(
+      'HTTP_404',
+    )
+  })
+
+  it('stops after a repeated unauthorized media response', async () => {
+    const { fake, hub } = await connected()
+    fake.route = async () => new Response('sensitive-server-error', { status: 401 })
+    await expect(hub.readFile({ kind: 'generated', sessionId: 's', imageId: 'private' })).rejects.toThrow(
+      'SIGN_IN_REQUIRED',
+    )
+    expect(fake.requests.filter((r) => r.path.includes('/generated-images/'))).toHaveLength(2)
+    expect(hub.state.status).toBe('authentication-required')
+  })
+
+  it('bounds chunked media responses and cancels oversized streams', async () => {
+    const { fake, hub } = await connected()
+    const cancel = vi.fn()
+    fake.route = async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(16 * 1024 * 1024))
+            controller.enqueue(new Uint8Array(10 * 1024 * 1024))
+          },
+          cancel,
+        }),
+      )
+    await expect(hub.readFile({ kind: 'generated', sessionId: 's', imageId: 'too-big' })).rejects.toThrow(
+      'RESPONSE_TOO_LARGE',
+    )
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it('discards media that finishes after disconnect', async () => {
+    const { fake, hub } = await connected()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    fake.route = async () =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            controller = c
+          },
+        }),
+      )
+    const pending = hub.readFile({ kind: 'generated', sessionId: 's', imageId: 'late' })
+    const rejection = expect(pending).rejects.toThrow('CONNECTION_CHANGED')
+    await vi.waitFor(() => expect(controller).toBeDefined())
+    hub.disconnect()
+    controller.enqueue(new Uint8Array([1]))
+    controller.close()
+    await rejection
+  })
+})
 afterEach(() => {
   for (const hub of connections) hub.disconnect()
   connections.length = 0

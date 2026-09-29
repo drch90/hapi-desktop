@@ -823,6 +823,65 @@ input[type='checkbox'] {
   color: var(--desk-muted);
   font-variant-numeric: tabular-nums;
 }
+.media-card {
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid var(--desk-border);
+  border-radius: 10px;
+  background: var(--app-tool-card-bg);
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.media-card > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 10px;
+}
+.media-card > header strong {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.media-card time {
+  flex-shrink: 0;
+  font-size: calc(10px * var(--desk-font-scale));
+  color: var(--desk-muted);
+}
+.media-image-preview {
+  display: block;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.media-image,
+.media-content video {
+  display: block;
+  max-width: 100%;
+  max-height: min(28rem, 55vh);
+  object-fit: contain;
+  border-radius: 6px;
+}
+.media-content audio {
+  width: 100%;
+  min-width: 0;
+}
+.file-download {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.file-download button {
+  gap: 6px;
+}
+.file-download [role='alert'] {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
 .tool-execution-times > span {
   display: inline-flex;
   gap: 5px;

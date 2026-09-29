@@ -4,7 +4,7 @@
 
 ## 使用
 
-运行 `HAPI-Desktop-0.1.5-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
+运行 `HAPI-Desktop-0.1.6-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
 
 内网 HTTP 支持 IPv4 `10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，共享/VPN 网段 `100.64.0.0/10`，IPv6 ULA `fc00::/7`，以及 localhost、IPv4/IPv6 回环地址。使用内网域名时请填写对应内网 IP，或使用 HTTPS；公网地址仍要求 HTTPS。HTTP 连接不会加密传输的令牌与消息，此选项按内网部署需求提供。
 
@@ -30,6 +30,8 @@
 
 如果发送响应丢失，输入内容和 localId 会保留。先使用“检查送达状态”；Hub 确认已接收后清除本地待确认状态。查不到时显示显式重试按钮，沿用原 localId。Hub 报告 indeterminate 的消息需要在排队消息栏显式处理。客户端不会在网络恢复时自动重发。
 
+0.1.6 接入 HAPI `display_image`、`display_video`、`display_media` 的原生文件消息。图片自动加载，可点击放大；音视频点击加载后使用播放器；所有文件卡片与右侧文件预览面板均支持下载，通过系统保存对话框选择位置。文件过期或远程会话离线时显示错误，图片加载失败可重试；浏览器无法解码的媒体可下载后使用本机程序打开。预览仅保存在内存，关闭卡片后释放，不自动写入下载目录。二进制媒体沿用 Hub 的 25 MiB 单文件上限和 runner 可用性限制。
+
 ## 开发与验证
 
 需要 Node.js 22.12+、Bun、Git。首次安装会下载 Electron。
@@ -50,6 +52,8 @@ bun run package:win
 
 Windows 测试脚本通过 `start /affinity` 限制进程树到两个 CPU。Linux 打包使用 electron-builder 26.15.3 内置的跨平台 NSIS uninstaller reader，避免 Wine 与宿主 glibc 版本不匹配；该适配仅处理生成的安装器 stub，升级 builder 时需重新验证。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip，减少重复下载。
 
+0.1.6 验证：`bun run typecheck`、`bun run build`、`bun run test`（385 项）、`xvfb-run -a bun run test:e2e`（19 项）通过，测试和编译均限制为 CPU 0,1。新增桌面用例实际解码并放大 PNG、播放 VP8 WebM 和 PCM WAV、下载图片/二进制文件/文件面板文本并逐字节比较；覆盖文件失效后的重试、取消、写入失败、失败时保留已有文件、保存窗口期间断线，以及小窗口深色主题下的可见性。`node scripts/limit-cpu.mjs bun run verify:upstream` 仍验证 932 个来源文件和 7 个修改文件的补丁恢复与重放。以上为 Linux Electron 与模拟 Hub 验证；0.1.6 新增功能尚待 Windows 实机验收。
+
 0.1.5 验证：`bun run typecheck`、`bun run build` 通过；`bun run test` 的 368 项单元与协议测试、`xvfb-run -a bun run test:e2e` 的 16 项 Electron 端到端测试全部通过，均限制为 CPU 0,1。新增测试覆盖旧设置升级、回车与输入法行为、字号与双栏同步、队列恢复/取消/插入/失败处理、Codex/Claude/OpenCode 命令发现与原文参数传递、命令结果显示、共享会话清理后的 ID 切换，以及 920×640 双栏特大字号下的长题目、末尾选项、固定导航、多题答案与草稿保留；另覆盖按钮/问答字号、正文比例、状态三分区、后台任务归属、未读持久化与已读清除、历史灰显及分区设置重启保留。新增覆盖工作区折叠/搜索/键盘展开/重载、旧工作区升级与账户隔离、会话时间和思考强度推送、三类代理设置的原生请求与空值重置、Codex 计划模式、模型目录失败刷新、设置失败保留原值、OpenCode 模型切换后刷新思考档位以及归档/终端控制状态禁用；另验证 920×640、特大字号、深色主题下四项会话设置及关闭按钮完整可见。0.1.5 回归覆盖默认折叠设置重载与手动选择优先、历史标题隐藏主机名、界面版本一致、归档删除的取消/失败/无 SSE 成功/外部删除与草稿清理，以及目录浏览返回、三类代理启动配置、Codex 计划/快速/工作树参数、OpenCode 模型变体切换和小窗口下创建按钮可见。`bun run verify:upstream` 验证 932 个来源文件及 7 个修改文件的补丁逆向恢复与重放。
 
 `build/desktop-preview.png`、`build/desktop-dark-preview.png`、`build/preferences-preview.png`、`build/queue-preview.png`、`build/questions-preview.png`、`build/questions-small-preview.png`、`build/buttons-large-preview.png`、`build/session-status-preview.png`、`build/session-settings-preview.png`、`build/session-metadata-preview.png`、`build/new-session-codex-preview.png`、`build/new-session-claude-preview.png`、`build/new-session-opencode-preview.png` 为模拟 Hub 截图。用户已在 Windows 实机验证 0.1.1 的安装、内网 HTTP 和基本对话。0.1.5 由 Linux 交叉构建，新增功能尚待 Windows 实机验收；DPAPI、托盘气泡、开机启动及 Windows CPU 限制脚本未单独实机验证。安装包未进行代码签名。自动更新不在此版本范围内。
@@ -69,6 +73,8 @@ API 客户端通过注入 transport 复用上游请求结构。桌面布局不�
 
 分享复用 ShareTurnDialog，并通过兼容扩展替换导出方式：浏览器版的 iframe、下载链接与原生 Web Share API 不适合受限的 Electron renderer，因此采用本地 SVG 栅格化与主进程剪贴板/保存对话框，保持 CSP 禁止子框架和直接网络请求。
 
+文件展示复用 HAPI 的消息归一化、`ImagePreview`、`FileIcon` 与 MIME 分类函数。上游 `GeneratedImageCard` 依赖 Web 聊天上下文、直接 `fetch` 和浏览器下载链接，故桌面卡片组合上述组件，以受校验的 IPC 获取文件和调用系统保存窗口。远端文件仅按会话与文件 ID（或文件面板路径）读取；不接受任意网络地址。先写入目标目录内的临时文件，完整成功后再替换目标，失败清理临时文件。
+
 队列复用 QueuedMessagesBar 导出的排序、预览和可操作性判断，以及 HAPI 的取消、插入、重试 mutation hooks 和状态恢复逻辑。原队列组件依赖 assistant-ui composer 与定时草稿恢复，桌面采用独立草稿，故使用桌面视图组合这些共享行为。提示复用 ToastProvider/Toast，以桌面标签激活替代 ToastContainer 的 Web 路由跳转。会话未读状态复用 sessionLastSeen 的水位存储和 classifySessionAttention，存储 ID 增加 Hub/账户作用域，避免同名会话交叉影响。命令菜单复用 useSlashCommands、useActiveSuggestions、Autocomplete 和 applySuggestion，命令状态反馈复用 getEventPresentation；不另行维护命令清单或在前端模拟执行。
 
 中文默认，主题跟随系统。桌面新增文案包含七种语言；上游工具卡当前随 HAPI 提供中文或英文，其他界面语言使用英文工具卡。完整 transcript 只保存在 Hub 和客户端内存；本地保留工作区、草稿、滚动/折叠状态与未确认发送记录。注销会删除凭据并清理本地浏览器存储。请把含本地草稿的 Windows 用户目录视为个人数据。
@@ -82,6 +88,8 @@ API 客户端通过注入 transport 复用上游请求结构。桌面布局不�
 Renderer 使用本地 `app://desktop` 协议、sandbox、context isolation、禁用 Node，CSP 禁止直接网络访问及子框架。IPC 校验主窗口主 frame，只放行明确列出的 API 路由，禁止任意 URL、auth、终端或服务器管理接口。外部链接只接受 http(s)，由主进程打开系统浏览器。
 
 自动测试覆盖：到期刷新、并发 401、撤销、注销时旧请求失效、加密存储调用和无明文回退、IPC 路由校验、SSE 游标/缺口、未知事件、版本单调性、发送响应丢失、双栏隔离、审批请求 ID 与恢复 ID 迁移。Windows 的系统安全存储和通知实际呈现需在目标系统验收。
+
+0.1.6 的文件读取复用上述主进程认证与刷新流程，令牌不进入 URL 或 renderer，不跟随重定向。文件内容按流累计检查大小，不信任 `Content-Length`；连接切换会使读取和未完成保存失效。CSP 仅为音视频增加 `media-src blob:`，仍禁止 renderer 直接访问网络、加载子框架或嵌入对象。回归覆盖二进制与空文件、401 刷新和再次拒绝、非法资源 ID、响应大小限制、注销后的迟到响应、原生保存窗口期间断线、取消保存及失败时保留原文件。
 
 ## 许可证与上游更新
 
