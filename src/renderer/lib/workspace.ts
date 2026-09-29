@@ -7,6 +7,7 @@ export const workspaceSchema = z.object({
   focused: z.union([z.literal(0), z.literal(1)]),
   ratio: z.number().min(0.3).max(0.7),
   sidePanel: z.boolean(),
+  filePanelWidth: z.number().min(240).max(960).default(335),
   collapsedHistoryGroups: z.array(z.string()).default([]),
   expandedHistoryGroups: z.array(z.string()).default([]),
 })
@@ -21,6 +22,7 @@ export const emptyWorkspace: Workspace = {
   focused: 0,
   ratio: 0.5,
   sidePanel: false,
+  filePanelWidth: 335,
   collapsedHistoryGroups: [],
   expandedHistoryGroups: [],
 }
@@ -33,6 +35,7 @@ export type WorkspaceAction =
   | { type: 'split' }
   | { type: 'ratio'; ratio: number }
   | { type: 'side-panel' }
+  | { type: 'file-panel-width'; width: number }
   | { type: 'toggle-history-group'; key: string; defaultCollapsed?: boolean }
 
 export function isHistoryGroupCollapsed(state: Workspace, key: string, defaultCollapsed: boolean): boolean {
@@ -62,6 +65,8 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
   }
   if (action.type === 'focus') return { ...state, focused: action.pane }
   if (action.type === 'side-panel') return { ...state, sidePanel: !state.sidePanel }
+  if (action.type === 'file-panel-width')
+    return { ...state, filePanelWidth: Math.max(240, Math.min(960, action.width)) }
   if (action.type === 'ratio') return { ...state, ratio: Math.max(0.3, Math.min(0.7, action.ratio)) }
   if (action.type === 'split') {
     if (state.split) {

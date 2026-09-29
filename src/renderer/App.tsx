@@ -60,6 +60,7 @@ import {
 } from './lib/workspace'
 import { Chat } from './components/Chat'
 import { FilePanel } from './components/FilePanel'
+import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { NewSessionDialog } from './components/NewSessionDialog'
 
@@ -280,6 +281,18 @@ function Workbench({
   const readVersion = useSessionLastSeenVersion()
   const lastSeen = useMemo(() => getSessionLastSeenSnapshot(), [readVersion, readStateReady])
   const paneContainer = useRef<HTMLDivElement>(null)
+  const contentArea = useRef<HTMLDivElement>(null)
+  const [contentWidth, setContentWidth] = useState(0)
+  useEffect(() => {
+    const area = contentArea.current
+    if (!area) return
+    const observer = new ResizeObserver(() => setContentWidth(area.clientWidth))
+    observer.observe(area)
+    setContentWidth(area.clientWidth)
+    return () => observer.disconnect()
+  }, [])
+  const filePanelMax = Math.max(240, Math.min(960, contentWidth - (workspace.split ? 440 : 320)))
+  const filePanelWidth = Math.min(workspace.filePanelWidth, filePanelMax)
   const sessions = useQuery({
     queryKey: sessionsKey,
     queryFn: async () => (await api.getSessions()).sessions,
@@ -612,7 +625,7 @@ function Workbench({
             {t('reconnecting')}
           </div>
         )}
-        <div className="content-area">
+        <div className="content-area" ref={contentArea}>
           <div className="panes" ref={paneContainer}>
             {([0, 1] as const)
               .filter((id) => id === 0 || workspace.split)
@@ -623,30 +636,18 @@ function Workbench({
                   style={{ flex: workspace.split ? (pane === 0 ? workspace.ratio : 1 - workspace.ratio) : 1 }}
                 >
                   {pane === 1 && (
-                    <div
-                      className="split-handle"
-                      role="separator"
-                      aria-label={t('Split view')}
-                      aria-orientation="vertical"
-                      tabIndex={0}
-                      aria-valuenow={Math.round(workspace.ratio * 100)}
-                      aria-valuemin={30}
-                      aria-valuemax={70}
-                      onKeyDown={(e) => {
-                        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                          e.preventDefault()
-                          dispatch({
-                            type: 'ratio',
-                            ratio: workspace.ratio + (e.key === 'ArrowLeft' ? -0.02 : 0.02),
-                          })
-                        }
+                    <ResizeHandle
+                      label={t('Split view')}
+                      value={workspace.ratio * 100}
+                      min={30}
+                      max={70}
+                      step={2}
+                      pointerValue={(clientX) => {
+                        const rect = paneContainer.current!.getBoundingClientRect()
+                        return ((clientX - rect.left) / rect.width) * 100
                       }}
-                      onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-                      onPointerMove={(e) => {
-                        if (!e.currentTarget.hasPointerCapture(e.pointerId) || !paneContainer.current) return
-                        const rect = paneContainer.current.getBoundingClientRect()
-                        dispatch({ type: 'ratio', ratio: (e.clientX - rect.left) / rect.width })
-                      }}
+                      onChange={(value) => dispatch({ type: 'ratio', ratio: value / 100 })}
+                      onReset={() => dispatch({ type: 'ratio', ratio: 0.5 })}
                     />
                   )}
                   <section
@@ -688,12 +689,25 @@ function Workbench({
               ))}
           </div>
           {workspace.sidePanel && activeId && (
-            <FilePanel
-              key={activeId}
-              sessionId={activeId}
-              requestedPath={preview?.sessionId === activeId ? preview.path : undefined}
-              close={() => dispatch({ type: 'side-panel' })}
-            />
+            <div className="file-sidebar" style={{ width: filePanelWidth }}>
+              <ResizeHandle
+                label={t('Resize file panel')}
+                value={filePanelWidth}
+                min={240}
+                max={filePanelMax}
+                step={20}
+                direction={-1}
+                pointerValue={(clientX) => contentArea.current!.getBoundingClientRect().right - clientX}
+                onChange={(width) => dispatch({ type: 'file-panel-width', width: Math.round(width) })}
+                onReset={() => dispatch({ type: 'file-panel-width', width: 335 })}
+              />
+              <FilePanel
+                key={activeId}
+                sessionId={activeId}
+                requestedPath={preview?.sessionId === activeId ? preview.path : undefined}
+                close={() => dispatch({ type: 'side-panel' })}
+              />
+            </div>
           )}
         </div>
       </section>

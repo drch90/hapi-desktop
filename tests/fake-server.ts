@@ -103,6 +103,10 @@ export class FixtureHub {
   eventId = 0
   failSend: 'none' | 'absent' | 'accepted' = 'none'
   holdMessages = false
+  messagePageSize: number | null = null
+  historyGate: Promise<void> | null = null
+  failHistory = false
+  messagePageRequests: { sessionId: string; beforeSeq: number | null; afterSeq: number | null }[] = []
   steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' = 'steered'
   emitQueueEvents = true
   commandEvents = false
@@ -497,21 +501,45 @@ export class FixtureHub {
         reply({ ok: true })
         return
       }
-      const messages = this.messages.get(id) ?? []
+      const allMessages = this.messages.get(id) ?? []
+      const beforeSeq = url.searchParams.has('beforeSeq') ? Number(url.searchParams.get('beforeSeq')) : null
+      const afterSeq = url.searchParams.has('afterSeq') ? Number(url.searchParams.get('afterSeq')) : null
+      this.messagePageRequests.push({ sessionId: id, beforeSeq, afterSeq })
+      if (beforeSeq !== null) {
+        await this.historyGate
+        if (this.failHistory) {
+          reply({ error: 'Fixture history unavailable' }, 503)
+          return
+        }
+      }
+      const limit =
+        this.messagePageSize === null
+          ? allMessages.length
+          : Math.min(this.messagePageSize, Number(url.searchParams.get('limit')) || 20)
+      let direction = 'latest'
+      let eligible = allMessages
+      if (this.messagePageSize !== null && beforeSeq !== null) {
+        direction = 'before'
+        eligible = allMessages.filter((message) => message.seq! < beforeSeq)
+      } else if (this.messagePageSize !== null && afterSeq !== null) {
+        direction = 'after'
+        eligible = allMessages.filter((message) => message.seq! > afterSeq)
+      }
+      const messages = direction === 'after' ? eligible.slice(0, limit) : eligible.slice(-limit)
       reply({
         messages,
         page: {
-          direction: 'latest',
-          limit: 20,
+          direction,
+          limit,
           epoch: 1,
           reset: false,
           nextBeforeSeq: messages[0]?.seq ?? null,
           nextBeforeAt: messages[0]?.createdAt ?? null,
           nextAfterSeq: messages.at(-1)?.seq ?? null,
           nextAfterAt: messages.at(-1)?.createdAt ?? null,
-          snapshotHeadSeq: messages.at(-1)?.seq ?? null,
-          snapshotHeadAt: messages.at(-1)?.createdAt ?? null,
-          hasMore: false,
+          snapshotHeadSeq: allMessages.at(-1)?.seq ?? null,
+          snapshotHeadAt: allMessages.at(-1)?.createdAt ?? null,
+          hasMore: eligible.length > messages.length,
         },
       })
       return

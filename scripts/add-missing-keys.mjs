@@ -5,6 +5,33 @@ import path from 'node:path'
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
   [
+    'Conversation outline',
+    '会话大纲',
+    '對話大綱',
+    'Plan de la conversation',
+    '会話のアウトライン',
+    'Оглавление беседы',
+    'Dàn ý cuộc trò chuyện',
+  ],
+  [
+    'Back to latest messages',
+    '回到最新消息',
+    '回到最新訊息',
+    'Revenir aux derniers messages',
+    '最新のメッセージへ',
+    'К последним сообщениям',
+    'Về tin nhắn mới nhất',
+  ],
+  [
+    'Resize file panel',
+    '调整文件栏宽度',
+    '調整檔案欄寬度',
+    'Redimensionner le panneau de fichiers',
+    'ファイルパネルの幅を調整',
+    'Изменить ширину панели файлов',
+    'Điều chỉnh độ rộng bảng tệp',
+  ],
+  [
     'Download file',
     '下载文件',
     '下載檔案',

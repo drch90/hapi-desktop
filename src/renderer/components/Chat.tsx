@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -12,6 +12,8 @@ import {
   Bot,
   SlidersHorizontal,
   Trash2,
+  ListTree,
+  ArrowDownToLine,
 } from 'lucide-react'
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
@@ -51,6 +53,9 @@ import { ToolExecutionTimes } from './ToolExecutionTimes'
 import { QueuedMessages } from './QueuedMessages'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
+import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread'
+import { buildConversationOutline } from '@/chat/outline'
+import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
 
@@ -105,12 +110,12 @@ export function Chat({
   const [configuration, setConfiguration] = useState(false)
   const [questionsExpanded, setQuestionsExpanded] = useState(true)
   const [dismissedPlan, setDismissedPlan] = useState('')
-  const scroll = useRef<HTMLDivElement>(null)
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const outlineButton = useRef<HTMLButtonElement>(null)
+  const outlineContainer = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const latestDraft = useRef(draft)
   const migrated = useRef(false)
-  const restored = useRef(false)
-  const bottom = useRef(draft.scrollTop < 0)
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -148,6 +153,20 @@ export function Chat({
       ),
     [session?.agentState],
   )
+  const outlineItems = useMemo(() => buildConversationOutline(blocks), [blocks])
+  const navigation = useTranscriptNavigation({
+    sessionId: id,
+    initialScrollTop: draft.scrollTop,
+    blocks,
+    messages,
+    onPosition: (scrollTop) => {
+      latestDraft.current = { ...latestDraft.current, scrollTop }
+    },
+  })
+  useEffect(() => {
+    if (outlineOpen)
+      outlineContainer.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+  }, [outlineOpen])
   const pendingIds = new Set(pending.map((block) => block.tool.id))
   const hasQuestions = pending.some(
     (block) => isRequestUserInputToolName(block.tool.name) || isAskUserQuestionToolName(block.tool.name),
@@ -160,14 +179,6 @@ export function Chat({
     (session.metadata?.flavor === 'pi' ? session.thinking : session.agentState?.steeringActive === true) &&
     !controlledByUser,
   )
-
-  useLayoutEffect(() => {
-    if (!scroll.current || messages.messages.length === 0) return
-    if (!restored.current) {
-      scroll.current.scrollTop = draft.scrollTop >= 0 ? draft.scrollTop : scroll.current.scrollHeight
-      restored.current = true
-    } else if (bottom.current) scroll.current.scrollTop = scroll.current.scrollHeight
-  }, [messages.messages, blocks])
 
   function updateDraft(update: Partial<Draft>) {
     const value = { ...latestDraft.current, ...update }
@@ -261,7 +272,7 @@ export function Chat({
       storeAttempt(scope, id, null)
       setAttempt(null)
       if (latestDraft.current.text.trim() === outgoing.text) updateDraft({ text: '', scrollTop: -1 })
-      bottom.current = true
+      navigation.followLatest()
       if (target === id) await messages.refetch()
     } catch (error) {
       setError(errorKey(error))
@@ -335,6 +346,22 @@ export function Chat({
             </span>
           </div>
           <div className="chat-actions">
+            <Button
+              ref={outlineButton}
+              variant="outline"
+              size="sm"
+              className="outline-toggle"
+              aria-label={t('Conversation outline')}
+              title={t('Conversation outline')}
+              aria-expanded={outlineOpen}
+              aria-controls={`outline-${id}`}
+              onClick={() => {
+                if (!outlineOpen) setQuestionsExpanded(false)
+                setOutlineOpen((value) => !value)
+              }}
+            >
+              <ListTree size={16} aria-hidden="true" />
+            </Button>
             <button
               className="icon-button"
               aria-label={t('Session settings')}
@@ -450,67 +477,110 @@ export function Chat({
             </Button>
           </div>
         )}
-        <div
-          className="transcript"
-          ref={scroll}
-          onScroll={(event) => {
-            const el = event.currentTarget
-            bottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-            latestDraft.current = { ...latestDraft.current, scrollTop: bottom.current ? -1 : el.scrollTop }
-          }}
-        >
-          {messages.hasMore && (
+        <div className="transcript-area">
+          <div className="transcript" ref={navigation.viewport} onScroll={navigation.onScroll}>
+            <div ref={navigation.content}>
+              {messages.hasMore && (
+                <Button
+                  className="load-history"
+                  size="sm"
+                  variant="outline"
+                  disabled={messages.isLoadingMore || messages.isSyncingTail}
+                  onClick={() => void navigation.loadEarlier()}
+                >
+                  {t(messages.isLoadingMore ? 'Loading…' : 'Load earlier messages')}
+                </Button>
+              )}
+              {messages.warning && (
+                <p role="alert" className="error">
+                  {t('The request failed. Refresh and try again.')}
+                </p>
+              )}
+              {messages.isSyncingTail && blocks.length === 0 && <p className="muted">{t('Loading…')}</p>}
+              <div className="happy-thread-messages">
+                {blocks
+                  .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
+                  .map((block) => (
+                    <div
+                      key={block.id}
+                      id={navigation.anchorId(`${block.kind}:${block.id}`)}
+                      className={`message-anchor ${navigation.located === `${block.kind}:${block.id}` ? 'is-located' : ''}`}
+                      tabIndex={-1}
+                    >
+                      <MessageBlock
+                        block={block}
+                        session={session}
+                        disabled={!connected || busy}
+                        done={() => void refresh()}
+                        expanded={draft.expanded.includes(block.id)}
+                        toggle={() =>
+                          updateDraft({
+                            expanded: draft.expanded.includes(block.id)
+                              ? draft.expanded.filter((id) => id !== block.id)
+                              : [...draft.expanded, block.id],
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+              </div>
+              {session?.thinking && (
+                <div className="thinking-indicator">
+                  <span />
+                  <span />
+                  <span />
+                  {t('Thinking')}
+                </div>
+              )}
+            </div>
+          </div>
+          {navigation.showLatest && (
             <Button
-              className="load-history"
-              size="sm"
+              className="jump-to-latest"
               variant="outline"
-              disabled={messages.isLoadingMore}
-              onClick={async () => {
-                const el = scroll.current
-                const before = el?.scrollHeight ?? 0
-                const top = el?.scrollTop ?? 0
-                bottom.current = false
-                messages.setViewMode('history')
-                await messages.loadMore()
-                requestAnimationFrame(() => {
-                  if (el) el.scrollTop = top + el.scrollHeight - before
-                })
+              size="sm"
+              disabled={messages.isSyncingTail}
+              onClick={() => {
+                setOutlineOpen(false)
+                navigation.followLatest()
+                void messages.refetch()
               }}
             >
-              {t(messages.isLoadingMore ? 'Loading…' : 'Load earlier messages')}
+              <ArrowDownToLine size={14} aria-hidden="true" />
+              {t('Back to latest messages')}
             </Button>
           )}
-          {messages.warning && (
-            <p role="alert" className="error">
-              {t('The request failed. Refresh and try again.')}
-            </p>
-          )}
-          {messages.isSyncingTail && blocks.length === 0 && <p className="muted">{t('Loading…')}</p>}
-          {blocks
-            .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
-            .map((block) => (
-              <MessageBlock
-                key={block.id}
-                block={block}
-                session={session}
-                disabled={!connected || busy}
-                done={() => void refresh()}
-                expanded={draft.expanded.includes(block.id)}
-                toggle={() =>
-                  updateDraft({
-                    expanded: draft.expanded.includes(block.id)
-                      ? draft.expanded.filter((id) => id !== block.id)
-                      : [...draft.expanded, block.id],
-                  })
+          {outlineOpen && (
+            <div
+              id={`outline-${id}`}
+              ref={outlineContainer}
+              className="outline-container"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setOutlineOpen(false)
+                  outlineButton.current?.focus()
                 }
+              }}
+            >
+              <ConversationOutlinePanel
+                items={outlineItems}
+                hasMoreMessages={messages.hasMore}
+                isLoadingMoreMessages={messages.isLoadingMore || messages.isSyncingTail}
+                onLoadMore={() => {
+                  // Keep focus inside the panel when the loading button becomes disabled.
+                  outlineContainer.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+                  void navigation.loadEarlier()
+                }}
+                onSelect={(item) => {
+                  if (navigation.jumpToMessage(item.targetMessageId)) setOutlineOpen(false)
+                }}
+                onClose={() => {
+                  setOutlineOpen(false)
+                  outlineButton.current?.focus()
+                }}
               />
-            ))}
-          {session?.thinking && (
-            <div className="thinking-indicator">
-              <span />
-              <span />
-              <span />
-              {t('Thinking')}
             </div>
           )}
         </div>
@@ -813,27 +883,40 @@ function MessageBlock({
 }) {
   const { t } = useTranslation()
   const source = useRef<HTMLElement>(null)
-  if (block.kind === 'tool-call')
+  if (block.kind === 'tool-call') {
+    // HAPI renders plans and checklists inline; the desktop tool disclosure
+    // otherwise hides the proposal even while its implementation actions are visible.
+    const isPlan = [
+      'ExitPlanMode',
+      'exit_plan_mode',
+      'update_plan',
+      'TodoWrite',
+      'CursorCreatePlan',
+    ].includes(block.tool.name)
     return (
       <div className="message-tool">
-        <button className="disclosure" onClick={toggle}>
-          <Terminal size={13} />
-          <span>{block.tool.name}</span>
-          <span className="muted">
-            {t(
-              block.tool.state === 'running'
-                ? 'Working…'
-                : block.tool.state === 'completed'
-                  ? 'Task completed'
-                  : block.tool.state === 'error'
-                    ? 'Task failed'
-                    : 'Pending',
-            )}
-          </span>
-          <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
-        </button>
-        <ToolExecutionTimes tool={block.tool} />
-        {expanded && session && (
+        {!isPlan && (
+          <>
+            <button className="disclosure" onClick={toggle}>
+              <Terminal size={13} />
+              <span>{block.tool.name}</span>
+              <span className="muted">
+                {t(
+                  block.tool.state === 'running'
+                    ? 'Working…'
+                    : block.tool.state === 'completed'
+                      ? 'Task completed'
+                      : block.tool.state === 'error'
+                        ? 'Task failed'
+                        : 'Pending',
+                )}
+              </span>
+              <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
+            </button>
+            <ToolExecutionTimes tool={block.tool} />
+          </>
+        )}
+        {(isPlan || expanded) && session && (
           <ToolCard
             api={api}
             sessionId={session.id}
@@ -846,6 +929,7 @@ function MessageBlock({
         )}
       </div>
     )
+  }
   if (block.kind === 'agent-reasoning')
     return (
       <div className="reasoning">

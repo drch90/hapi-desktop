@@ -2,7 +2,7 @@ import { test, expect, _electron, type ElectronApplication, type Page } from '@p
 import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { FixtureHub } from './fake-server'
+import { FixtureHub, fixtureMessage } from './fake-server'
 import { version as appVersion } from '../package.json'
 
 let electron: ElectronApplication
@@ -38,6 +38,278 @@ test.afterEach(async () => {
   await electron?.close()
   await server?.close()
   if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
+})
+
+test('conversation outline locates a prompt and returns to the latest messages', async () => {
+  server.messages.set(
+    'design',
+    Array.from({ length: 36 }, (_, index) =>
+      fixtureMessage(
+        `outline-${index}`,
+        index + 1,
+        index % 2 === 0 ? `问题 ${index / 2 + 1}` : `回复 ${index}\n\n${'具体说明。'.repeat(60)}`,
+        index % 2 === 0,
+      ),
+    ),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('button', { name: '会话大纲', exact: true }).click()
+  const outline = chat.getByRole('complementary', { name: '大纲', exact: true })
+  await outline.getByRole('searchbox').fill('问题 9')
+  await outline.getByRole('button').filter({ hasText: '问题 9' }).click()
+  await expect(outline).toHaveCount(0)
+  await expect(chat.locator('.message-anchor.is-located')).toContainText('问题 9')
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toBeVisible()
+  await chat.getByRole('button', { name: '回到最新消息' }).click()
+  await expect
+    .poll(() =>
+      chat.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    )
+    .toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
+test('file panel can be resized with pointer and keyboard and keeps its preferred width', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  const divider = page.getByRole('separator', { name: '调整文件栏宽度' })
+  const panel = page.locator('.file-panel')
+  const before = (await panel.boundingBox())!.width
+  const handle = (await divider.boundingBox())!
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 100)
+  await page.mouse.down()
+  await page.mouse.move(handle.x - 100, handle.y + 100, { steps: 8 })
+  await page.mouse.up()
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(before + 90)
+  await divider.focus()
+  const dragged = Number(await divider.getAttribute('aria-valuenow'))
+  await page.keyboard.press('ArrowRight')
+  await expect(divider).toHaveAttribute('aria-valuenow', String(dragged - 20))
+  const saved = (await panel.boundingBox())!.width
+  await page.reload()
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(saved, 0)
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  const split = page.getByRole('separator', { name: '双栏分屏', exact: true })
+  const panes = (await page.locator('.panes').boundingBox())!
+  const splitBox = (await split.boundingBox())!
+  await page.mouse.move(splitBox.x + 3, splitBox.y + 50)
+  await page.mouse.down()
+  await page.mouse.move(panes.x + panes.width * 0.6, splitBox.y + 50, { steps: 8 })
+  await page.mouse.up()
+  await expect(split).toHaveAttribute('aria-valuenow', '60')
+  await split.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(split).toHaveAttribute('aria-valuenow', '58')
+  await page.reload()
+  await expect(split).toHaveAttribute('aria-valuenow', '58')
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(saved, 0)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await expect.poll(async () => Number(await divider.getAttribute('aria-valuenow'))).toBeLessThanOrEqual(280)
+  expect(await page.locator('.content-area').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1480, 940))
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeCloseTo(saved, 0)
+  await split.dblclick()
+  await expect(split).toHaveAttribute('aria-valuenow', '50')
+  expect(errors).toEqual([])
+})
+
+test('outline loads earlier pages, preserves the reading anchor and ignores a canceled history response', async () => {
+  server.messagePageSize = 20
+  server.messages.set(
+    'design',
+    Array.from({ length: 60 }, (_, index) =>
+      fixtureMessage(
+        `paged-${index}`,
+        index + 1,
+        index % 2 === 0 ? `历史问题 ${index / 2 + 1}` : `历史回复 ${index}`,
+        index % 2 === 0,
+      ),
+    ),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const transcript = chat.locator('.transcript')
+  await chat.getByRole('button', { name: '会话大纲', exact: true }).click()
+  const outline = chat.getByRole('complementary', { name: '大纲', exact: true })
+  await outline.getByRole('searchbox').fill('历史问题 21')
+  await outline.getByRole('button').filter({ hasText: '历史问题 21' }).click()
+  const anchor = chat.locator('.message-anchor.is-located')
+  const before = await anchor.evaluate(
+    (el) => el.getBoundingClientRect().top - el.closest('.transcript')!.getBoundingClientRect().top,
+  )
+  await chat.getByRole('button', { name: '会话大纲', exact: true }).click()
+  await outline.getByRole('button', { name: '加载更早', exact: true }).click()
+  await expect(outline.getByRole('button').filter({ hasText: '历史问题 11' })).toBeVisible()
+  expect(
+    await anchor.evaluate(
+      (el) => el.getBoundingClientRect().top - el.closest('.transcript')!.getBoundingClientRect().top,
+    ),
+  ).toBeCloseTo(before, 0)
+  server.failHistory = true
+  await outline.getByRole('button', { name: '加载更早', exact: true }).click()
+  await expect(transcript.getByRole('alert')).toBeVisible()
+  server.failHistory = false
+  let release!: () => void
+  server.historyGate = new Promise((resolve) => {
+    release = resolve
+  })
+  const requests = server.messagePageRequests.length
+  await outline.getByRole('button', { name: '加载更早', exact: true }).click()
+  await expect.poll(() => server.messagePageRequests.length).toBeGreaterThan(requests)
+  await page.keyboard.press('Escape')
+  await chat.getByRole('button', { name: '回到最新消息' }).click()
+  release()
+  await expect
+    .poll(() => transcript.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+    .toBeLessThan(3)
+  await expect(chat.locator('.is-located')).toHaveCount(0)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('return to latest reloads the tail after older history evicts recent messages', async () => {
+  server.messagePageSize = 200
+  server.messages.set(
+    'design',
+    Array.from({ length: 900 }, (_, index) =>
+      fixtureMessage(`window-${index}`, index + 1, `窗口消息 ${index + 1}`, true),
+    ),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('button', { name: '会话大纲', exact: true }).click()
+  const outline = chat.getByRole('complementary', { name: '大纲', exact: true })
+  for (const first of [681, 481, 281, 81]) {
+    await outline.getByRole('button', { name: '加载更早', exact: true }).click()
+    await expect(
+      outline
+        .getByRole('button')
+        .filter({ hasText: `窗口消息 ${first}` })
+        .first(),
+    ).toBeVisible()
+  }
+  await expect(chat.locator('.transcript').getByText('窗口消息 900', { exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await chat.getByRole('button', { name: '回到最新消息' }).click()
+  await expect(chat.locator('.transcript').getByText('窗口消息 900', { exact: true })).toBeVisible()
+  await expect
+    .poll(() =>
+      chat.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    )
+    .toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
+test('plans show their proposal and progress without opening a tool disclosure, including restored history', async () => {
+  const codex = server.sessions.get('design')!
+  codex.collaborationMode = 'plan'
+  codex.agentState!.codexPlanProposalId = 'codex-proposed-plan:proposal'
+  const events = [
+    {
+      type: 'plan_update',
+      plan: [
+        { step: '检查工作区结构', status: 'completed' },
+        { step: '实现计划展示', status: 'in_progress' },
+      ],
+    },
+    {
+      type: 'tool-call',
+      name: 'ExitPlanMode',
+      callId: 'codex-proposed-plan:proposal',
+      input: { plan: '# 可实施的计划\n\n1. 复用现有消息组件\n2. 验证恢复后的完整计划' },
+    },
+    { type: 'tool-call-result', callId: 'codex-proposed-plan:proposal', output: null },
+  ]
+  server.messages.set(
+    'design',
+    events.map((data, index) => ({
+      ...fixtureMessage(`plan-${index}`, index + 1, ''),
+      content: { role: 'agent', content: { type: 'codex', data: { ...data, id: `plan-${index}` } } },
+    })),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.getByRole('heading', { name: '可实施的计划' })).toBeVisible()
+  await expect(chat.getByText('检查工作区结构', { exact: false })).toBeVisible()
+  await expect(chat.getByText('实现计划展示', { exact: false })).toBeVisible()
+  await expect(chat.getByText('验证恢复后的完整计划', { exact: true })).toBeVisible()
+  await chat.getByRole('button', { name: '继续讨论计划', exact: true }).click()
+  await expect(chat.getByRole('textbox', { name: '发送消息…' })).toBeFocused()
+  await expect(chat.getByRole('heading', { name: '可实施的计划' })).toBeVisible()
+  await page.reload()
+  await expect(chat.getByRole('heading', { name: '可实施的计划' })).toBeVisible()
+  const claude = server.sessions.get('review')!
+  claude.agentState!.requests = {
+    'approve-plan': {
+      tool: 'ExitPlanMode',
+      toolCallId: 'claude-plan',
+      createdAt: Date.now(),
+      arguments: { plan: '# 待确认的 Claude 计划\n\n确认后执行步骤' },
+    },
+  }
+  await page.getByTestId('session-review').click()
+  const review = page.getByTestId('chat-review')
+  await expect(
+    review.locator('.approval-area').getByRole('heading', { name: '待确认的 Claude 计划' }),
+  ).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('outline navigation and live message following stay independent between panes', async () => {
+  for (const id of ['design', 'review']) {
+    server.messages.set(
+      id,
+      Array.from({ length: 30 }, (_, index) =>
+        fixtureMessage(`same-${index}`, index + 1, `${id} 问题 ${index + 1}`, true),
+      ),
+    )
+  }
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  const left = page.getByTestId('chat-design')
+  const right = page.getByTestId('chat-review')
+  const rightTop = await right.locator('.transcript').evaluate((el) => el.scrollTop)
+  await left.getByRole('button', { name: '会话大纲', exact: true }).click()
+  const outline = left.getByRole('complementary', { name: '大纲', exact: true })
+  await outline.getByRole('searchbox').fill('design 问题 8')
+  await outline.getByRole('button').filter({ hasText: 'design 问题 8' }).click()
+  await expect(left.locator('.is-located')).toContainText('design 问题 8')
+  expect(await right.locator('.transcript').evaluate((el) => el.scrollTop)).toBeCloseTo(rightTop, 0)
+  const readingTop = await left.locator('.transcript').evaluate((el) => el.scrollTop)
+  for (const id of ['design', 'review']) {
+    const message = fixtureMessage('live-31', 31, `${id} 新回复`)
+    server.messages.get(id)!.push(message)
+    server.emit({ type: 'message-received', sessionId: id, message })
+  }
+  await expect(right.getByText('review 新回复', { exact: true })).toBeInViewport()
+  await expect(left.getByText('design 新回复', { exact: true })).toHaveCount(1)
+  expect(await left.locator('.transcript').evaluate((el) => el.scrollTop)).toBeCloseTo(readingTop, 0)
+  await left.getByRole('button', { name: '回到最新消息' }).click()
+  await expect(left.getByText('design 新回复', { exact: true })).toBeInViewport()
+  // Content growth after a render also follows the latest message in this pane.
+  server.displayMedia(
+    'design',
+    'follow-image',
+    'follow.png',
+    'image/png',
+    await readFile('resources/icon.png'),
+  )
+  await expect
+    .poll(() =>
+      left.getByRole('img', { name: 'follow.png' }).evaluate((el) => (el as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await expect
+    .poll(() =>
+      left.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    )
+    .toBeLessThan(3)
+  expect(errors).toEqual([])
 })
 
 test('HAPI display tools preview images, play media and save exact file bytes', async () => {

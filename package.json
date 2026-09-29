@@ -1,6 +1,6 @@
 {
   "name": "hapi-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A Windows workbench for your HAPI sessions",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -80,6 +80,8 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
+    "unified": "11.0.5",
+    "vfile": "6.0.3",
     "vite": "^7.3.0",
     "vitest": "^4.0.16",
     "workbox-expiration": "^7.4.0",

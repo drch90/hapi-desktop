@@ -112,6 +112,22 @@ describe('SSE wire framing', () => {
 })
 
 describe('session workspace and drafts', () => {
+  it('upgrades existing tabs without a file width and keeps widths scoped to the account', () => {
+    const { filePanelWidth: _, ...legacy } = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'a' })
+    localStorage.setItem('desktop:workspace:hub:alice', JSON.stringify({ ...legacy, ratio: 0.6 }))
+    const restored = loadWorkspace('hub:alice')
+    expect(restored.panes[0]).toEqual({ tabs: ['a'], active: 'a' })
+    expect(restored.ratio).toBe(0.6)
+    expect(restored.filePanelWidth).toBe(335)
+    localStorage.setItem(
+      'desktop:workspace:hub:alice',
+      JSON.stringify(reduceWorkspace(restored, { type: 'file-panel-width', width: 520 })),
+    )
+    expect(loadWorkspace('hub:alice').filePanelWidth).toBe(520)
+    expect(loadWorkspace('hub:bob').filePanelWidth).toBe(335)
+    expect(reduceWorkspace(restored, { type: 'file-panel-width', width: 10 }).filePanelWidth).toBe(240)
+    expect(reduceWorkspace(restored, { type: 'file-panel-width', width: 2000 }).filePanelWidth).toBe(960)
+  })
   it('enforces one tab per session while moving and merging panes', () => {
     let state = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'a' })
     state = reduceWorkspace(state, { type: 'open', id: 'b', pane: 1 })

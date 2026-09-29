@@ -561,6 +561,9 @@ input[type='checkbox'] {
 .split-handle:hover {
   background: var(--desk-accent-soft);
 }
+.split-handle:focus-visible {
+  background: var(--desk-accent-soft);
+}
 .tabs {
   display: flex;
   align-items: center;
@@ -782,6 +785,50 @@ input[type='checkbox'] {
   overflow: auto;
   padding: 23px 28px;
   overflow-anchor: none;
+}
+.transcript-area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.transcript-area > .transcript {
+  min-width: 0;
+  padding-bottom: 58px;
+}
+.outline-toggle {
+  height: auto;
+  padding: 6px;
+  border: 0;
+  color: var(--desk-muted);
+}
+.outline-toggle[aria-expanded='true'] {
+  color: var(--app-fg);
+  background: var(--desk-accent-soft);
+}
+.outline-container > aside {
+  max-width: min(24rem, 100%);
+}
+.jump-to-latest {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  z-index: 10;
+  gap: 5px;
+  border-radius: 16px;
+  background: var(--app-bg);
+  box-shadow: 0 2px 8px #00000012;
+}
+.message-anchor {
+  min-width: 0;
+  display: flow-root;
+  outline: none;
+}
+.message-anchor.is-located {
+  border-radius: 8px;
+  outline: 2px solid var(--desk-unread);
+  outline-offset: 4px;
 }
 .message {
   margin: 0 0 26px;
@@ -1083,7 +1130,7 @@ input[type='checkbox'] {
 .chat:not(.questions-expanded) .pending-question {
   height: auto;
 }
-.questions-expanded > .transcript,
+.questions-expanded > .transcript-area,
 .questions-expanded > .composer-wrap,
 .questions-expanded > .queue-area,
 .questions-expanded > .plan-actions {
@@ -1306,10 +1353,15 @@ input[type='checkbox'] {
   min-height: 0;
   margin-top: 14px;
 }
-.file-panel {
-  width: 335px;
-  min-width: 250px;
+.file-sidebar {
+  position: relative;
+  display: flex;
   flex-shrink: 0;
+  min-width: 0;
+}
+.file-panel {
+  width: 100%;
+  min-width: 0;
   border-left: 1px solid var(--desk-border);
   display: flex;
   flex-direction: column;
@@ -1474,9 +1526,6 @@ input[type='checkbox'] {
   }
   .host-label {
     display: none;
-  }
-  .file-panel {
-    width: 285px;
   }
   .composer-toolbar .small {
     display: none;
