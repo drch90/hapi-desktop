@@ -16,7 +16,10 @@
     "open request_user_input URLs through desktop IPC",
     "notification parser protocol import",
     "ShareTurnDialog optional desktop image rendering, clipboard and save hooks",
-    "Question footers support bounded scrolling with fixed navigation"
+    "Question footers support bounded scrolling with fixed navigation",
+    "Export shared file sorting, rows, diff display and content helpers for the desktop sidebar",
+    "DirectoryTree optional native download slot and account-scoped expansion storage",
+    "SessionActionMenu optional reference base URL for root-relative desktop citations"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices."
 }

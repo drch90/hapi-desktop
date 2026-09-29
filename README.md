@@ -4,7 +4,7 @@
 
 ## 使用
 
-运行 `HAPI-Desktop-0.1.7-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
+运行 `HAPI-Desktop-0.1.8-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
 
 内网 HTTP 支持 IPv4 `10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，共享/VPN 网段 `100.64.0.0/10`，IPv6 ULA `fc00::/7`，以及 localhost、IPv4/IPv6 回环地址。使用内网域名时请填写对应内网 IP，或使用 HTTPS；公网地址仍要求 HTTPS。HTTP 连接不会加密传输的令牌与消息，此选项按内网部署需求提供。
 
@@ -15,6 +15,12 @@
 会话右上角的“会话大纲”列出已加载的用户消息，支持搜索，点击条目跳转并突出显示对应消息；可继续加载更早记录。翻阅历史时新回复不会打断阅读，点击“回到最新消息”取回最新记录并恢复自动跟随；两个会话的导航互不影响。
 
 文件栏左边和两个会话之间的分隔线均可拖动，聚焦后支持方向键与 Home/End，双击恢复默认宽度。文件栏宽度和会话分栏比例按 Hub/账户保存；窗口变小时暂时限制文件栏宽度，放大后恢复原偏好。
+
+0.1.8 文件栏复用 Web 的目录树、文件搜索、名称/修改时间/大小排序、文件元信息、Git 分支与暂存/未暂存列表。目录展开状态按 Hub/账户/会话保存，排序和最近使用的标签按账户保存。文件右键可复制相对/绝对路径或添加引用到当前会话草稿；双栏草稿独立，添加引用不会自动发送。预览提供 Markdown 渲染/源码切换、代码高亮、行号、换行开关、内容复制、图片放大和系统保存窗口；空文件也能下载。Git 行数统计失败时仍显示可用的变更列表，当前文件被删除或无法读取时仍可查看已取得的 diff。
+
+0.1.8 修复聊天正文链接首次点击无反应：聊天栏焦点更新曾导致链接元素在点击完成前被重新创建，现改为稳定组件。HTTP(S) 链接调用系统默认浏览器，支持普通点击、中键和键盘打开；系统拒绝打开时可重试或复制地址。远端文件链接如 `[使用说明](/path/to/guide.md:257)` 打开右侧预览，读取前去掉行号后缀；连续点击同一链接也会重新定位到该文件。文件内容通过当前会话的 HAPI 文件接口读取，访问范围由 runner 决定，工作区外路径可能被拒绝；此版本不跳转到指定行。
+
+会话列表右键菜单与 Web 一致，支持复制会话引用、重命名，以及活动会话归档和历史会话删除；也可聚焦会话后按 Shift+F10。复制的是包含 `/sessions/<id>` 与 HAPI 会话读取提示的引用文本，可粘贴到另一会话；它不是公开分享链接。右键操作无需切换当前聊天，归档与删除均需确认，删除失败可重试；成功后即使没有 SSE 删除事件也会更新列表并清理本地对应会话状态。
 
 0.1.7 修复计划模式的正文和步骤被普通工具折叠层隐藏的问题。计划提案、`update_plan` 进度和 `TodoWrite` 清单直接展示共享 HAPI 卡片，恢复会话后仍可查看；普通工具继续按原设置折叠，待确认计划仍使用原生审批。
 
@@ -58,6 +64,8 @@ bun run package:win
 
 Windows 测试脚本通过 `start /affinity` 限制进程树到两个 CPU。Linux 打包使用 electron-builder 26.15.3 内置的跨平台 NSIS uninstaller reader，避免 Wine 与宿主 glibc 版本不匹配；该适配仅处理生成的安装器 stub，升级 builder 时需重新验证。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip，减少重复下载。
 
+0.1.8 验证：`bun run typecheck`、`bun run build`、`bun run test`（386 项）与 `xvfb-run -a bun run test:e2e`（28 项）通过，测试与编译均限制为 CPU 0,1。新增用例在 0.1.7 构建上复现正文链接点击后未调用浏览器；修复后覆盖首次点击、双栏焦点切换、中键/键盘打开、失败重试/复制链接、带行号的远端文件链接、重复文件链接及会话引用跳转。文件栏验证涵盖目录/排序持久化、搜索失败、路径/内容复制、Markdown/源码、图片放大、空文件保存、部分 Git 结果、缺失文件的 diff 与读取重试、插入引用后刷新、双栏草稿隔离，以及 920×640 深色特大字号下操作按钮完整可见。会话菜单验证复制引用、键盘打开、归档取消/确认、删除失败/重试和无 SSE 时更新列表。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、12 个补丁文件的恢复与重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 195 个键无缺失。以上为 Linux Electron 与模拟 Hub 验证；浏览器测试验证主进程收到准确 URL，Windows 默认浏览器实际启动仍待实机验收。
+
 0.1.7 验证：`bun run typecheck`、`bun run build`、`bun run test`（386 项）与 `xvfb-run -a bun run test:e2e`（25 项）通过，测试与编译均限制为 CPU 0,1。新增回归覆盖大纲搜索/跳转、历史加载的阅读位置保持、取消后的迟到响应、历史窗口淘汰最新消息后的重新获取、双栏同名消息隔离、阅读时接收新消息及图片加载后的自动跟随；另覆盖文件栏/会话栏拖动和键盘调整、重载保持、缩小窗口后恢复偏好、旧工作区升级，以及 Codex 计划正文/进度、恢复后的计划和 Claude 计划审批。既有小窗口长问答、媒体、队列与命令用例全部通过。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、7 个补丁文件的恢复与重放；`bun run i18n:sync` 确认七种语言各 188 个键无缺失。以上为 Linux Electron 与模拟 Hub 验证，新增功能尚待 Windows 实机验收。
 
 0.1.6 验证：`bun run typecheck`、`bun run build`、`bun run test`（385 项）、`xvfb-run -a bun run test:e2e`（19 项）通过，测试和编译均限制为 CPU 0,1。新增桌面用例实际解码并放大 PNG、播放 VP8 WebM 和 PCM WAV、下载图片/二进制文件/文件面板文本并逐字节比较；覆盖文件失效后的重试、取消、写入失败、失败时保留已有文件、保存窗口期间断线，以及小窗口深色主题下的可见性。`node scripts/limit-cpu.mjs bun run verify:upstream` 仍验证 932 个来源文件和 7 个修改文件的补丁恢复与重放。以上为 Linux Electron 与模拟 Hub 验证；0.1.6 新增功能尚待 Windows 实机验收。
@@ -82,6 +90,8 @@ API 客户端通过注入 transport 复用上游请求结构。桌面布局不�
 分享复用 ShareTurnDialog，并通过兼容扩展替换导出方式：浏览器版的 iframe、下载链接与原生 Web Share API 不适合受限的 Electron renderer，因此采用本地 SVG 栅格化与主进程剪贴板/保存对话框，保持 CSP 禁止子框架和直接网络请求。
 
 文件展示复用 HAPI 的消息归一化、`ImagePreview`、`FileIcon` 与 MIME 分类函数。上游 `GeneratedImageCard` 依赖 Web 聊天上下文、直接 `fetch` 和浏览器下载链接，故桌面卡片组合上述组件，以受校验的 IPC 获取文件和调用系统保存窗口。远端文件仅按会话与文件 ID（或文件面板路径）读取；不接受任意网络地址。先写入目标目录内的临时文件，完整成功后再替换目标，失败清理临时文件。
+
+文件侧栏组合共享 `DirectoryTree`、排序菜单、Git/搜索结果行、`FileActionMenu`、查询 hooks、`DiffDisplay`、`CodeBlock` 和 `ImagePreview`。完整 Web 文件页绑定路由导航，不适合桌面双栏中的常驻侧栏；通过导出现有组件/辅助函数、为目录树增加可选原生下载插槽和存储作用域进行复用，保持 Web 默认行为。会话列表菜单直接组合共享 `SessionActionMenu`、重命名和确认对话框；可选引用 base 参数解决 Electron 相对资源路径导致引用误带 `./` 的问题。
 
 大纲复用 HAPI 的 `buildConversationOutline`、`ConversationOutlinePanel` 和滚动锚点保存/恢复函数。桌面导航适配双栏独立滚动容器与本地草稿；共享 HappyThread 整体绑定 assistant-ui 运行时，不能直接替换桌面聊天视图。宽度调整从原有分栏分隔线抽取共享 `ResizeHandle`，统一指针与键盘行为；计划直接使用现有 `ToolCard` 与计划/清单视图。
 

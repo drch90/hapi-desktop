@@ -98,6 +98,122 @@
                          }}
                          disabled={busy !== null || !ready}
                          className="rounded-md bg-[var(--app-button)] px-3 py-2 text-sm text-[var(--app-button-text)] disabled:opacity-50 sm:w-32"
+--- a/vendor/hapi/web/src/components/SessionActionMenu.tsx
++++ b/vendor/hapi/web/src/components/SessionActionMenu.tsx
+@@ -12,6 +12,7 @@
+     onClose: () => void
+     sessionId: string
+     sessionTitle: string
++    referenceBaseUrl?: string
+     sessionActive: boolean
+     onRename: () => void
+     sessionPinned?: boolean
+@@ -223,7 +224,7 @@
+     const handleCopyReference = async () => {
+         onClose()
+         try {
+-            await safeCopyToClipboard(buildSessionReferenceText(sessionTitle, sessionId))
++            await safeCopyToClipboard(buildSessionReferenceText(sessionTitle, sessionId, props.referenceBaseUrl))
+             haptic.notification('success')
+         } catch {
+             haptic.notification('error')
+--- a/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
++++ b/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useEffect, useMemo, useState } from 'react'
++import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+ import type { ApiClient } from '@/api/client'
+ import { FileIcon } from '@/components/FileIcon'
+ import { useSessionDirectory } from '@/hooks/queries/useSessionDirectory'
+@@ -102,6 +102,7 @@
+     onOpen: () => void
+     onDownload: () => void
+     onOpenMenu?: (point: AnchoredMenuPoint) => void
++    downloadAction?: ReactNode
+ }) {
+     const { t } = useTranslation()
+     const rowHandlers = useFileMenuTrigger({
+@@ -124,16 +125,18 @@
+                 <div className="truncate font-medium">{props.fileName}</div>
+                 {props.metadata ? <div className="truncate text-xs text-[var(--app-hint)]">{props.metadata}</div> : null}
+             </button>
+-            <button
+-                type="button"
+-                onClick={props.onDownload}
+-                disabled={props.downloadDisabled}
+-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-50"
+-                title={t('files.directories.download')}
+-                aria-label={t('files.directories.downloadNamed', { name: props.fileName })}
+-            >
+-                <DownloadIcon className={`h-4 w-4 ${props.isDownloading ? 'animate-pulse' : ''}`} />
+-            </button>
++            {props.downloadAction ?? (
++                <button
++                    type="button"
++                    onClick={props.onDownload}
++                    disabled={props.downloadDisabled}
++                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-50"
++                    title={t('files.directories.download')}
++                    aria-label={t('files.directories.downloadNamed', { name: props.fileName })}
++                >
++                    <DownloadIcon className={`h-4 w-4 ${props.isDownloading ? 'animate-pulse' : ''}`} />
++                </button>
++            )}
+         </div>
+     )
+ }
+@@ -146,6 +149,7 @@
+     depth: number
+     onOpenFile: (path: string) => void
+     onRequestFileMenu?: FileMenuRequestHandler
++    renderDownload?: (path: string, fileName: string) => ReactNode
+     expanded: Set<string>
+     onToggle: (path: string) => void
+     sort: DirectorySort
+@@ -224,6 +228,7 @@
+                                     depth={childDepth}
+                                     onOpenFile={props.onOpenFile}
+                                     onRequestFileMenu={props.onRequestFileMenu}
++                                    renderDownload={props.renderDownload}
+                                     expanded={props.expanded}
+                                     onToggle={props.onToggle}
+                                     sort={props.sort}
+@@ -245,6 +250,7 @@
+                                     downloadDisabled={Boolean(downloadingPath)}
+                                     onOpen={() => props.onOpenFile(filePath)}
+                                     onDownload={() => void handleDownload(filePath, entry.name)}
++                                    downloadAction={props.renderDownload?.(filePath, entry.name)}
+                                     onOpenMenu={props.onRequestFileMenu
+                                         ? (point) => props.onRequestFileMenu!(filePath, point)
+                                         : undefined}
+@@ -296,13 +302,16 @@
+     rootLabel: string
+     onOpenFile: (path: string) => void
+     onRequestFileMenu?: FileMenuRequestHandler
++    renderDownload?: (path: string, fileName: string) => ReactNode
++    storageKey?: string
+     sort: DirectorySort
+ }) {
+-    const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(props.sessionId))
++    const storageKey = props.storageKey ?? props.sessionId
++    const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(storageKey))
+ 
+     useEffect(() => {
+-        writeExpanded(props.sessionId, expanded)
+-    }, [props.sessionId, expanded])
++        writeExpanded(storageKey, expanded)
++    }, [storageKey, expanded])
+ 
+     const handleToggle = useCallback((path: string) => {
+         setExpanded((prev) => {
+@@ -326,6 +335,7 @@
+                 depth={0}
+                 onOpenFile={props.onOpenFile}
+                 onRequestFileMenu={props.onRequestFileMenu}
++                renderDownload={props.renderDownload}
+                 expanded={expanded}
+                 onToggle={handleToggle}
+                 sort={props.sort}
 --- a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
 @@ -95,6 +95,7 @@
@@ -227,3 +343,93 @@
      } catch {
          return false
      }
+--- a/vendor/hapi/web/src/lib/sessionReference.ts
++++ b/vendor/hapi/web/src/lib/sessionReference.ts
+@@ -4,8 +4,7 @@
+ import { getSessionTitle } from '@/lib/sessionTitle'
+ import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
+ 
+-export function buildSessionReferencePath(sessionId: string): string {
+-    const base = import.meta.env.BASE_URL ?? '/'
++export function buildSessionReferencePath(sessionId: string, base = import.meta.env.BASE_URL ?? '/'): string {
+     const normalizedBase = base.endsWith('/') ? base : `${base}/`
+     return `${normalizedBase}sessions/${encodeURIComponent(sessionId)}`.replace(/\/{2,}/g, '/')
+ }
+@@ -15,8 +14,8 @@
+ }
+ 
+ /** Clipboard text for citing this session in another HAPI chat (not a public share link). */
+-export function buildSessionReferenceText(sessionTitle: string, sessionId: string): string {
+-    const path = buildSessionReferencePath(sessionId)
++export function buildSessionReferenceText(sessionTitle: string, sessionId: string, baseUrl?: string): string {
++    const path = buildSessionReferencePath(sessionId, baseUrl)
+     const title = sanitizeSessionReferenceTitle(sessionTitle)
+     const base = title
+         ? `See session ${JSON.stringify(title)} (${path}) for context`
+--- a/vendor/hapi/web/src/routes/sessions/file.tsx
++++ b/vendor/hapi/web/src/routes/sessions/file.tsx
+@@ -91,7 +91,7 @@
+     )
+ }
+ 
+-function DiffDisplay(props: { diffContent: string }) {
++export function DiffDisplay(props: { diffContent: string }) {
+     const lines = props.diffContent.split('\n')
+ 
+     return (
+@@ -196,7 +196,7 @@
+     )
+ }
+ 
+-function resolveLanguage(path: string): string | undefined {
++export function resolveLanguage(path: string): string | undefined {
+     const parts = path.split('.')
+     if (parts.length <= 1) return undefined
+     const ext = parts[parts.length - 1]?.toLowerCase()
+@@ -204,7 +204,7 @@
+     return langAlias[ext] ?? ext
+ }
+ 
+-function resolveImageMimeType(path: string): string | null {
++export function resolveImageMimeType(path: string): string | null {
+     const parts = path.split('.')
+     if (parts.length <= 1) return null
+     const ext = parts[parts.length - 1]?.toLowerCase()
+@@ -216,7 +216,7 @@
+     return new TextEncoder().encode(value).length
+ }
+ 
+-function isBinaryContent(content: string): boolean {
++export function isBinaryContent(content: string): boolean {
+     if (!content) return false
+     if (content.includes('\0')) return true
+     const nonPrintable = content.split('').filter((char) => {
+--- a/vendor/hapi/web/src/routes/sessions/files.tsx
++++ b/vendor/hapi/web/src/routes/sessions/files.tsx
+@@ -105,7 +105,7 @@
+     return DEFAULT_DIRECTORY_SORT
+ }
+ 
+-function DirectorySortMenu(props: { sort: DirectorySort; onChange: (sort: DirectorySort) => void; embedded?: boolean }) {
++export function DirectorySortMenu(props: { sort: DirectorySort; onChange: (sort: DirectorySort) => void; embedded?: boolean }) {
+     const { t } = useTranslation()
+     const fields: Array<{ value: DirectorySortField; label: string }> = [
+         { value: 'name', label: t('files.sort.name') },
+@@ -259,7 +259,7 @@
+     )
+ }
+ 
+-function GitFileRow(props: {
++export function GitFileRow(props: {
+     file: GitFileStatus
+     onOpen: () => void
+     onOpenMenu: (point: AnchoredMenuPoint) => void
+@@ -291,7 +291,7 @@
+     )
+ }
+ 
+-function SearchResultRow(props: {
++export function SearchResultRow(props: {
+     file: FileSearchItem
+     onOpen: () => void
+     onOpenMenu: (point: AnchoredMenuPoint) => void

@@ -12,6 +12,7 @@ type SessionActionMenuProps = {
     onClose: () => void
     sessionId: string
     sessionTitle: string
+    referenceBaseUrl?: string
     sessionActive: boolean
     onRename: () => void
     sessionPinned?: boolean
@@ -223,7 +224,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
     const handleCopyReference = async () => {
         onClose()
         try {
-            await safeCopyToClipboard(buildSessionReferenceText(sessionTitle, sessionId))
+            await safeCopyToClipboard(buildSessionReferenceText(sessionTitle, sessionId, props.referenceBaseUrl))
             haptic.notification('success')
         } catch {
             haptic.notification('error')

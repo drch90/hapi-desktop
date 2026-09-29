@@ -5,18 +5,20 @@ import { Button } from '@/components/ui/button'
 import type { RemoteFile } from '../../shared/bridge'
 import { fileErrorKey, unwrap } from '../lib/api'
 
-export function SaveFileButton(props: { source: RemoteFile; fileName: string }) {
+export function SaveFileButton(props: { source: RemoteFile; fileName: string; compact?: boolean }) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   return (
-    <div className="file-download" data-hapi-share-export-exclude="true">
+    <div className={`file-download ${props.compact ? 'compact' : ''}`} data-hapi-share-export-exclude="true">
       <Button
         type="button"
         size="sm"
         variant="outline"
         disabled={busy}
+        aria-label={props.compact ? `${t('Download file')}: ${props.fileName}` : undefined}
+        title={props.compact ? `${t('Download file')}: ${props.fileName}` : undefined}
         onClick={async () => {
           setBusy(true)
           setSaved(false)
@@ -34,7 +36,7 @@ export function SaveFileButton(props: { source: RemoteFile; fileName: string }) 
         }}
       >
         <Download size={14} aria-hidden="true" />
-        {t(busy ? 'Saving…' : 'Download file')}
+        {!props.compact && t(busy ? 'Saving…' : 'Download file')}
       </Button>
       {saved && (
         <span className="muted" role="status">

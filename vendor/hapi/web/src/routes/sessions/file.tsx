@@ -91,7 +91,7 @@ function BackIcon(props: { className?: string }) {
     )
 }
 
-function DiffDisplay(props: { diffContent: string }) {
+export function DiffDisplay(props: { diffContent: string }) {
     const lines = props.diffContent.split('\n')
 
     return (
@@ -196,7 +196,7 @@ function FileContentHeader(props: {
     )
 }
 
-function resolveLanguage(path: string): string | undefined {
+export function resolveLanguage(path: string): string | undefined {
     const parts = path.split('.')
     if (parts.length <= 1) return undefined
     const ext = parts[parts.length - 1]?.toLowerCase()
@@ -204,7 +204,7 @@ function resolveLanguage(path: string): string | undefined {
     return langAlias[ext] ?? ext
 }
 
-function resolveImageMimeType(path: string): string | null {
+export function resolveImageMimeType(path: string): string | null {
     const parts = path.split('.')
     if (parts.length <= 1) return null
     const ext = parts[parts.length - 1]?.toLowerCase()
@@ -216,7 +216,7 @@ function getUtf8ByteLength(value: string): number {
     return new TextEncoder().encode(value).length
 }
 
-function isBinaryContent(content: string): boolean {
+export function isBinaryContent(content: string): boolean {
     if (!content) return false
     if (content.includes('\0')) return true
     const nonPrintable = content.split('').filter((char) => {

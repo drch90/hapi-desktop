@@ -105,7 +105,7 @@ function readDirectorySort(): DirectorySort {
     return DEFAULT_DIRECTORY_SORT
 }
 
-function DirectorySortMenu(props: { sort: DirectorySort; onChange: (sort: DirectorySort) => void; embedded?: boolean }) {
+export function DirectorySortMenu(props: { sort: DirectorySort; onChange: (sort: DirectorySort) => void; embedded?: boolean }) {
     const { t } = useTranslation()
     const fields: Array<{ value: DirectorySortField; label: string }> = [
         { value: 'name', label: t('files.sort.name') },
@@ -259,7 +259,7 @@ function LineChanges(props: { added: number; removed: number }) {
     )
 }
 
-function GitFileRow(props: {
+export function GitFileRow(props: {
     file: GitFileStatus
     onOpen: () => void
     onOpenMenu: (point: AnchoredMenuPoint) => void
@@ -291,7 +291,7 @@ function GitFileRow(props: {
     )
 }
 
-function SearchResultRow(props: {
+export function SearchResultRow(props: {
     file: FileSearchItem
     onOpen: () => void
     onOpenMenu: (point: AnchoredMenuPoint) => void

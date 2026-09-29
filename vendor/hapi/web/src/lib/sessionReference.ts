@@ -4,8 +4,7 @@ import { truncateGraphemes } from '@/lib/graphemes'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
 
-export function buildSessionReferencePath(sessionId: string): string {
-    const base = import.meta.env.BASE_URL ?? '/'
+export function buildSessionReferencePath(sessionId: string, base = import.meta.env.BASE_URL ?? '/'): string {
     const normalizedBase = base.endsWith('/') ? base : `${base}/`
     return `${normalizedBase}sessions/${encodeURIComponent(sessionId)}`.replace(/\/{2,}/g, '/')
 }
@@ -15,8 +14,8 @@ function sanitizeSessionReferenceTitle(sessionTitle: string): string {
 }
 
 /** Clipboard text for citing this session in another HAPI chat (not a public share link). */
-export function buildSessionReferenceText(sessionTitle: string, sessionId: string): string {
-    const path = buildSessionReferencePath(sessionId)
+export function buildSessionReferenceText(sessionTitle: string, sessionId: string, baseUrl?: string): string {
+    const path = buildSessionReferencePath(sessionId, baseUrl)
     const title = sanitizeSessionReferenceTitle(sessionTitle)
     const base = title
         ? `See session ${JSON.stringify(title)} (${path}) for context`

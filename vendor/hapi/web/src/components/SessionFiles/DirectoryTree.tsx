@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ApiClient } from '@/api/client'
 import { FileIcon } from '@/components/FileIcon'
 import { useSessionDirectory } from '@/hooks/queries/useSessionDirectory'
@@ -102,6 +102,7 @@ function DirectoryFileRow(props: {
     onOpen: () => void
     onDownload: () => void
     onOpenMenu?: (point: AnchoredMenuPoint) => void
+    downloadAction?: ReactNode
 }) {
     const { t } = useTranslation()
     const rowHandlers = useFileMenuTrigger({
@@ -124,16 +125,18 @@ function DirectoryFileRow(props: {
                 <div className="truncate font-medium">{props.fileName}</div>
                 {props.metadata ? <div className="truncate text-xs text-[var(--app-hint)]">{props.metadata}</div> : null}
             </button>
-            <button
-                type="button"
-                onClick={props.onDownload}
-                disabled={props.downloadDisabled}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-50"
-                title={t('files.directories.download')}
-                aria-label={t('files.directories.downloadNamed', { name: props.fileName })}
-            >
-                <DownloadIcon className={`h-4 w-4 ${props.isDownloading ? 'animate-pulse' : ''}`} />
-            </button>
+            {props.downloadAction ?? (
+                <button
+                    type="button"
+                    onClick={props.onDownload}
+                    disabled={props.downloadDisabled}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--app-hint)] transition-colors hover:bg-[var(--app-secondary-bg)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-50"
+                    title={t('files.directories.download')}
+                    aria-label={t('files.directories.downloadNamed', { name: props.fileName })}
+                >
+                    <DownloadIcon className={`h-4 w-4 ${props.isDownloading ? 'animate-pulse' : ''}`} />
+                </button>
+            )}
         </div>
     )
 }
@@ -146,6 +149,7 @@ function DirectoryNode(props: {
     depth: number
     onOpenFile: (path: string) => void
     onRequestFileMenu?: FileMenuRequestHandler
+    renderDownload?: (path: string, fileName: string) => ReactNode
     expanded: Set<string>
     onToggle: (path: string) => void
     sort: DirectorySort
@@ -224,6 +228,7 @@ function DirectoryNode(props: {
                                     depth={childDepth}
                                     onOpenFile={props.onOpenFile}
                                     onRequestFileMenu={props.onRequestFileMenu}
+                                    renderDownload={props.renderDownload}
                                     expanded={props.expanded}
                                     onToggle={props.onToggle}
                                     sort={props.sort}
@@ -245,6 +250,7 @@ function DirectoryNode(props: {
                                     downloadDisabled={Boolean(downloadingPath)}
                                     onOpen={() => props.onOpenFile(filePath)}
                                     onDownload={() => void handleDownload(filePath, entry.name)}
+                                    downloadAction={props.renderDownload?.(filePath, entry.name)}
                                     onOpenMenu={props.onRequestFileMenu
                                         ? (point) => props.onRequestFileMenu!(filePath, point)
                                         : undefined}
@@ -296,13 +302,16 @@ export function DirectoryTree(props: {
     rootLabel: string
     onOpenFile: (path: string) => void
     onRequestFileMenu?: FileMenuRequestHandler
+    renderDownload?: (path: string, fileName: string) => ReactNode
+    storageKey?: string
     sort: DirectorySort
 }) {
-    const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(props.sessionId))
+    const storageKey = props.storageKey ?? props.sessionId
+    const [expanded, setExpanded] = useState<Set<string>>(() => readExpanded(storageKey))
 
     useEffect(() => {
-        writeExpanded(props.sessionId, expanded)
-    }, [props.sessionId, expanded])
+        writeExpanded(storageKey, expanded)
+    }, [storageKey, expanded])
 
     const handleToggle = useCallback((path: string) => {
         setExpanded((prev) => {
@@ -326,6 +335,7 @@ export function DirectoryTree(props: {
                 depth={0}
                 onOpenFile={props.onOpenFile}
                 onRequestFileMenu={props.onRequestFileMenu}
+                renderDownload={props.renderDownload}
                 expanded={expanded}
                 onToggle={handleToggle}
                 sort={props.sort}

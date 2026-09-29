@@ -83,6 +83,14 @@ export class FixtureHub {
   ])
   requests: { path: string; method: string; body: Record<string, unknown> }[] = []
   generatedMedia = new Map<string, { content: Buffer; mimeType: string }>()
+  fileContents = new Map<string, Buffer | null>()
+  fileReadPaths: string[] = []
+  directoryEntries = new Map<
+    string,
+    { name: string; type: 'file' | 'directory'; size?: number; modified?: number }[]
+  >()
+  failFileSearch = false
+  failGitNumstat = false
   displayMedia(sessionId: string, imageId: string, fileName: string, mimeType: string, content?: Buffer) {
     if (content) this.generatedMedia.set(imageId, { content, mimeType })
     const messages = this.messages.get(sessionId)!
@@ -562,7 +570,7 @@ export class FixtureHub {
     if (action === '/directory') {
       reply({
         success: true,
-        entries: [
+        entries: this.directoryEntries.get(url.searchParams.get('path') ?? '') ?? [
           { name: 'src', type: 'directory' },
           { name: 'README.md', type: 'file' },
           { name: 'package.json', type: 'file' },
@@ -581,9 +589,41 @@ export class FixtureHub {
       return
     }
     if (action === '/file') {
+      const filePath = url.searchParams.get('path') ?? ''
+      this.fileReadPaths.push(filePath)
+      const bytes = this.fileContents.has(filePath)
+        ? this.fileContents.get(filePath)
+        : Buffer.from('# HAPI Desktop\n\nA workspace for remote agents.\n')
+      if (!bytes) {
+        reply({ success: false, error: 'File unavailable' })
+        return
+      }
       reply({
         success: true,
-        content: Buffer.from('# HAPI Desktop\n\nA workspace for remote agents.\n').toString('base64'),
+        content: bytes.toString('base64'),
+        size: bytes.length,
+        modified: Date.UTC(2026, 8, 1),
+      })
+      return
+    }
+    if (action === '/files') {
+      if (this.failFileSearch) {
+        reply({ success: false, error: 'Failed to search files' })
+        return
+      }
+      const query = url.searchParams.get('query') ?? ''
+      reply({
+        success: true,
+        files: [...this.fileContents.entries()]
+          .filter(([path]) => path.includes(query))
+          .map(([path, bytes]) => ({
+            fileName: path.split('/').pop(),
+            filePath: path.slice(0, path.lastIndexOf('/')),
+            fullPath: path,
+            fileType: 'file',
+            size: bytes?.length,
+            modified: Date.UTC(2026, 8, 1),
+          })),
       })
       return
     }
@@ -595,6 +635,10 @@ export class FixtureHub {
       return
     }
     if (action === '/git-diff-numstat') {
+      if (this.failGitNumstat) {
+        reply({ success: false, error: 'Fixture numstat unavailable' })
+        return
+      }
       reply({ success: true, stdout: url.searchParams.get('staged') === 'true' ? '' : '4\t1\tsrc/main.ts\n' })
       return
     }

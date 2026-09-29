@@ -40,6 +40,216 @@ test.afterEach(async () => {
   if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
 })
 
+test('body links open the browser and remote file preview on the first click, including pane focus changes', async () => {
+  const url = 'https://github.com/example/project/actions/runs/123456'
+  server.messages.set('design', [
+    fixtureMessage(
+      'links',
+      1,
+      `[下载新版 APK](${url})\n\n[使用说明](/home/dev/hapi-desktop/docs/agents.md:257)\n\n[相关会话](/sessions/review)`,
+    ),
+  ])
+  await electron.evaluate(({ shell }) => {
+    const state = globalThis as unknown as { openedUrls: string[]; failBrowser: boolean }
+    state.openedUrls = []
+    state.failBrowser = false
+    shell.openExternal = async (url: string) => {
+      if (state.failBrowser) throw new Error('No default browser')
+      state.openedUrls.push(url)
+    }
+  })
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('link', { name: '下载新版 APK' }).click()
+  await expect
+    .poll(() => electron.evaluate(() => (globalThis as unknown as { openedUrls: string[] }).openedUrls))
+    .toEqual([url])
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  await chat.getByRole('link', { name: '下载新版 APK' }).click()
+  await expect
+    .poll(() => electron.evaluate(() => (globalThis as unknown as { openedUrls: string[] }).openedUrls))
+    .toEqual([url, url])
+  await chat.getByRole('link', { name: '使用说明' }).click()
+  await expect(page.locator('.file-preview')).toContainText('/home/dev/hapi-desktop/docs/agents.md')
+  await expect(page.locator('.file-preview')).toContainText('A workspace for remote agents.')
+  expect(server.fileReadPaths).toContain('/home/dev/hapi-desktop/docs/agents.md')
+  expect(server.fileReadPaths.some((path) => path.endsWith(':257'))).toBe(false)
+  await page.locator('.file-tabs').getByRole('button', { name: '文件', exact: true }).click()
+  await page.getByRole('button', { name: 'README.md', exact: true }).click()
+  await chat.getByRole('link', { name: '使用说明' }).click()
+  await expect(page.locator('.file-preview-path')).toHaveText('/home/dev/hapi-desktop/docs/agents.md')
+  await electron.evaluate(() => {
+    ;(globalThis as unknown as { failBrowser: boolean }).failBrowser = true
+  })
+  await chat.getByRole('link', { name: '下载新版 APK' }).click()
+  await expect(chat.getByRole('alert')).toContainText('无法打开链接')
+  await chat.getByRole('button', { name: '复制链接' }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(url)
+  await electron.evaluate(() => {
+    ;(globalThis as unknown as { failBrowser: boolean }).failBrowser = false
+  })
+  await chat.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(chat.getByRole('alert')).toHaveCount(0)
+  await chat.getByRole('link', { name: '下载新版 APK' }).click({ button: 'middle' })
+  await chat.getByRole('link', { name: '下载新版 APK' }).focus()
+  await page.keyboard.press('Enter')
+  await expect
+    .poll(() => electron.evaluate(() => (globalThis as unknown as { openedUrls: string[] }).openedUrls))
+    .toEqual([url, url, url, url, url])
+  await chat.getByRole('link', { name: '相关会话' }).click()
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('file sidebar shares web search, tree, sorting, menus, previews and partial Git results', async () => {
+  server.directoryEntries.set('', [
+    { name: 'docs', type: 'directory' },
+    { name: 'preview.png', type: 'file' },
+    { name: 'empty.txt', type: 'file' },
+  ])
+  server.directoryEntries.set('docs', [
+    { name: 'guide.md', type: 'file', size: 40, modified: Date.UTC(2026, 8, 1) },
+    { name: 'larger.md', type: 'file', size: 400 },
+  ])
+  server.fileContents.set('docs/guide.md', Buffer.from('# 使用手册\n\n文件栏预览内容'))
+  server.fileContents.set('docs/larger.md', Buffer.from('# 较大的文档'))
+  server.fileContents.set('preview.png', await readFile('resources/icon.png'))
+  server.fileContents.set('empty.txt', Buffer.alloc(0))
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('textbox', { name: '发送消息…' }).fill('原有草稿')
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  const panel = page.locator('.file-panel')
+  await panel.getByRole('button', { name: 'docs', exact: true }).click()
+  const guide = panel.getByRole('button', { name: /^guide.md/ })
+  await expect(guide).toContainText('40 B')
+  await guide.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '复制绝对路径' }).click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('/home/dev/hapi-desktop/docs/guide.md')
+  await guide.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '添加到对话框' }).click()
+  await expect(chat.getByRole('textbox', { name: '发送消息…' })).toHaveValue('原有草稿\n`docs/guide.md`')
+  await panel.getByRole('button', { name: '文件排序' }).click()
+  await page.getByRole('button', { name: '文件大小', exact: true }).click()
+  await page.getByRole('button', { name: '最大优先', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(guide).toBeVisible()
+  await expect(chat.getByRole('textbox', { name: '发送消息…' })).toHaveValue('原有草稿\n`docs/guide.md`')
+  await expect(panel.getByRole('button', { name: /^(larger|guide).md/ }).first()).toContainText('larger.md')
+  await guide.click()
+  await expect(panel.getByRole('heading', { name: '使用手册', exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: '复制文件内容', exact: true }).click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('# 使用手册\n\n文件栏预览内容')
+  await panel.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(panel.locator('[data-hapi-code-block]')).toContainText('# 使用手册')
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await panel.getByRole('searchbox', { name: '搜索文件' }).fill('guide')
+  await panel.getByRole('button', { name: /^docs\/guide.md/ }).click()
+  await expect(panel.getByRole('button', { name: '源码', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await expect(panel.getByRole('searchbox', { name: '搜索文件' })).toHaveValue('guide')
+  server.failFileSearch = true
+  await panel.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(panel.getByRole('alert')).toBeVisible()
+  server.failFileSearch = false
+  await panel.getByRole('searchbox', { name: '搜索文件' }).fill('')
+  await panel.getByRole('button', { name: 'preview.png', exact: true }).click()
+  await expect
+    .poll(() =>
+      panel.getByRole('img', { name: 'preview.png' }).evaluate((el) => (el as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await panel.getByRole('img', { name: 'preview.png' }).click()
+  await expect(page.getByRole('dialog', { name: 'preview.png' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  const output = join(dataDirectory, 'empty.txt')
+  await electron.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+  }, output)
+  await panel.getByRole('button', { name: '下载文件: empty.txt', exact: true }).click()
+  await expect.poll(async () => (await readFile(output).catch(() => null))?.length).toBe(0)
+  server.failGitNumstat = true
+  server.fileContents.set('src/main.ts', null)
+  await panel.getByRole('button', { name: '变更', exact: true }).click()
+  await panel.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('Diff')
+  await panel.locator('.file-row[data-path="src/main.ts"]').click()
+  await expect(panel.locator('.unified-diff')).toContainText('+const hub = connectHub()')
+  await panel.locator('.file-preview-modes').getByRole('button', { name: '文件', exact: true }).click()
+  await expect(panel.getByRole('alert')).toContainText('文件不可用')
+  server.fileContents.set('src/main.ts', Buffer.from('const hub = connectHub()'))
+  await panel.locator('.file-preview-toolbar').getByRole('button', { name: '刷新' }).click()
+  await expect(panel.locator('[data-hapi-code-block]')).toContainText('const hub = connectHub()')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  const reviewDraft = page.getByTestId('chat-review').getByRole('textbox', { name: '发送消息…' })
+  await reviewDraft.fill('另一栏草稿')
+  await panel.locator('.file-tabs').getByRole('button', { name: '文件', exact: true }).click()
+  await panel.getByRole('button', { name: 'docs', exact: true }).click()
+  await guide.click()
+  await panel.getByRole('button', { name: '添加到输入框' }).click()
+  await expect(reviewDraft).toHaveValue('另一栏草稿\n`docs/guide.md`')
+  await expect(chat.getByRole('textbox', { name: '发送消息…' })).toHaveValue('原有草稿\n`docs/guide.md`')
+  expect(
+    server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+  ).toHaveLength(0)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await expect(panel.getByRole('button', { name: '下载文件', exact: true })).toBeInViewport()
+  await expect(panel.getByRole('button', { name: '添加到输入框' })).toBeInViewport()
+  await expect(panel.getByRole('button', { name: '返回文件列表' })).toBeInViewport()
+  expect((await panel.locator('.file-preview-body').boundingBox())!.height).toBeGreaterThan(50)
+  expect(errors).toEqual([])
+})
+
+test('session context menu copies web references and confirms archive and deletion without opening the target', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('session-review').click({ button: 'right' })
+  await expect(page.getByTestId('chat-design')).toBeVisible()
+  await page.getByRole('menuitem', { name: '复制引用' }).click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+    .toContain('/sessions/review')
+  const reference = await electron.evaluate(({ clipboard }) => clipboard.readText())
+  expect(reference).toContain('See session "审查连接与恢复流程" (/sessions/review) for context.')
+  expect(reference).toContain('call inspect_peer')
+  await page.getByTestId('session-review').focus()
+  await page.keyboard.press('Shift+F10')
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('审查连接与恢复流程')
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  expect(server.requests.filter((request) => request.path.endsWith('/archive'))).toHaveLength(0)
+  await page.getByTestId('session-review').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click()
+  await dialog.getByRole('button', { name: '归档', exact: true }).click()
+  await expect(page.getByTestId('session-review')).toHaveAttribute('data-status', 'history')
+  server.failDelete = true
+  await page.getByTestId('session-review').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /删除/ }).click()
+  await dialog.getByRole('button', { name: '删除会话', exact: true }).click()
+  await expect(dialog).toContainText('请求失败')
+  expect(server.sessions.has('review')).toBe(true)
+  server.failDelete = false
+  server.emitDeleteEvents = false
+  await dialog.getByRole('button', { name: '删除会话', exact: true }).click()
+  await expect(page.getByTestId('session-review')).toHaveCount(0)
+  await expect(page.getByTestId('chat-design')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('conversation outline locates a prompt and returns to the latest messages', async () => {
   server.messages.set(
     'design',
@@ -501,7 +711,7 @@ test('two panes, isolated drafts, read-only files, approvals, rename and secure 
   await page.getByRole('button', { name: 'README.md', exact: true }).click()
   await expect(page.locator('.file-preview')).toContainText('A workspace for remote agents.')
   await page.getByRole('button', { name: '变更', exact: true }).click()
-  await page.locator('.file-row').filter({ hasText: 'src/main.ts' }).first().click()
+  await page.locator('.file-row[data-path="src/main.ts"]').first().click()
   await expect(page.locator('.unified-diff')).toContainText('+const hub = connectHub()')
   const review = server.sessions.get('review')!
   review.agentState = {
@@ -551,7 +761,7 @@ test('two panes, isolated drafts, read-only files, approvals, rename and secure 
   await first.getByRole('textbox').fill('')
   await second.getByRole('textbox').fill('')
   await page.getByRole('button', { name: '变更', exact: true }).click()
-  await page.locator('.file-row').filter({ hasText: 'src/main.ts' }).first().click()
+  await page.locator('.file-row[data-path="src/main.ts"]').first().click()
   await expect(page.locator('.unified-diff')).toContainText('+const hub = connectHub()')
   const startedAt = Date.now() - 5200
   const completedAt = Date.now() - 200

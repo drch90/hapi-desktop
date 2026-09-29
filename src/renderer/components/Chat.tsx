@@ -56,6 +56,7 @@ import { GeneratedMediaCard } from './GeneratedMediaCard'
 import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread'
 import { buildConversationOutline } from '@/chat/outline'
 import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
+import { formatFileReference } from '@/lib/file-composer'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
 
@@ -68,6 +69,7 @@ type ChatProps = {
   sessionDeleted: (id: string) => void
   openSession: (id: string) => void
   openFile: (path: string) => void
+  registerComposer: (id: string, insert: ((path: string) => void) | null) => void
 }
 
 export function Chat({
@@ -79,6 +81,7 @@ export function Chat({
   sessionDeleted,
   openSession,
   openFile,
+  registerComposer,
 }: ChatProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || 'en')
@@ -117,6 +120,19 @@ export function Chat({
   const latestDraft = useRef(draft)
   const migrated = useRef(false)
   const alive = useRef(true)
+  useEffect(() => {
+    registerComposer(id, (path) => {
+      const previous = latestDraft.current.text.trimEnd()
+      const text = previous ? `${previous}\n${formatFileReference(path)}` : formatFileReference(path)
+      const next = { ...latestDraft.current, text }
+      latestDraft.current = next
+      setDraft(next)
+      saveDraft(scope, id, next)
+      setQuestionsExpanded(false)
+      requestAnimationFrame(() => composer.current?.focus())
+    })
+    return () => registerComposer(id, null)
+  }, [id, scope, registerComposer])
   useEffect(() => {
     alive.current = true
     const unwatch = watchSession(id)

@@ -1597,7 +1597,7 @@
   },
   "web/src/components/SessionActionMenu.tsx": {
     "upstream": "4a4da8deae3c63ee2c0493c18672006ea4158292a65736f25f585b0da139e421",
-    "vendored": "4a4da8deae3c63ee2c0493c18672006ea4158292a65736f25f585b0da139e421"
+    "vendored": "bcb152c10a005acb11fcdb1f4d4a011d5fffc78e9d16f8e1d63f9ca0eed107d1"
   },
   "web/src/components/SessionAttentionIndicator.test.tsx": {
     "upstream": "7522c48a221cee971d095c3583dca30a0adf1518918de9a97b8f914aaa7107f3",
@@ -1637,7 +1637,7 @@
   },
   "web/src/components/SessionFiles/DirectoryTree.tsx": {
     "upstream": "b9b23a63d7b293216037ecca8a2b03b47ca56a3ddd7f4237f937b7b00c00e092",
-    "vendored": "b9b23a63d7b293216037ecca8a2b03b47ca56a3ddd7f4237f937b7b00c00e092"
+    "vendored": "9a8786af3be160420e951aee37d93da08c87cdaa0bb82917c7675245bd357c1a"
   },
   "web/src/components/SessionHeader.test.tsx": {
     "upstream": "5ff60cc8a7d33b17270cf0afa11c7309375110f2fced71a0df353d6ffa75d8d6",
@@ -3293,7 +3293,7 @@
   },
   "web/src/lib/sessionReference.ts": {
     "upstream": "e34d98be878dc7d7c9789f6f15e4386bf55fc0225e0904cb6d6fdc6622befabd",
-    "vendored": "e34d98be878dc7d7c9789f6f15e4386bf55fc0225e0904cb6d6fdc6622befabd"
+    "vendored": "38bb2754ce9f3ef2b403a641b343d9f2cf87d1d92412bb9ace0ce2d807eb38f1"
   },
   "web/src/lib/sessionResume.test.ts": {
     "upstream": "882ae0ab6cbd350a229233beda524a9ac018bb7913c07e3842f6608f35195a1b",
@@ -3561,7 +3561,7 @@
   },
   "web/src/routes/sessions/file.tsx": {
     "upstream": "7d34fb1cd43536a88b462e640bbeea48b64ca1fcc25f81817133bfa942474759",
-    "vendored": "7d34fb1cd43536a88b462e640bbeea48b64ca1fcc25f81817133bfa942474759"
+    "vendored": "1cf95268e01da366f457e96c34b14c49740a9bfa6b0bf5a28ac9b163375f49bb"
   },
   "web/src/routes/sessions/files.test.tsx": {
     "upstream": "40d7460d4860d840cdc00101d6d460046007a0b28c521ad193ed918a91c21eaa",
@@ -3569,7 +3569,7 @@
   },
   "web/src/routes/sessions/files.tsx": {
     "upstream": "83838a401ad303a7d3e7b782282584c19e785062d4ae233861e07b7ee61148d7",
-    "vendored": "83838a401ad303a7d3e7b782282584c19e785062d4ae233861e07b7ee61148d7"
+    "vendored": "e15e889ea635c468988d9ce1dbba65b95444cd5857c171aacb20cbda954bfa7a"
   },
   "web/src/routes/sessions/followSupersedingSession.test.ts": {
     "upstream": "caa1b75033cf3de36cfc86f3920c6079bc78e5b2485cb36197967e4d021291fa",

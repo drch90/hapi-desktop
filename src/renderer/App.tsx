@@ -59,7 +59,8 @@ import {
   type Workspace,
 } from './lib/workspace'
 import { Chat } from './components/Chat'
-import { FilePanel } from './components/FilePanel'
+import { FilePanel, type FileRequest } from './components/FilePanel'
+import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { NewSessionDialog } from './components/NewSessionDialog'
@@ -275,7 +276,13 @@ function Workbench({
   const [filter, setFilter] = useState('All')
   const [showSettings, setShowSettings] = useState(false)
   const [showNew, setShowNew] = useState(false)
-  const [preview, setPreview] = useState<{ sessionId: string; path: string } | null>(null)
+  const [preview, setPreview] = useState<FileRequest | null>(null)
+  const [sessionMenu, setSessionMenu] = useState<{ id: string; point: { x: number; y: number } } | null>(null)
+  const composerActions = useRef(new Map<string, (path: string) => void>())
+  const registerComposer = useCallback((id: string, insert: ((path: string) => void) | null) => {
+    if (insert) composerActions.current.set(id, insert)
+    else composerActions.current.delete(id)
+  }, [])
   const [readStateReady, setReadStateReady] = useState(false)
   const [windowFocused, setWindowFocused] = useState(() => document.hasFocus())
   const readVersion = useSessionLastSeenVersion()
@@ -550,6 +557,17 @@ function Workbench({
                         data-status={status}
                         className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
                         onClick={() => dispatch({ type: 'open', id: row.id })}
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                            event.preventDefault()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            setSessionMenu({ id: row.id, point: { x: rect.left + 20, y: rect.bottom } })
+                          }
+                        }}
                       >
                         {status === 'ready' ? (
                           <CheckCircle2 size={14} className="session-ready-icon" aria-hidden="true" />
@@ -668,8 +686,14 @@ function Workbench({
                         replaceSession={replaceSession}
                         sessionDeleted={sessionDeleted}
                         openSession={(id) => dispatch({ type: 'open', id })}
+                        registerComposer={registerComposer}
                         openFile={(path) => {
-                          setPreview({ sessionId: workspace.panes[pane].active!, path })
+                          if (workspace.focused !== pane) dispatch({ type: 'focus', pane })
+                          setPreview({
+                            sessionId: workspace.panes[pane].active!,
+                            path,
+                            requestId: crypto.randomUUID(),
+                          })
                           if (!workspace.sidePanel) dispatch({ type: 'side-panel' })
                         }}
                       />
@@ -704,13 +728,27 @@ function Workbench({
               <FilePanel
                 key={activeId}
                 sessionId={activeId}
-                requestedPath={preview?.sessionId === activeId ? preview.path : undefined}
+                scope={scope}
+                workspacePath={byId.get(activeId)?.metadata?.path}
+                request={preview?.sessionId === activeId ? preview : undefined}
+                onAddToComposer={(path) => composerActions.current.get(activeId)?.(path)}
+                onOpenSession={(id) => dispatch({ type: 'open', id })}
                 close={() => dispatch({ type: 'side-panel' })}
               />
             </div>
           )}
         </div>
       </section>
+      {sessionMenu && byId.get(sessionMenu.id) && (
+        <SessionListActions
+          key={`${sessionMenu.id}:${sessionMenu.point.x}:${sessionMenu.point.y}`}
+          session={byId.get(sessionMenu.id)!}
+          point={sessionMenu.point}
+          connected={connection.status === 'connected'}
+          onDismiss={() => setSessionMenu(null)}
+          onDeleted={sessionDeleted}
+        />
+      )}
       <SettingsDialog open={showSettings} close={() => setShowSettings(false)} bootstrap={bootstrap} />
       {showNew && (
         <NewSessionDialog
