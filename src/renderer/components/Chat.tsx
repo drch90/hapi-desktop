@@ -517,16 +517,18 @@ export function Chat({
                   {t('Permission mode')}:{' '}
                   {session.permissionMode ? t(getPermissionModeLabel(session.permissionMode)) : '—'}
                 </span>
-                <span>
-                  {t('Reasoning effort')}:{' '}
-                  {(session.metadata?.flavor === 'claude'
-                    ? session.effort
-                    : getReasoningEffortForFlavor(
-                        session.metadata?.flavor,
-                        session.modelReasoningEffort,
-                        session.effort,
-                      )) || t('Default')}
-                </span>
+                {session.metadata?.flavor !== 'hermes' && (
+                  <span>
+                    {t('Reasoning effort')}:{' '}
+                    {(session.metadata?.flavor === 'claude'
+                      ? session.effort
+                      : getReasoningEffortForFlavor(
+                          session.metadata?.flavor,
+                          session.modelReasoningEffort,
+                          session.effort,
+                        )) || t('Default')}
+                  </span>
+                )}
               </button>
               <div className="session-timestamps">
                 {(['createdAt', 'updatedAt'] as const).map((field) => {

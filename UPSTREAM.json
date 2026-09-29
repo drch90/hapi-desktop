@@ -19,7 +19,35 @@
     "Question footers support bounded scrolling with fixed navigation",
     "Export shared file sorting, rows, diff display and content helpers for the desktop sidebar",
     "DirectoryTree optional native download slot and account-scoped expansion storage",
-    "SessionActionMenu optional reference base URL for root-relative desktop citations"
+    "SessionActionMenu optional reference base URL for root-relative desktop citations",
+    "Backport Hermes flavor, native policies, model discovery/picker, commands, resume identity and approval semantics",
+    "Export shared Markdown Table with keyboard scrolling; regenerate permission catalog for Hermes"
   ],
-  "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices."
+  "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
+  "backports": [
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "0b70cac04c7492eb08f0c04466a576d5f157d67e",
+      "state": "Uncommitted Hermes implementation; file hashes record the exact source snapshot used, not a released commit",
+      "files": {
+        "shared/src/agentConfig.ts": "e8638f9e2e3a2edeb31fe1f9bedb8dd9daece71d4809d7656542b3f5714db7d5",
+        "shared/src/apiTypes.ts": "f2744be029b69f0c3caeaf6f17585ea9db53afa7b3b88844b1943b13065e4490",
+        "shared/src/flavors.ts": "ce49b4a5918e52819b32a55195202510113c921aad2324303da3aabcf52c6d5f",
+        "shared/src/modes.ts": "be8ba73da52fc9704a80b112c0327e92fb0500700aca7fee8570c6575d54f114",
+        "shared/src/schemas.ts": "4d553caf75db444ce8cd996c4c3dc75d1b80a1d731667d62df24b36049589a4e",
+        "shared/src/slashCommands.ts": "57c56e5a96928b83a4c1f79a3c5a7bb309333ca14619a8091c5835f7bf6a6432",
+        "shared/src/sessionSummary.ts": "414b182cf21bd85fce12c3ecec284e5351f6e1bdbdf9e9d45994009ef8b7112e",
+        "web/src/api/client.ts": "fadc2bc094d34841ffe9112239c0c41a7f2d7acad6b6b4ad22127bd9ea6ccb86",
+        "web/src/components/AssistantChat/modelOptions.ts": "05e25a7c5e75f23fd28426c360635c304171cda026e7332530ab1fadc9ac14d8",
+        "web/src/components/NewSession/types.ts": "660e16f4fd74c53cf82e642751dfeab8ab1fd34ee0bb07bb75ac5fd84438b395",
+        "web/src/components/ToolCard/PermissionFooter.tsx": "997a097a1f0f222ec49aed12fc3990739b4aa8394a3b202230c652852cbb33ea",
+        "web/src/lib/codexFamilyPermissionAgents.ts": "847835bfa0057038312f7782287af371764dc80809da4dab31be93534c98c5bc",
+        "web/src/lib/sessionResume.ts": "947a6fcd5b157b2d825b8693412be6402797c7a2fa20e6d62feba63e4693f7ce",
+        "web/src/components/AgentFlavorIcon.tsx": "4e3cc4c3a4ae789f049667db4ca8e0dbfa6a1a8f1e6d90e2bfeeff1184725ff8",
+        "web/src/components/HermesModelPicker.tsx": "1f07eb0c9f30316be58c82363889402a6d35bf566776c9f2828c62ef9394f158",
+        "web/src/hooks/queries/useHermesModels.ts": "149557df36cc56dfb01689f22c0f02766a2e7b030ca5026a1ce601b3c6cd763b",
+        "web/src/components/HermesModelPicker.test.tsx": "68d1db3f5e002085e1113eecb8c8c178845e9bce1ebd17ba8e27511777ad5fe4"
+      }
+    }
+  ]
 }

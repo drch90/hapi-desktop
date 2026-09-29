@@ -14,9 +14,69 @@ import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery } from '../
 import { ApiError, type ApiClient } from '@/api/client'
 import { toIntlLocale } from '../src/shared/i18n'
 
+import {
+  AgentAvailabilityResponseSchema,
+  SpawnSessionRequestSchema,
+  getPermissionModesForFlavor,
+  getAgentConfigDescriptor,
+  isSteeringSupportedForSession,
+  toSessionSummaryMetadata,
+} from '@hapi/protocol'
+import { MetadataSchema } from '@hapi/protocol/schemas'
+import { getBuiltinSlashCommands } from '@hapi/protocol/slashCommands'
+import { resolveAgentSessionIdFromMetadata } from '@/lib/sessionResume'
+
 beforeEach(() => localStorage.clear())
 
 describe('desktop trust boundary', () => {
+  it('accepts Hermes discovery and preserves its permissions, commands and native resume ID', () => {
+    expect(
+      AgentAvailabilityResponseSchema.parse({ agents: [{ agent: 'hermes', available: true }] }).agents[0]
+        .agent,
+    ).toBe('hermes')
+    expect(
+      SpawnSessionRequestSchema.parse({
+        directory: '/workspace',
+        agent: 'hermes',
+        permissionMode: 'acceptEdits',
+        model: 'custom:office:qwen:32b',
+      }),
+    ).toMatchObject({ agent: 'hermes', model: 'custom:office:qwen:32b' })
+    expect(getPermissionModesForFlavor('hermes')).toEqual(['default', 'acceptEdits'])
+    expect(getAgentConfigDescriptor('hermes').fields.map((field) => field.id)).toEqual([
+      'model',
+      'permission',
+    ])
+    expect(isSteeringSupportedForSession({ flavor: 'hermes' })).toBe(true)
+    const metadata = MetadataSchema.parse({
+      path: '/workspace',
+      host: 'runner',
+      flavor: 'hermes',
+      hermesSessionId: 'native-hermes',
+      claudeSessionId: 'unrelated',
+    })
+    expect(toSessionSummaryMetadata(metadata)?.agentSessionId).toBe('native-hermes')
+    expect(resolveAgentSessionIdFromMetadata(metadata)).toBe('native-hermes')
+    expect(resolveAgentSessionIdFromMetadata({ ...metadata, hermesSessionId: undefined })).toBeUndefined()
+    expect(getBuiltinSlashCommands('hermes').map((command) => command.name)).toEqual([
+      'help',
+      'model',
+      'tools',
+      'context',
+      'reset',
+      'compress',
+      'version',
+      'steer',
+    ])
+    for (const path of [
+      '/api/machines/runner/hermes-models?cwd=%2Fworkspace&refresh=true',
+      '/api/sessions/session/hermes-models?refresh=true',
+    ]) {
+      expect(hubRequestSchema.safeParse({ path, method: 'GET' }).success).toBe(true)
+      expect(hubRequestSchema.safeParse({ path, method: 'POST' }).success).toBe(false)
+    }
+  })
+
   it('accepts 50 MiB uploads while rejecting invalid payloads and preserving other route limits', () => {
     const request = {
       path: '/api/sessions/a/upload',

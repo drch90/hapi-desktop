@@ -35,6 +35,7 @@ export default defineConfig({
             'src/chat/toolGroups.test.ts',
             'src/chat/codexCommandPresentation.test.ts',
             'src/components/ToolCard/ToolGroupCard.test.tsx',
+            'src/components/HermesModelPicker.test.tsx',
           ],
         },
       },

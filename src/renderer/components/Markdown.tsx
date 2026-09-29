@@ -2,6 +2,8 @@ import { memo, createContext, useContext, useState, type ComponentPropsWithoutRe
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkRepairTables from '@/lib/remark-repair-tables'
+import { Table } from '@/components/assistant-ui/markdown-text'
 import { CodeBlock } from '@/components/CodeBlock'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { unwrap } from '../lib/api'
@@ -11,6 +13,10 @@ export const LinkContext = createContext<{
   openSession: (id: string) => void
   openFile: (path: string) => void
 }>({ openSession: () => {}, openFile: () => {} })
+
+function DesktopTable({ children }: ComponentPropsWithoutRef<'table'>) {
+  return <Table>{children}</Table>
+}
 
 function DesktopLink({ href, children }: ComponentPropsWithoutRef<'a'>) {
   const links = useContext(LinkContext)
@@ -80,8 +86,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   return (
     <div className={`markdown ${className ?? ''}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkRepairTables]}
         components={{
+          table: DesktopTable,
           a: DesktopLink,
           img: ({ alt }) => <span className="muted">[{alt ?? ''}]</span>,
           pre: ({ children }) => <>{children}</>,

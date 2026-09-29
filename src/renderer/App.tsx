@@ -66,6 +66,16 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { NewSessionDialog } from './components/NewSessionDialog'
 
+// New upstream picker labels share the desktop's seven-language catalog.
+const hermesLabels: Record<string, string> = {
+  'newSession.hermes.modelPlaceholder': 'Leave empty to use Hermes configuration',
+  'hermes.models.default': 'Use Hermes default',
+  'hermes.models.refresh': 'Refresh models',
+  'hermes.models.search': 'Search provider or model',
+  'hermes.models.loading': 'Loading Hermes models…',
+  'hermes.models.empty': 'No matching models',
+}
+
 export function App() {
   const { t, i18n } = useTranslation()
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null)
@@ -116,12 +126,14 @@ export function App() {
       locale,
       setLocale: () => {},
       t: (key: string, params?: Record<string, string | number>) =>
-        ((dict as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key).replace(
-          /\{(\w+)\}/g,
-          (match, key: string) => String(params?.[key] ?? match),
-        ),
+        hermesLabels[key]
+          ? t(hermesLabels[key], { lng: settings?.locale })
+          : ((dict as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key).replace(
+              /\{(\w+)\}/g,
+              (match, key: string) => String(params?.[key] ?? match),
+            ),
     }
-  }, [settings?.locale])
+  }, [settings?.locale, t])
   if (!bootstrap) return <div className="loading-screen">{t(fatal || 'Loading…')}</div>
   const authenticated = connection.status === 'connected' || connection.status === 'reconnecting'
   return (

@@ -2,7 +2,7 @@ import { test, expect, _electron, type ElectronApplication, type Page } from '@p
 import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { FixtureHub, fixtureMessage, fixtureCodexEvent } from './fake-server'
+import { FixtureHub, fixtureSession, fixtureMessage, fixtureCodexEvent } from './fake-server'
 import { version as appVersion } from '../package.json'
 
 let electron: ElectronApplication
@@ -2325,5 +2325,291 @@ test('multiple large image attachments survive SSE and history reload without di
   await expect(chat.locator('.transcript').getByRole('img', { name: /^large-/ })).toHaveCount(4)
   expect(server.uploads.size).toBe(4)
   expect(server.uploadDeletes).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('Hermes creation uses provider model IDs and native permissions, with manual/default fallback', async () => {
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await expect(launch.getByRole('group', { name: '思考强度', exact: true })).toHaveCount(0)
+  await expect(launch.getByRole('group', { name: '模式', exact: true })).toHaveCount(0)
+  await expect(launch.getByRole('group', { name: '快速模式', exact: true })).toHaveCount(0)
+  const permissions = launch.getByRole('group', { name: '权限模式', exact: true }).getByRole('combobox')
+  expect(
+    await permissions
+      .locator('option')
+      .evaluateAll((options) => options.map((o) => (o as HTMLOptionElement).value)),
+  ).toEqual(['default', 'acceptEdits'])
+  expect(server.hermesModelRequests).toEqual([])
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/project')
+  const model = launch.getByRole('group', { name: '模型', exact: true })
+  await expect(model.getByRole('button', { name: /custom:office:qwen:32b/ })).toBeEnabled()
+  await model.getByRole('textbox', { name: '搜索供应商或模型' }).fill('home')
+  await expect(model.getByRole('button', { name: /custom:office:qwen:32b/ })).toHaveCount(0)
+  await model.getByRole('button', { name: /custom:home:qwen:32b/ }).click()
+  await permissions.selectOption('acceptEdits')
+  await model.getByRole('button', { name: '刷新模型' }).click()
+  await expect
+    .poll(() => server.hermesModelRequests.some((r) => r.cwd === '/home/dev/project' && r.refresh))
+    .toBe(true)
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeInViewport()
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created')).toBeVisible()
+  expect(server.requests.find((r) => r.path.endsWith('/spawn'))?.body).toEqual({
+    directory: '/home/dev/project',
+    agent: 'hermes',
+    model: 'custom:home:qwen:32b',
+    permissionMode: 'acceptEdits',
+    sessionType: 'simple',
+    startingMode: 'remote',
+  })
+  server.failHermesModels = true
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/other')
+  await expect(model.getByRole('alert')).toContainText('无法加载会话选项')
+  await model.getByRole('textbox', { name: '模型', exact: true }).fill('custom:manual:my:model')
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created-2')).toBeVisible()
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn')).at(-1)?.body).toEqual({
+    directory: '/home/dev/other',
+    agent: 'hermes',
+    model: 'custom:manual:my:model',
+    permissionMode: 'default',
+    sessionType: 'simple',
+    startingMode: 'remote',
+  })
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/third')
+  await model.getByRole('textbox', { name: '模型', exact: true }).fill('custom:manual:model')
+  await model.getByRole('button', { name: '使用 Hermes 默认配置' }).click()
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created-3')).toBeVisible()
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn')).at(-1)?.body).toEqual({
+    directory: '/home/dev/third',
+    agent: 'hermes',
+    permissionMode: 'default',
+    sessionType: 'simple',
+    startingMode: 'remote',
+  })
+  expect(errors).toEqual([])
+})
+
+test('Hermes settings refresh provider models, preserve failures and disable changes during a turn', async () => {
+  const session = fixtureSession('hermes', 'Hermes 会话', 'hermes')
+  session.model = 'custom:office:qwen:32b'
+  session.metadata!.hermesSessionId = 'native-hermes'
+  server.sessions.set(session.id, session)
+  server.messages.set(session.id, [])
+  server.emit({ type: 'session-added', sessionId: session.id, data: session })
+  await page.getByTestId('session-hermes').click()
+  const chat = page.getByTestId('chat-hermes')
+  await chat.getByRole('button', { name: '会话设置', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: '会话设置', exact: true })
+  const homeModel = settings.getByRole('button', { name: /custom:home:qwen:32b/ })
+  const officeModel = settings.getByRole('button', { name: /custom:office:qwen:32b/ })
+  await expect(officeModel).toHaveAttribute('aria-pressed', 'true')
+  await homeModel.click()
+  await expect(homeModel).toHaveAttribute('aria-pressed', 'true')
+  expect(server.requests.find((r) => r.path === '/api/sessions/hermes/model')?.body).toEqual({
+    model: 'custom:home:qwen:32b',
+  })
+  await expect(settings.getByLabel('思考强度', { exact: true })).toHaveCount(0)
+  server.failSetting = true
+  await officeModel.click()
+  await expect(settings.getByRole('alert')).toBeVisible()
+  await expect(homeModel).toHaveAttribute('aria-pressed', 'true')
+  await expect(officeModel).toBeDisabled()
+  server.failSetting = false
+  await settings.getByRole('button', { name: '刷新模型' }).click()
+  await expect(officeModel).toBeEnabled()
+  await expect
+    .poll(() =>
+      server.hermesModelRequests.some((r) => r.path === '/api/sessions/hermes/hermes-models' && r.refresh),
+    )
+    .toBe(true)
+  await officeModel.click()
+  await expect(officeModel).toHaveAttribute('aria-pressed', 'true')
+  await settings.getByRole('combobox', { name: '权限模式', exact: true }).selectOption('acceptEdits')
+  await expect(settings.getByRole('combobox', { name: '权限模式', exact: true })).toHaveValue('acceptEdits')
+  session.thinking = true
+  session.updatedAt += 1000
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await expect(settings).toContainText('请等待当前轮次结束后再修改设置')
+  await expect(homeModel).toBeDisabled()
+  await expect(settings.getByRole('combobox', { name: '权限模式', exact: true })).toBeDisabled()
+  session.thinking = false
+  session.updatedAt += 1000
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await expect(homeModel).toBeEnabled()
+  server.failHermesModels = true
+  await settings.getByRole('button', { name: '刷新模型' }).click()
+  await expect(settings.getByRole('alert')).toContainText('无法加载会话选项')
+  await expect(settings).not.toContainText('fixture internal details')
+  await expect(homeModel).toHaveCount(0)
+  await expect(settings).toContainText('custom:office:qwen:32b')
+  server.failHermesModels = false
+  await settings.getByRole('button', { name: '刷新模型' }).click()
+  await expect(homeModel).toBeEnabled()
+  await settings.locator('footer').getByRole('button', { name: '关闭', exact: true }).click()
+  await page.reload()
+  await expect(chat).toBeVisible()
+  await chat.getByRole('button', { name: '会话设置', exact: true }).click()
+  await expect(officeModel).toHaveAttribute('aria-pressed', 'true')
+  await expect(settings.getByRole('combobox', { name: '权限模式', exact: true })).toHaveValue('acceptEdits')
+  expect(errors).toEqual([])
+})
+
+test('Hermes supports commands, steering, native approval decisions and same-ID resume', async () => {
+  const session = fixtureSession('hermes', 'Hermes 对话', 'hermes')
+  session.metadata!.hermesSessionId = 'native-hermes'
+  session.thinking = true
+  session.agentState!.steeringActive = true
+  server.sessions.set(session.id, session)
+  server.messages.set(session.id, [])
+  server.emit({ type: 'session-added', sessionId: session.id, data: session })
+  await page.getByTestId('session-hermes').click()
+  const chat = page.getByTestId('chat-hermes')
+  await chat.getByRole('textbox', { name: '发送消息…' }).fill('/compress')
+  await expect(chat.getByRole('region', { name: '原生命令' })).toContainText('/compress')
+  await page.keyboard.press('Escape')
+  await chat.getByRole('textbox', { name: '发送消息…' }).fill('/model custom:home:qwen:32b')
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect
+    .poll(() =>
+      server.requests.some(
+        (r) => r.path === '/api/sessions/hermes/messages' && r.body.text === '/model custom:home:qwen:32b',
+      ),
+    )
+    .toBe(true)
+  await chat.getByRole('textbox', { name: '发送消息…' }).fill('请优先检查日志')
+  await chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true }).click()
+  await expect
+    .poll(
+      () =>
+        server.requests
+          .filter((r) => r.path === '/api/sessions/hermes/messages' && r.method === 'POST')
+          .at(-1)?.body.deliveryMode,
+    )
+    .toBe('steer')
+  session.agentState!.requests = {
+    'hermes-approval': {
+      tool: 'Edit',
+      arguments: { file_path: '/home/dev/project/main.ts', old_string: 'old', new_string: 'new' },
+      createdAt: Date.now(),
+    },
+  }
+  session.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  const approval = chat.locator('.approval-area')
+  await expect(approval.getByRole('button', { name: '是', exact: true })).toBeVisible()
+  await approval.getByRole('button', { name: '是', exact: true }).click()
+  expect(
+    server.requests.find((r) => r.path === '/api/sessions/hermes/permissions/hermes-approval/approve')?.body,
+  ).toEqual({ decision: 'approved' })
+  session.active = false
+  session.thinking = false
+  session.updatedAt += 1000
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await expect(chat.getByRole('button', { name: '恢复会话', exact: true })).toBeVisible()
+  await chat.getByRole('button', { name: '恢复会话', exact: true }).click()
+  await expect(chat.getByRole('button', { name: '中断', exact: true })).toBeVisible()
+  await chat.getByRole('textbox', { name: '发送消息…' }).fill('继续原 Hermes 对话')
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.locator('.transcript')).toContainText('继续原 Hermes 对话')
+  expect(server.requests.some((r) => r.path === '/api/sessions/hermes/resume')).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('Hermes availability blocks unsupported machines and empty catalogs retain default creation', async () => {
+  server.hermesAvailable = false
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/project')
+  await expect(launch).toContainText('此机器上 Agent 不可用')
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeDisabled()
+  expect(server.hermesModelRequests).toEqual([])
+  await page.keyboard.press('Escape')
+  server.hermesAvailable = true
+  server.emptyHermesModels = true
+  await page.reload()
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/project')
+  const model = launch.getByRole('group', { name: '模型', exact: true })
+  await expect(model).toContainText('没有匹配的模型')
+  await model.getByRole('textbox', { name: '模型', exact: true }).fill('custom:office:qwen:32b')
+  await launch.getByLabel('目录', { exact: true }).fill('/home/dev/other')
+  await expect(model.getByRole('textbox', { name: '模型', exact: true })).toHaveValue('')
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created')).toBeVisible()
+  expect(server.requests.find((r) => r.path.endsWith('/spawn'))?.body).toEqual({
+    directory: '/home/dev/other',
+    agent: 'hermes',
+    permissionMode: 'default',
+    sessionType: 'simple',
+    startingMode: 'remote',
+  })
+  expect(errors).toEqual([])
+})
+
+test('Markdown tables preserve alignment and scroll within a narrow chat pane', async () => {
+  const markdown = [
+    '| 左对齐 | 居中 | 右对齐 | 文件 | 说明 | 状态 | 最后一列 |',
+    '| :--- | :---: | ---: | --- | --- | --- | --- |',
+    '| a \\| b | **加粗** | 123.45 | `custom:office:qwen:32b` | [文档](https://example.com/guide) | 已完成 | 表格末尾 |',
+  ].join('\n')
+  server.messages.set('design', [fixtureMessage('table', 1, markdown)])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const table = chat.getByRole('table')
+  await expect(table.getByRole('cell')).toHaveCount(7)
+  await expect(table.getByRole('cell').first()).toHaveText('a | b')
+  await expect(table.getByRole('columnheader').nth(1)).toHaveCSS('text-align', 'center')
+  await expect(table.getByRole('cell').nth(2)).toHaveCSS('text-align', 'right')
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const wrapper = table.locator('..')
+  await expect(wrapper).toHaveCSS('overflow-x', 'auto')
+  await wrapper.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => wrapper.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  expect(await wrapper.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await wrapper.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth
+  })
+  expect(await wrapper.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  expect(
+    await chat.locator('.transcript').evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1)
+  await chat.locator('.message-actions').getByRole('button', { name: '复制', exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(markdown)
+  const tableWidth = await wrapper.evaluate((element) => element.scrollWidth)
+  await chat.getByRole('button', { name: '分享', exact: true }).click()
+  const share = page.getByRole('dialog')
+  await share.getByRole('button', { name: '复制', exact: true }).last().click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readImage().getSize().width), {
+      timeout: 20_000,
+    })
+    .toBeGreaterThanOrEqual(tableWidth)
+  await page.keyboard.press('Escape')
+  // Web repairs short delimiter rows, but fenced examples must remain code.
+  const malformed = '| A | B | C |\n| :--- | ---: |\n| x | y | z |'
+  const followup = `${malformed}\n\n\`\`\`text\n${malformed}\n\`\`\``
+  server.emit({
+    type: 'message-received',
+    sessionId: 'design',
+    message: fixtureMessage('repaired-table', 2, followup),
+  })
+  await expect(chat.getByRole('table')).toHaveCount(2)
+  await expect(chat.getByRole('table').last().getByRole('cell')).toHaveCount(3)
+  await expect(chat.getByRole('table').last().getByRole('cell').last()).toHaveText('z')
   expect(errors).toEqual([])
 })

@@ -17,7 +17,7 @@
   },
   "shared/fixtures/catalogs/modes.json": {
     "upstream": "0ec61163b4b839cbe4efb5cd8bf247aeca14dd7cf1ab2fdeb46c6d4cce2ae3cc",
-    "vendored": "0ec61163b4b839cbe4efb5cd8bf247aeca14dd7cf1ab2fdeb46c6d4cce2ae3cc"
+    "vendored": "459837a1529ee03cb4fc7d36652712ef29f79162fd550da7f43419969d794861"
   },
   "shared/fixtures/chat/agy-message.json": {
     "upstream": "ee125cb902b0b19eec30ad9375eb029fca2a2254649f43f070a914041030184d",
@@ -393,7 +393,7 @@
   },
   "shared/src/agentConfig.ts": {
     "upstream": "fcc4e781de3cb8c3a575a39b64e7f3fce153998611881d3e4b8f99ea2c541a6a",
-    "vendored": "fcc4e781de3cb8c3a575a39b64e7f3fce153998611881d3e4b8f99ea2c541a6a"
+    "vendored": "e8638f9e2e3a2edeb31fe1f9bedb8dd9daece71d4809d7656542b3f5714db7d5"
   },
   "shared/src/apiTypes.test.ts": {
     "upstream": "d4c1516a6001b084692ee2f8360ee0b1101ce6c9dd5b22107e7d66f9dd661145",
@@ -401,7 +401,7 @@
   },
   "shared/src/apiTypes.ts": {
     "upstream": "0a1bf18ddbd69697a9a817b053b72c0a0288e8ad7342098743f1868c7d0991b1",
-    "vendored": "0a1bf18ddbd69697a9a817b053b72c0a0288e8ad7342098743f1868c7d0991b1"
+    "vendored": "5d3220d06502803a1fffdfe7c6daac60096ccd2bc5c8ca89053fe9a3798842ed"
   },
   "shared/src/buildInfo.ts": {
     "upstream": "cd60d840a872faa3c2b7cd30d71ef5983bd83577a898ac7a254359667de8829a",
@@ -441,7 +441,7 @@
   },
   "shared/src/flavors.ts": {
     "upstream": "1a2442c9366485f34a9b32c42669ccf9b218854598ada45c08c48b3ccbdef6e4",
-    "vendored": "1a2442c9366485f34a9b32c42669ccf9b218854598ada45c08c48b3ccbdef6e4"
+    "vendored": "ce49b4a5918e52819b32a55195202510113c921aad2324303da3aabcf52c6d5f"
   },
   "shared/src/index.ts": {
     "upstream": "645f339e65110203963fec5912ef0dd162938d33616533ab3bf5a3d6ce300513",
@@ -469,7 +469,7 @@
   },
   "shared/src/modes.ts": {
     "upstream": "4b80317fd0754aa52270b7d0f793f14278de34079a9a61fdd646531c9ae9c4c7",
-    "vendored": "4b80317fd0754aa52270b7d0f793f14278de34079a9a61fdd646531c9ae9c4c7"
+    "vendored": "be8ba73da52fc9704a80b112c0327e92fb0500700aca7fee8570c6575d54f114"
   },
   "shared/src/piThinkingLevel.ts": {
     "upstream": "96651d0ede2c46e27835aadbbf4d014e22b629c6701e6ecf742f2b8a34b00d5c",
@@ -517,7 +517,7 @@
   },
   "shared/src/schemas.ts": {
     "upstream": "c80ba6f753616ca27123d58f21cc5bcc15d4d71cd6d1ce794ceabb37052fadc5",
-    "vendored": "c80ba6f753616ca27123d58f21cc5bcc15d4d71cd6d1ce794ceabb37052fadc5"
+    "vendored": "af82aa4e704226ae7be96b1757bbb8e76ff3be708f3b92f0a262814817af89db"
   },
   "shared/src/scratchlistAttachments.ts": {
     "upstream": "05e5dd361a3eccf01aa575e10801da261975fd42d7c45e0a870a539c861463cf",
@@ -549,7 +549,7 @@
   },
   "shared/src/sessionSummary.ts": {
     "upstream": "e91071fc7e6a9eb01b03205a0caf0eda50d39db8bc7bd6b57e78aa96749c6e8b",
-    "vendored": "e91071fc7e6a9eb01b03205a0caf0eda50d39db8bc7bd6b57e78aa96749c6e8b"
+    "vendored": "414b182cf21bd85fce12c3ecec284e5351f6e1bdbdf9e9d45994009ef8b7112e"
   },
   "shared/src/settingsFileLock.test.ts": {
     "upstream": "0d07b65ba1c9df66a70387acaa954036fe49466bdafed8bbeaa9668a8fb0ab9b",
@@ -561,7 +561,7 @@
   },
   "shared/src/slashCommands.ts": {
     "upstream": "09de9754c2873fa0a30d3ea235dcdcc96da324e58c0ba9d3f4490972290cffd3",
-    "vendored": "09de9754c2873fa0a30d3ea235dcdcc96da324e58c0ba9d3f4490972290cffd3"
+    "vendored": "57c56e5a96928b83a4c1f79a3c5a7bb309333ca14619a8091c5835f7bf6a6432"
   },
   "shared/src/socket.ts": {
     "upstream": "1e759b93711f5f9a493054602abdb621b6fb9af5abd5e8a11c7ddef3812d330b",
@@ -785,7 +785,7 @@
   },
   "web/src/api/client.ts": {
     "upstream": "299d3161ed1e9e9d90b9a2b074c9381ab00c8e0b6654f184dfb9f8f13e85a54f",
-    "vendored": "ecfe29f90dcb3f9e64e8baf397866615385c2c553f177ce470e003e7d094231d"
+    "vendored": "7e07bd6bb238d4a15bce008d9910fd290494ca291350c9c706cc312375811c30"
   },
   "web/src/api/voice.ts": {
     "upstream": "a5d5c9f5faad1a2875c733fd4f4e963ada3572d348064fd4f3e9d832135dd25e",
@@ -957,7 +957,7 @@
   },
   "web/src/components/AgentFlavorIcon.tsx": {
     "upstream": "29501d84aa78d61018e0ffe7925a6b458e40e79b1590c90b6a9aecbe97135e3b",
-    "vendored": "29501d84aa78d61018e0ffe7925a6b458e40e79b1590c90b6a9aecbe97135e3b"
+    "vendored": "4e3cc4c3a4ae789f049667db4ca8e0dbfa6a1a8f1e6d90e2bfeeff1184725ff8"
   },
   "web/src/components/AgentTerminal/AgentTerminalView.tsx": {
     "upstream": "0cc8cb702cebc9453326417d06b5261d9d0271c3bc0644e93cdde7030657b999",
@@ -1241,7 +1241,7 @@
   },
   "web/src/components/AssistantChat/modelOptions.ts": {
     "upstream": "3a31bbb41b8831c326fdc7d5bc5449c856abd93269ee71a1ceee5723e384bd3a",
-    "vendored": "3a31bbb41b8831c326fdc7d5bc5449c856abd93269ee71a1ceee5723e384bd3a"
+    "vendored": "289c749833000eef04df700a039a01cbac954ee45c8674ed4d016ccc6bd74552"
   },
   "web/src/components/AssistantChat/piModelGroups.ts": {
     "upstream": "b789fff60cee7ab4cb29515cce80175e37cfe8506c60ca3a52b7696882022e5e",
@@ -1322,6 +1322,14 @@
   "web/src/components/Fue.tsx": {
     "upstream": "d58a0a1ea0dcdf7b8d15792d1bae5435330da222ca79822b1e86b6f83ad8aab0",
     "vendored": "d58a0a1ea0dcdf7b8d15792d1bae5435330da222ca79822b1e86b6f83ad8aab0"
+  },
+  "web/src/components/HermesModelPicker.test.tsx": {
+    "upstream": null,
+    "vendored": "d2e061c36daec2468dc1a59926d1a89be0cba677eb169e86b17304a277c5c2c5"
+  },
+  "web/src/components/HermesModelPicker.tsx": {
+    "upstream": null,
+    "vendored": "1f07eb0c9f30316be58c82363889402a6d35bf566776c9f2828c62ef9394f158"
   },
   "web/src/components/HoverTooltip.test.tsx": {
     "upstream": "fe5fa1b01178a8ad26e3a816ab248d3840b0d084f0e4254d5ff2d1b529399f4e",
@@ -1545,7 +1553,7 @@
   },
   "web/src/components/NewSession/types.ts": {
     "upstream": "39505e86a49ba95804c9e2ec5d19b3451bb7c85733c8487b66231db5691aad93",
-    "vendored": "39505e86a49ba95804c9e2ec5d19b3451bb7c85733c8487b66231db5691aad93"
+    "vendored": "660e16f4fd74c53cf82e642751dfeab8ab1fd34ee0bb07bb75ac5fd84438b395"
   },
   "web/src/components/OfflineBanner.test.tsx": {
     "upstream": "eddc4ffb7ab6e6f2e10c7a1463b9637af5447434d399161546a7c2cb1ac4845e",
@@ -1733,7 +1741,7 @@
   },
   "web/src/components/ToolCard/PermissionFooter.tsx": {
     "upstream": "1243af0e86d98cc8fe79178e1c724c5ba3262fdaf3d50f3939c706838206e806",
-    "vendored": "1243af0e86d98cc8fe79178e1c724c5ba3262fdaf3d50f3939c706838206e806"
+    "vendored": "997a097a1f0f222ec49aed12fc3990739b4aa8394a3b202230c652852cbb33ea"
   },
   "web/src/components/ToolCard/RequestUserInputFooter.test.tsx": {
     "upstream": "855134e7971824aac3cdc04f9cf9dfcfaf1d8ef43baffb4a213b938664966659",
@@ -1961,7 +1969,7 @@
   },
   "web/src/components/assistant-ui/markdown-text.tsx": {
     "upstream": "fd48b0377e05d06eae9747d1b1cf320500bf89fb8776d6332fac242644081f83",
-    "vendored": "fd48b0377e05d06eae9747d1b1cf320500bf89fb8776d6332fac242644081f83"
+    "vendored": "ac90e3a3ebab668a6fbe9ea1d5a84690deead7d0cfdd1c330630f9749fad1868"
   },
   "web/src/components/assistant-ui/markdown-utils.ts": {
     "upstream": "6b919571aae0b67a76444015bd5975aa63745c64b9d9f207a449fdc96d82669c",
@@ -1999,13 +2007,13 @@
     "upstream": "c998ca50684cee0e187811abe4fbba2e7aa7c054313e10da1c00d5444422155a",
     "vendored": "c998ca50684cee0e187811abe4fbba2e7aa7c054313e10da1c00d5444422155a"
   },
-  "web/src/components/icons.tsx": {
-    "upstream": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614",
-    "vendored": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614"
-  },
   "web/src/components/icons/CopilotIcon.tsx": {
     "upstream": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a",
     "vendored": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a"
+  },
+  "web/src/components/icons.tsx": {
+    "upstream": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614",
+    "vendored": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614"
   },
   "web/src/components/settings/CompanionPairing.tsx": {
     "upstream": "8c4530796b11a912fdcc869aa7587ba50c928c86bd015e3f1d57d4d7d439fdcb",
@@ -2202,6 +2210,10 @@
   "web/src/hooks/queries/useGrokReasoningEffortOptions.ts": {
     "upstream": "6d3ed137d988c48474f066d8f3a6bfaea3c0ec65dcd9a0b1d0cc21a7ed9adaea",
     "vendored": "6d3ed137d988c48474f066d8f3a6bfaea3c0ec65dcd9a0b1d0cc21a7ed9adaea"
+  },
+  "web/src/hooks/queries/useHermesModels.ts": {
+    "upstream": null,
+    "vendored": "149557df36cc56dfb01689f22c0f02766a2e7b030ca5026a1ce601b3c6cd763b"
   },
   "web/src/hooks/queries/useMachines.ts": {
     "upstream": "727b01492b8335fdf2268f65076643ebbe6852e47c36342ff5c581896106d659",
@@ -2761,7 +2773,7 @@
   },
   "web/src/lib/codexFamilyPermissionAgents.ts": {
     "upstream": "71b41836921343a452cc8cdc5bdcd11f200c9cdceb7eff1e082bb0ff7c74e425",
-    "vendored": "71b41836921343a452cc8cdc5bdcd11f200c9cdceb7eff1e082bb0ff7c74e425"
+    "vendored": "847835bfa0057038312f7782287af371764dc80809da4dab31be93534c98c5bc"
   },
   "web/src/lib/codexImportedSessions.ts": {
     "upstream": "e87a2f0c3a36b872160500cbaefdb883c3f58915a983774390e51fff4499d236",
@@ -3301,7 +3313,7 @@
   },
   "web/src/lib/sessionResume.ts": {
     "upstream": "2a8e4e75b0ef7556d9be03d1d3ef8d3f6fec87a686a9d7a7b2b0e0aa29e02fd6",
-    "vendored": "2a8e4e75b0ef7556d9be03d1d3ef8d3f6fec87a686a9d7a7b2b0e0aa29e02fd6"
+    "vendored": "947a6fcd5b157b2d825b8693412be6402797c7a2fa20e6d62feba63e4693f7ce"
   },
   "web/src/lib/sessionTitle.test.ts": {
     "upstream": "ae79f669d624b867d468b527c3e9e15925c13f780680214ba04803bc55fb8b23",

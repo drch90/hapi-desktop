@@ -771,11 +771,11 @@ function Hr(props: ComponentPropsWithoutRef<'hr'>) {
     return <hr {...props} className={cn('aui-md-hr my-4 border-[var(--app-divider)]', props.className)} />
 }
 
-function Table(props: ComponentPropsWithoutRef<'table'>) {
+export function Table(props: ComponentPropsWithoutRef<'table'>) {
     const { className, ...rest } = props
 
     return (
-        <div className="aui-md-table-wrapper my-3 max-w-full overflow-x-auto rounded-xl bg-[var(--app-md-table-bg)]">
+        <div tabIndex={0} className="aui-md-table-wrapper my-3 max-w-full overflow-x-auto rounded-xl bg-[var(--app-md-table-bg)]">
             <table {...rest} className={cn('aui-md-table w-full border-collapse text-sm', className)} />
         </div>
     )

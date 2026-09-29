@@ -10,6 +10,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { SelectControl } from '@/components/ui/select-control'
 import { Button } from '@/components/ui/button'
+import { HermesModelPicker } from '@/components/HermesModelPicker'
+import { useHermesModels } from '@/hooks/queries/useHermesModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
@@ -30,13 +32,20 @@ export function SessionConfiguration(props: {
   const { t } = useTranslation()
   const { session } = props
   const flavor = session.metadata?.flavor
-  const supported = flavor === 'codex' || flavor === 'claude' || flavor === 'opencode'
+  const supported = flavor === 'codex' || flavor === 'claude' || flavor === 'opencode' || flavor === 'hermes'
   const controlled =
     session.agentState?.controlledByUser === true && !session.metadata?.capabilities?.concurrentClients
-  const editable = supported && props.connected && session.active && !controlled
+  const waitingForTurn = flavor === 'hermes' && session.thinking
+  const editable = supported && props.connected && session.active && !controlled && !waitingForTurn
   const [pending, setPending] = useState(false)
   const saving = useRef(false)
   const [error, setError] = useState('')
+  const hermes = useHermesModels({
+    api,
+    sessionId: session.id,
+    model: session.model,
+    enabled: flavor === 'hermes' && props.connected && session.active,
+  })
   const codex = useCodexModels({
     api,
     sessionId: session.id,
@@ -69,20 +78,22 @@ export function SessionConfiguration(props: {
         (option) => !session.metadata?.capabilities?.concurrentClients || option.mode !== 'safe-yolo',
       )
     : []
-  const catalog = flavor === 'codex' ? codex : flavor === 'opencode' ? opencode : null
+  const catalog =
+    flavor === 'codex' ? codex : flavor === 'opencode' ? opencode : flavor === 'hermes' ? hermes : null
   const modes = flavor === 'codex' ? getCodexCollaborationModeOptions() : []
   const modelOptions = !supported
     ? []
     : (flavor === 'codex' && !codex.models.length) ||
-        (flavor === 'opencode' && !opencode.availableModels.length)
+        ((flavor === 'opencode' || flavor === 'hermes') &&
+          !(flavor === 'hermes' ? hermes : opencode).availableModels.length)
       ? [{ value: session.model ?? null, label: session.model || 'Default' }]
       : getModelOptionsForFlavor(
           flavor,
           session.model,
           flavor === 'codex'
             ? codex.models.map((model) => ({ value: model.id, label: model.displayName }))
-            : flavor === 'opencode'
-              ? opencode.availableModels.map((model) => ({
+            : flavor === 'opencode' || flavor === 'hermes'
+              ? (flavor === 'hermes' ? hermes : opencode).availableModels.map((model) => ({
                   value: model.modelId,
                   label: model.name ?? model.modelId,
                 }))
@@ -103,7 +114,9 @@ export function SessionConfiguration(props: {
         : []
   const catalogReady =
     flavor === 'claude' ||
-    (flavor === 'codex' ? codex.models.length > 0 : opencode.availableModels.length > 0)
+    (flavor === 'codex'
+      ? codex.models.length > 0
+      : (flavor === 'hermes' ? hermes : opencode).availableModels.length > 0)
   const modelsDisabled =
     !editable || pending || !catalogReady || Boolean(catalog?.error) || Boolean(catalog?.isLoading)
   const effortDisabled =
@@ -168,7 +181,9 @@ export function SessionConfiguration(props: {
                   ? 'Connection failed. Check the Hub address and network.'
                   : !session.active
                     ? 'Resume this session to change settings.'
-                    : 'This session is controlled by the terminal.',
+                    : waitingForTurn
+                      ? 'Wait for the current turn to finish before changing settings.'
+                      : 'This session is controlled by the terminal.',
             )}
           </p>
         )}
@@ -207,46 +222,71 @@ export function SessionConfiguration(props: {
             ))}
           </SelectControl>
         </label>
-        <label>
-          {t('Model')}
-          <SelectControl
-            value={session.model === 'default' || session.model === 'auto' ? '' : (session.model ?? '')}
-            disabled={modelsDisabled}
-            onChange={(event) => void change('model', event.target.value)}
-          >
-            {!modelOptions.some((option) => option.value === null) && (
-              <option value="" disabled>
-                {t('Default')}
-              </option>
-            )}
-            {modelOptions.map((option) => (
-              <option key={option.value ?? ''} value={option.value ?? ''}>
-                {t(option.label, { defaultValue: option.label })}
-              </option>
-            ))}
-          </SelectControl>
-        </label>
-        <label>
-          {t('Reasoning effort')}
-          <SelectControl
-            value={effort === 'default' || effort === 'auto' ? '' : (effort ?? '')}
-            disabled={effortDisabled}
-            onChange={(event) => void change('effort', event.target.value)}
-          >
-            {!effortOptions.length && <option value={effort ?? ''}>{effort || t('Not available')}</option>}
-            {effortOptions.map((option) => (
-              <option key={option.value ?? ''} value={option.value ?? ''}>
-                {t(option.label, { defaultValue: option.label })}
-              </option>
-            ))}
-          </SelectControl>
-        </label>
-        {editable && (catalog?.isLoading || opencodeEffort.isLoading) && (
+        {flavor === 'hermes' ? (
+          <section aria-label={t('Model')}>
+            <HermesModelPicker
+              models={hermes.availableModels}
+              value={session.model}
+              onChange={(value) => void change('model', value)}
+              isLoading={hermes.isLoading}
+              error={
+                error
+                  ? t(error)
+                  : hermes.error
+                    ? t('Unable to load session options. Use Refresh to retry.')
+                    : null
+              }
+              disabled={!editable || pending}
+              onRefresh={() => {
+                setError('')
+                hermes.refetch()
+              }}
+            />
+          </section>
+        ) : (
+          <label>
+            {t('Model')}
+            <SelectControl
+              value={session.model === 'default' || session.model === 'auto' ? '' : (session.model ?? '')}
+              disabled={modelsDisabled}
+              onChange={(event) => void change('model', event.target.value)}
+            >
+              {!modelOptions.some((option) => option.value === null) && (
+                <option value="" disabled>
+                  {t('Default')}
+                </option>
+              )}
+              {modelOptions.map((option) => (
+                <option key={option.value ?? ''} value={option.value ?? ''}>
+                  {t(option.label, { defaultValue: option.label })}
+                </option>
+              ))}
+            </SelectControl>
+          </label>
+        )}
+        {flavor !== 'hermes' && (
+          <label>
+            {t('Reasoning effort')}
+            <SelectControl
+              value={effort === 'default' || effort === 'auto' ? '' : (effort ?? '')}
+              disabled={effortDisabled}
+              onChange={(event) => void change('effort', event.target.value)}
+            >
+              {!effortOptions.length && <option value={effort ?? ''}>{effort || t('Not available')}</option>}
+              {effortOptions.map((option) => (
+                <option key={option.value ?? ''} value={option.value ?? ''}>
+                  {t(option.label, { defaultValue: option.label })}
+                </option>
+              ))}
+            </SelectControl>
+          </label>
+        )}
+        {editable && flavor !== 'hermes' && (catalog?.isLoading || opencodeEffort.isLoading) && (
           <p className="muted" role="status">
             {t('Loading…')}
           </p>
         )}
-        {editable && (catalog?.error || opencodeEffort.error) && (
+        {editable && flavor !== 'hermes' && (catalog?.error || opencodeEffort.error) && (
           <div>
             <p className="error" role="alert">
               {t('Unable to load session options. Use Refresh to retry.')}
@@ -272,7 +312,7 @@ export function SessionConfiguration(props: {
             </Button>
           </div>
         )}
-        {error && (
+        {error && flavor !== 'hermes' && (
           <p className="error" role="alert">
             {t(error)}
           </p>

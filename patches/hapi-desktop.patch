@@ -1,3 +1,5 @@
+diff --git a/vendor/hapi/hub/src/notifications/eventParsing.ts b/vendor/hapi/hub/src/notifications/eventParsing.ts
+index 4f8b527..3412aaf 100644
 --- a/vendor/hapi/hub/src/notifications/eventParsing.ts
 +++ b/vendor/hapi/hub/src/notifications/eventParsing.ts
 @@ -1,5 +1,5 @@
@@ -7,9 +9,200 @@
  
  type EventEnvelope = {
      type?: unknown
+diff --git a/vendor/hapi/shared/fixtures/catalogs/modes.json b/vendor/hapi/shared/fixtures/catalogs/modes.json
+index e83f63e..4a73bdb 100644
+--- a/vendor/hapi/shared/fixtures/catalogs/modes.json
++++ b/vendor/hapi/shared/fixtures/catalogs/modes.json
+@@ -170,6 +170,18 @@
+                 "tone": "danger"
+             }
+         ],
++        "hermes": [
++            {
++                "label": "Default",
++                "mode": "default",
++                "tone": "neutral"
++            },
++            {
++                "label": "Accept Edits",
++                "mode": "acceptEdits",
++                "tone": "warning"
++            }
++        ],
+         "kimi": [
+             {
+                 "label": "Default",
+diff --git a/vendor/hapi/shared/src/agentConfig.ts b/vendor/hapi/shared/src/agentConfig.ts
+index a5d2ce8..1361a87 100644
+--- a/vendor/hapi/shared/src/agentConfig.ts
++++ b/vendor/hapi/shared/src/agentConfig.ts
+@@ -67,6 +67,7 @@ const BUILTIN_DESCRIPTORS: Record<AgentFlavor, AgentConfigFieldDescriptor[]> = {
+         { id: 'collaborationMode', section: 'settings', kind: 'select', optionSource: 'static', availability: 'both' }
+     ),
+     dsh: fields(MANAGED_PERMISSION),
++    hermes: fields({ ...MODEL, optionSource: 'session' }, PERMISSION),
+     copilot: fields({ ...MODEL, optionSource: 'directory' }, PERMISSION),
+     cursor: fields({ id: 'model', section: 'model', kind: 'dependent-select', optionSource: 'machine', availability: 'both' }, PERMISSION),
+     gemini: fields(MODEL, PERMISSION),
+@@ -110,6 +111,7 @@ export function resolveHapiYoloPermissionMode(flavor: AgentFlavor): PermissionMo
+         case 'kimi':
+         case 'opencode':
+             return 'yolo'
++        case 'hermes':
+         case 'dsh':
+         case 'pi':
+             return null
+diff --git a/vendor/hapi/shared/src/apiTypes.ts b/vendor/hapi/shared/src/apiTypes.ts
+index 4a871fa..28d185b 100644
+--- a/vendor/hapi/shared/src/apiTypes.ts
++++ b/vendor/hapi/shared/src/apiTypes.ts
+@@ -803,6 +803,20 @@ export type OpencodeModelVariantsResponse = {
+     error?: string
+ }
+ 
++export type HermesModelSummary = {
++    modelId: string
++    name?: string
++    description?: string
++    providerLabel?: string
++}
++
++export type HermesModelsResponse = {
++    success: boolean
++    availableModels?: HermesModelSummary[]
++    currentModelId?: string | null
++    error?: string
++}
++
+ export type GrokModelSummary = {
+     modelId: string
+     name?: string
+diff --git a/vendor/hapi/shared/src/flavors.ts b/vendor/hapi/shared/src/flavors.ts
+index 7cd111e..7eb339c 100644
+--- a/vendor/hapi/shared/src/flavors.ts
++++ b/vendor/hapi/shared/src/flavors.ts
+@@ -18,6 +18,7 @@ const FLAVOR_CAPS: Record<AgentFlavor, ReadonlySet<Capability>> = {
+     grok: new Set([Capabilities.ModelChange, Capabilities.Effort]),
+     codex: new Set([Capabilities.ModelChange]),
+     dsh: new Set(),
++    hermes: new Set([Capabilities.ModelChange]),
+     cursor: new Set([Capabilities.ModelChange]),
+     opencode: new Set([Capabilities.ModelChange]),
+     pi: new Set([Capabilities.ModelChange, Capabilities.Effort]),
+@@ -33,6 +34,7 @@ const FLAVOR_LABELS: Record<AgentFlavor, string> = {
+     grok: 'Grok Build',
+     codex: 'Codex',
+     dsh: 'DeepSeek Harness',
++    hermes: 'Hermes',
+     cursor: 'Cursor',
+     opencode: 'OpenCode',
+     pi: 'Pi',
+diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
+index f12b503..9fe320a 100644
+--- a/vendor/hapi/shared/src/modes.ts
++++ b/vendor/hapi/shared/src/modes.ts
+@@ -7,7 +7,7 @@ import { z } from 'zod'
+  */
+ export const AGENT_MESSAGE_PAYLOAD_TYPE = 'codex' as const
+ 
+-export const AGENT_FLAVORS = ['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'gemini', 'grok', 'kimi', 'opencode', 'pi'] as const
++export const AGENT_FLAVORS = ['agy', 'claude', 'codex', 'dsh', 'copilot', 'cursor', 'gemini', 'grok', 'hermes', 'kimi', 'opencode', 'pi'] as const
+ export type AgentFlavor = typeof AGENT_FLAVORS[number]
+ export const AgentFlavorSchema = z.enum(AGENT_FLAVORS)
+ 
+@@ -40,6 +40,9 @@ export type KimiPermissionMode = typeof KIMI_PERMISSION_MODES[number]
+ export const COPILOT_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
+ export type CopilotPermissionMode = typeof COPILOT_PERMISSION_MODES[number]
+ 
++export const HERMES_PERMISSION_MODES = ['default', 'acceptEdits'] as const
++export type HermesPermissionMode = typeof HERMES_PERMISSION_MODES[number]
++
+ export const GROK_PERMISSION_MODES = ['default', 'auto', 'plan', 'bypassPermissions'] as const
+ export type GrokPermissionMode = typeof GROK_PERMISSION_MODES[number]
+ 
+@@ -139,6 +142,7 @@ export function getPermissionModesForFlavor(flavor?: string | null): readonly Pe
+     if (flavor === 'kimi') {
+         return KIMI_PERMISSION_MODES
+     }
++    if (flavor === 'hermes') return HERMES_PERMISSION_MODES
+     if (flavor === 'dsh') {
+         return []
+     }
+@@ -196,13 +200,14 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
+  * Steer = soft mid-turn delivery (same idea as Cursor GUI default "Send"):
+  * - Pi: native steer over the Pi runtime (first-class since #1466)
+  * - Codex: app-server `turn/steer` (true mid-turn inject)
++ * - Hermes: native `/steer` through a concurrent ACP prompt (no cancel).
+  * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
+  *   stream-json Cursor sessions are NOT steerable — gate with
+  *   {@link isSteeringSupportedForSession}.
+  *
+  * Claude / others: not supported (no reachable soft-steer path) — UI hides Steer.
+  */
+-export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi'] as const
++export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi', 'hermes'] as const
+ 
+ export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
+     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
+@@ -221,7 +226,7 @@ export function isSteeringSupportedForSession(metadata?: {
+     cursorSessionId?: string | null
+     cursorSessionProtocol?: 'acp' | 'stream-json' | null
+ } | null): boolean {
+-    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi') {
++    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes') {
+         return true
+     }
+     if (metadata?.flavor !== 'cursor') {
+diff --git a/vendor/hapi/shared/src/schemas.ts b/vendor/hapi/shared/src/schemas.ts
+index 9177c80..148566f 100644
+--- a/vendor/hapi/shared/src/schemas.ts
++++ b/vendor/hapi/shared/src/schemas.ts
+@@ -72,6 +72,7 @@ export const MetadataSchema = z.object({
+     geminiSessionId: z.string().optional(),
+     opencodeSessionId: z.string().optional(),
+     grokSessionId: z.string().optional(),
++    hermesSessionId: z.string().optional(),
+     agySessionId: z.string().optional(),
+     cursorSessionId: z.string().optional(),
+     cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
+diff --git a/vendor/hapi/shared/src/sessionSummary.ts b/vendor/hapi/shared/src/sessionSummary.ts
+index f2d787e..26636a1 100644
+--- a/vendor/hapi/shared/src/sessionSummary.ts
++++ b/vendor/hapi/shared/src/sessionSummary.ts
+@@ -155,6 +155,7 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR: Partial<Record<AgentFlavor, keyof Metada
+     gemini: 'geminiSessionId',
+     opencode: 'opencodeSessionId',
+     grok: 'grokSessionId',
++    hermes: 'hermesSessionId',
+     agy: 'agySessionId',
+     cursor: 'cursorSessionId',
+     kimi: 'kimiSessionId',
+diff --git a/vendor/hapi/shared/src/slashCommands.ts b/vendor/hapi/shared/src/slashCommands.ts
+index 79fc46b..6dbec18 100644
+--- a/vendor/hapi/shared/src/slashCommands.ts
++++ b/vendor/hapi/shared/src/slashCommands.ts
+@@ -1,6 +1,16 @@
+ import type { SlashCommand } from './apiTypes'
+ 
+ export const BUILTIN_SLASH_COMMANDS = {
++    hermes: [
++        { name: 'help', description: 'Show supported Hermes commands', source: 'builtin' },
++        { name: 'model', description: 'Show or change model and provider: /model <model ID>', source: 'builtin' },
++        { name: 'tools', description: 'List available Hermes tools', source: 'builtin' },
++        { name: 'context', description: 'Show conversation context usage', source: 'builtin' },
++        { name: 'reset', description: 'Reset Hermes context; keep HAPI conversation history', source: 'builtin' },
++        { name: 'compress', description: 'Compress Hermes context: /compress [focus]', source: 'builtin' },
++        { name: 'version', description: 'Show Hermes version', source: 'builtin' },
++        { name: 'steer', description: 'Guide the active turn: /steer <guidance>', source: 'builtin' },
++    ],
+     claude: [
+         { name: 'clear', description: 'Clear conversation history and free up context', source: 'builtin' },
+         { name: 'compact', description: 'Clear conversation history but keep a summary in context', source: 'builtin' },
+diff --git a/vendor/hapi/web/src/api/client.ts b/vendor/hapi/web/src/api/client.ts
+index 625aec7..b064bb2 100644
 --- a/vendor/hapi/web/src/api/client.ts
 +++ b/vendor/hapi/web/src/api/client.ts
-@@ -113,6 +113,7 @@
+@@ -113,6 +113,7 @@ export interface TranscriptionCredentialsUpdate {
  }
  
  type ApiClientOptions = {
@@ -17,7 +210,7 @@
      baseUrl?: string
      getToken?: () => string | null
      onUnauthorized?: () => Promise<string | null>
-@@ -149,12 +150,14 @@
+@@ -149,12 +150,14 @@ export class ApiError extends Error {
  }
  
  export class ApiClient {
@@ -32,7 +225,7 @@
          this.token = token
          this.baseUrl = options?.baseUrl ?? null
          this.getToken = options?.getToken ?? null
-@@ -178,6 +181,7 @@
+@@ -178,6 +181,7 @@ export class ApiClient {
          attempt: number = 0,
          overrideToken?: string | null
      ): Promise<T> {
@@ -40,9 +233,42 @@
          const headers = new Headers(init?.headers)
          const liveToken = this.getToken ? this.getToken() : null
          const authToken = overrideToken !== undefined
+@@ -897,6 +901,15 @@ export class ApiClient {
+         )
+     }
+ 
++    async getSessionHermesModels(sessionId: string, refresh = false): Promise<import('@hapi/protocol').HermesModelsResponse> {
++        return await this.request(`/api/sessions/${encodeURIComponent(sessionId)}/hermes-models${refresh ? '?refresh=true' : ''}`)
++    }
++
++    async getMachineHermesModels(machineId: string, cwd: string, refresh = false): Promise<import('@hapi/protocol').HermesModelsResponse> {
++        const query = new URLSearchParams({ cwd, ...(refresh ? { refresh: 'true' } : {}) })
++        return await this.request(`/api/machines/${encodeURIComponent(machineId)}/hermes-models?${query}`)
++    }
++
+     async getSessionOpencodeModels(sessionId: string): Promise<OpencodeModelsResponse> {
+         return await this.request<OpencodeModelsResponse>(
+             `/api/sessions/${encodeURIComponent(sessionId)}/opencode-models`
+diff --git a/vendor/hapi/web/src/components/AgentFlavorIcon.tsx b/vendor/hapi/web/src/components/AgentFlavorIcon.tsx
+index d31b8bd..ffdac3f 100644
+--- a/vendor/hapi/web/src/components/AgentFlavorIcon.tsx
++++ b/vendor/hapi/web/src/components/AgentFlavorIcon.tsx
+@@ -81,7 +81,9 @@ export function AgentFlavorIcon({ flavor, className }: { flavor?: string | null;
+         )
+     }
+ 
+-    const badge = UNKNOWN_FLAVOR_BADGE
++    const badge = normalized === 'hermes'
++        ? { ...UNKNOWN_FLAVOR_BADGE, label: 'He' }
++        : UNKNOWN_FLAVOR_BADGE
+     return (
+         <span
+             aria-hidden="true"
+diff --git a/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx b/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx
+index 29b856b..0dcdcd7 100644
 --- a/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx
 +++ b/vendor/hapi/web/src/components/AssistantChat/ShareTurnDialog.tsx
-@@ -16,6 +16,10 @@
+@@ -16,6 +16,10 @@ type ShareTurnDialogProps = {
          role?: 'user' | 'assistant'
      }>
      sourceContentWidth?: number | null
@@ -53,7 +279,7 @@
      onClose: () => void
  }
  
-@@ -622,7 +626,7 @@
+@@ -622,7 +626,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
          naturalWidth: number
          naturalHeight: number
      } | null>(null)
@@ -62,7 +288,7 @@
      const usesCoarsePrimaryPointer = window.matchMedia('(pointer: coarse)').matches
      const preserveSourceLayout = Boolean(
          props.sourceContentWidth
-@@ -690,7 +694,7 @@
+@@ -690,7 +694,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
  
          let cancelled = false
          setPreparedBlob(null)
@@ -71,7 +297,7 @@
              if (!cancelled) setPreparedBlob(blob)
          }).catch((err) => {
              if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to create image')
-@@ -794,7 +798,7 @@
+@@ -794,7 +798,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
          setBusy(mode)
          setError(null)
          try {
@@ -80,7 +306,7 @@
              await action(blob)
              if (mode === 'copy') setCopied(true)
          } catch (err) {
-@@ -896,7 +900,7 @@
+@@ -896,7 +900,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                  <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                      <button
                          type="button"
@@ -89,7 +315,7 @@
                          disabled={busy !== null || !ready}
                          className="hidden rounded-md border border-[var(--app-border)] px-3 py-2 text-sm text-[var(--app-fg)] hover:bg-[var(--app-secondary-bg)] disabled:opacity-50 sm:inline-block sm:w-32"
                      >
-@@ -923,7 +927,7 @@
+@@ -923,7 +927,7 @@ export function ShareTurnDialog(props: ShareTurnDialogProps) {
                      <button
                          type="button"
                          onClick={() => {
@@ -98,9 +324,143 @@
                          }}
                          disabled={busy !== null || !ready}
                          className="rounded-md bg-[var(--app-button)] px-3 py-2 text-sm text-[var(--app-button-text)] disabled:opacity-50 sm:w-32"
+diff --git a/vendor/hapi/web/src/components/AssistantChat/modelOptions.ts b/vendor/hapi/web/src/components/AssistantChat/modelOptions.ts
+index d68e5a6..4cef45c 100644
+--- a/vendor/hapi/web/src/components/AssistantChat/modelOptions.ts
++++ b/vendor/hapi/web/src/components/AssistantChat/modelOptions.ts
+@@ -140,7 +140,7 @@ export function getModelOptionsForFlavor(
+     // OpenCode discovers models dynamically via the listOpencodeModels RPC. Until
+     // those options arrive, render an empty list rather than the Claude fallback —
+     // the latter would surface unrelated Claude models in an OpenCode session.
+-    if (flavor === 'opencode') {
++    if (flavor === 'opencode' || flavor === 'hermes') {
+         return []
+     }
+     if (flavor === 'cursor') {
+@@ -207,7 +207,7 @@ export function getNextModelForFlavor(
+     // to the Claude preset cycler — that would post `sonnet`/`opus` into an
+     // OpenCode session and the next turn would attempt `session/set_model` with a
+     // Claude id. Keep the current model unchanged instead.
+-    if (flavor === 'opencode') {
++    if (flavor === 'opencode' || flavor === 'hermes') {
+         return normalizeCurrentModel(currentModel)
+     }
+     if (flavor === 'cursor') {
+diff --git a/vendor/hapi/web/src/components/HermesModelPicker.test.tsx b/vendor/hapi/web/src/components/HermesModelPicker.test.tsx
+new file mode 100644
+index 0000000..5cc60e1
+--- /dev/null
++++ b/vendor/hapi/web/src/components/HermesModelPicker.test.tsx
+@@ -0,0 +1,32 @@
++import { cleanup, fireEvent, render, screen } from '@testing-library/react'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { HermesModelPicker, groupHermesModels } from './HermesModelPicker'
++
++vi.mock('@/lib/use-translation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
++afterEach(cleanup)
++const models = [
++    { modelId: 'custom:office:qwen:32b', name: 'qwen:32b', providerLabel: 'Office' },
++    { modelId: 'custom:home:qwen:32b', name: 'qwen:32b', providerLabel: 'Home' }
++]
++
++describe('Hermes provider model picker', () => {
++    it('groups and searches providers without collapsing identical model names', () => {
++        expect(groupHermesModels(models, 'qwen').map(([label]) => label)).toEqual(['Home', 'Office'])
++        const change = vi.fn()
++        render(<HermesModelPicker models={models} value={models[0].modelId} onChange={change} onRefresh={() => {}} />)
++        fireEvent.change(screen.getByLabelText('hermes.models.search'), { target: { value: 'home' } })
++        fireEvent.click(screen.getByRole('button', { name: /custom:home:qwen:32b/ }))
++        expect(change).toHaveBeenCalledWith('custom:home:qwen:32b')
++        expect(screen.queryByRole('button', { name: /custom:office:qwen:32b/ })).toBeNull()
++    })
++    it('keeps refresh and manual/default creation available after discovery errors', () => {
++        const change = vi.fn(), refresh = vi.fn()
++        render(<HermesModelPicker models={models} value="auto" onChange={change} onRefresh={refresh} allowDefault error="offline" />)
++        expect(screen.getByRole('alert').textContent).toBe('offline')
++        expect(screen.getByRole('button', { name: /custom:home:qwen:32b/ })).toBeDisabled()
++        fireEvent.click(screen.getByText('hermes.models.refresh'))
++        expect(refresh).toHaveBeenCalledOnce()
++        fireEvent.change(screen.getByLabelText('newSession.model'), { target: { value: 'custom:other:model' } })
++        expect(change).toHaveBeenCalledWith('custom:other:model')
++    })
++})
+diff --git a/vendor/hapi/web/src/components/HermesModelPicker.tsx b/vendor/hapi/web/src/components/HermesModelPicker.tsx
+new file mode 100644
+index 0000000..e306ba9
+--- /dev/null
++++ b/vendor/hapi/web/src/components/HermesModelPicker.tsx
+@@ -0,0 +1,54 @@
++import { useId, useMemo, useState } from 'react'
++import type { HermesModelSummary } from '@hapi/protocol'
++import { useTranslation } from '@/lib/use-translation'
++
++export function groupHermesModels(models: readonly HermesModelSummary[], search: string): Array<[string, HermesModelSummary[]]> {
++    const groups = new Map<string, HermesModelSummary[]>()
++    const query = search.trim().toLowerCase()
++    for (const model of models) {
++        if (![model.modelId, model.name, model.providerLabel].some(value => value?.toLowerCase().includes(query))) continue
++        const group = model.providerLabel ?? 'Hermes'
++        groups.set(group, [...(groups.get(group) ?? []), model])
++    }
++    return [...groups].sort(([a], [b]) => a.localeCompare(b))
++}
++
++export function HermesModelPicker(props: {
++    models: HermesModelSummary[]; value: string | null; onChange: (value: string) => void;
++    isLoading?: boolean; error?: string | null; disabled?: boolean; allowDefault?: boolean; onRefresh: () => void
++}) {
++    const { t } = useTranslation()
++    const [search, setSearch] = useState('')
++    const id = useId()
++    const groups = useMemo(() => groupHermesModels(props.models, search), [props.models, search])
++    const selected = props.models.find(model => model.modelId === props.value)
++    return <div className="space-y-2 p-3">
++        <div className="flex items-center justify-between gap-2">
++            <span className="text-xs break-all">{selected ? `${selected.providerLabel ? `${selected.providerLabel} · ` : ''}${selected.name ?? selected.modelId}` : props.value && props.value !== 'auto' ? props.value : t('hermes.models.default')}</span>
++            <button type="button" disabled={props.disabled || props.isLoading} onClick={props.onRefresh} className="text-xs text-[var(--app-link)]">{t('hermes.models.refresh')}</button>
++        </div>
++        <input aria-label={t('hermes.models.search')} placeholder={t('hermes.models.search')} value={search} onChange={event => setSearch(event.target.value)}
++            className="w-full rounded border border-[var(--app-divider)] bg-[var(--app-bg)] px-2 py-1.5 text-sm" />
++        {props.isLoading ? <p role="status" className="text-xs">{t('hermes.models.loading')}</p> : null}
++        {props.error ? <p role="alert" className="text-xs text-red-500">{props.error}</p> : null}
++        <div className="max-h-48 overflow-y-auto">
++            {props.allowDefault ? <button type="button" disabled={props.disabled} onClick={() => props.onChange('auto')} className="w-full py-2 text-left text-sm">{t('hermes.models.default')}</button> : null}
++            {groups.map(([provider, models]) => <div key={provider}>
++                <div className="sticky top-0 bg-[var(--app-bg)] py-1 text-xs font-semibold text-[var(--app-hint)]">{provider}</div>
++                {models.map(model => <button key={model.modelId} type="button" aria-pressed={props.value === model.modelId}
++                    disabled={props.disabled || props.isLoading || Boolean(props.error)} onClick={() => props.onChange(model.modelId)}
++                    className={`block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-[var(--app-secondary-bg)] disabled:opacity-50 ${props.value === model.modelId ? 'text-[var(--app-link)]' : ''}`}>
++                    <span className="block">{model.name ?? model.modelId}</span>
++                    <span className="block break-all text-xs text-[var(--app-hint)]">{model.modelId}</span>
++                </button>)}
++            </div>)}
++            {!props.isLoading && !props.error && groups.length === 0 ? <p className="text-xs text-[var(--app-hint)]">{t('hermes.models.empty')}</p> : null}
++        </div>
++        {props.allowDefault ? <div>
++            <label htmlFor={id} className="text-xs">{t('newSession.model')}</label>
++            <input id={id} value={props.value === 'auto' ? '' : props.value ?? ''} disabled={props.disabled}
++                placeholder={t('newSession.hermes.modelPlaceholder')} onChange={event => props.onChange(event.target.value || 'auto')}
++                className="w-full rounded border border-[var(--app-divider)] bg-[var(--app-bg)] px-2 py-1.5 text-sm" />
++        </div> : null}
++    </div>
++}
+diff --git a/vendor/hapi/web/src/components/NewSession/types.ts b/vendor/hapi/web/src/components/NewSession/types.ts
+index 4bd5fac..c6b050d 100644
+--- a/vendor/hapi/web/src/components/NewSession/types.ts
++++ b/vendor/hapi/web/src/components/NewSession/types.ts
+@@ -39,6 +39,7 @@ export const MODEL_OPTIONS: Record<AgentType, { value: string; label: string }[]
+         { value: 'auto', label: 'Default' },
+     ],
+     dsh: [],
++    hermes: [{ value: 'auto', label: 'Default' }],
+     cursor: [],
+     kimi: [
+         { value: 'auto', label: 'Default' },
+diff --git a/vendor/hapi/web/src/components/SessionActionMenu.tsx b/vendor/hapi/web/src/components/SessionActionMenu.tsx
+index 7d36478..175c3bf 100644
 --- a/vendor/hapi/web/src/components/SessionActionMenu.tsx
 +++ b/vendor/hapi/web/src/components/SessionActionMenu.tsx
-@@ -12,6 +12,7 @@
+@@ -12,6 +12,7 @@ type SessionActionMenuProps = {
      onClose: () => void
      sessionId: string
      sessionTitle: string
@@ -108,7 +468,7 @@
      sessionActive: boolean
      onRename: () => void
      sessionPinned?: boolean
-@@ -223,7 +224,7 @@
+@@ -223,7 +224,7 @@ export function SessionActionMenu(props: SessionActionMenuProps) {
      const handleCopyReference = async () => {
          onClose()
          try {
@@ -117,6 +477,8 @@
              haptic.notification('success')
          } catch {
              haptic.notification('error')
+diff --git a/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx b/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
+index 80e7165..44795e8 100644
 --- a/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
 +++ b/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
 @@ -1,4 +1,4 @@
@@ -125,7 +487,7 @@
  import type { ApiClient } from '@/api/client'
  import { FileIcon } from '@/components/FileIcon'
  import { useSessionDirectory } from '@/hooks/queries/useSessionDirectory'
-@@ -102,6 +102,7 @@
+@@ -102,6 +102,7 @@ function DirectoryFileRow(props: {
      onOpen: () => void
      onDownload: () => void
      onOpenMenu?: (point: AnchoredMenuPoint) => void
@@ -133,7 +495,7 @@
  }) {
      const { t } = useTranslation()
      const rowHandlers = useFileMenuTrigger({
-@@ -124,16 +125,18 @@
+@@ -124,16 +125,18 @@ function DirectoryFileRow(props: {
                  <div className="truncate font-medium">{props.fileName}</div>
                  {props.metadata ? <div className="truncate text-xs text-[var(--app-hint)]">{props.metadata}</div> : null}
              </button>
@@ -162,7 +524,7 @@
          </div>
      )
  }
-@@ -146,6 +149,7 @@
+@@ -146,6 +149,7 @@ function DirectoryNode(props: {
      depth: number
      onOpenFile: (path: string) => void
      onRequestFileMenu?: FileMenuRequestHandler
@@ -170,7 +532,7 @@
      expanded: Set<string>
      onToggle: (path: string) => void
      sort: DirectorySort
-@@ -224,6 +228,7 @@
+@@ -224,6 +228,7 @@ function DirectoryNode(props: {
                                      depth={childDepth}
                                      onOpenFile={props.onOpenFile}
                                      onRequestFileMenu={props.onRequestFileMenu}
@@ -178,7 +540,7 @@
                                      expanded={props.expanded}
                                      onToggle={props.onToggle}
                                      sort={props.sort}
-@@ -245,6 +250,7 @@
+@@ -245,6 +250,7 @@ function DirectoryNode(props: {
                                      downloadDisabled={Boolean(downloadingPath)}
                                      onOpen={() => props.onOpenFile(filePath)}
                                      onDownload={() => void handleDownload(filePath, entry.name)}
@@ -186,7 +548,7 @@
                                      onOpenMenu={props.onRequestFileMenu
                                          ? (point) => props.onRequestFileMenu!(filePath, point)
                                          : undefined}
-@@ -296,13 +302,16 @@
+@@ -296,13 +302,16 @@ export function DirectoryTree(props: {
      rootLabel: string
      onOpenFile: (path: string) => void
      onRequestFileMenu?: FileMenuRequestHandler
@@ -206,7 +568,7 @@
  
      const handleToggle = useCallback((path: string) => {
          setExpanded((prev) => {
-@@ -326,6 +335,7 @@
+@@ -326,6 +335,7 @@ export function DirectoryTree(props: {
                  depth={0}
                  onOpenFile={props.onOpenFile}
                  onRequestFileMenu={props.onRequestFileMenu}
@@ -214,9 +576,11 @@
                  expanded={expanded}
                  onToggle={handleToggle}
                  sort={props.sort}
+diff --git a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
+index 544c6fe..8aa76ca 100644
 --- a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
-@@ -95,6 +95,7 @@
+@@ -95,6 +95,7 @@ export function AskUserQuestionFooter(props: {
      tool: ChatToolCall
      disabled: boolean
      onDone: () => void
@@ -224,7 +588,7 @@
  }) {
      const { t } = useTranslation()
      const { haptic } = usePlatform()
-@@ -330,8 +331,8 @@
+@@ -330,8 +331,8 @@ export function AskUserQuestionFooter(props: {
      }
  
      return (
@@ -235,7 +599,7 @@
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -345,13 +346,13 @@
+@@ -345,13 +346,13 @@ export function AskUserQuestionFooter(props: {
              </div>
  
              {error ? (
@@ -251,7 +615,7 @@
                      <div className="text-sm text-[var(--app-hint)]">
                          {t('tool.askUserQuestion.fallback')}
                      </div>
-@@ -364,7 +365,7 @@
+@@ -364,7 +365,7 @@ export function AskUserQuestionFooter(props: {
                      />
                  </div>
              ) : (
@@ -260,7 +624,7 @@
                      <div className="flex items-start justify-between gap-3">
                          <div className="min-w-0 flex-1">
                              {questions[clampedStep]?.header ? (
-@@ -423,7 +424,7 @@
+@@ -423,7 +424,7 @@ export function AskUserQuestionFooter(props: {
                  </div>
              )}
  
@@ -269,9 +633,23 @@
                  <div className="flex items-center gap-2">
                      {questions.length > 1 ? (
                          <Button
+diff --git a/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx b/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx
+index 5466b94..a375c83 100644
+--- a/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx
+@@ -24,6 +24,7 @@ function isToolAllowedForSession(toolName: string, toolInput: unknown, allowedTo
+ 
+ function isCodexSession(metadata: SessionMetadataSummary | null, toolName: string): boolean {
+     return isCodexFamilyFlavor(metadata?.flavor)
++        || metadata?.flavor === 'hermes'
+         || metadata?.flavor === 'cursor'
+         || toolName.startsWith('Codex')
+         || toolName.startsWith('Gemini')
+diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
+index b4b5d68..ac6ffa5 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
-@@ -74,6 +74,7 @@
+@@ -74,6 +74,7 @@ export function RequestUserInputFooter(props: {
      tool: ChatToolCall
      disabled: boolean
      onDone: () => void
@@ -279,7 +657,7 @@
  }) {
      const { t } = useTranslation()
      const { haptic } = usePlatform()
-@@ -198,8 +199,8 @@
+@@ -198,8 +199,8 @@ export function RequestUserInputFooter(props: {
      const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
  
      return (
@@ -290,7 +668,7 @@
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -213,13 +214,13 @@
+@@ -213,13 +214,13 @@ export function RequestUserInputFooter(props: {
              </div>
  
              {error ? (
@@ -306,7 +684,7 @@
                      {currentQuestion.question ? (
                          <div>
                              <MarkdownRenderer content={currentQuestion.question} />
-@@ -274,7 +275,7 @@
+@@ -274,7 +275,7 @@ export function RequestUserInputFooter(props: {
                  </div>
              ) : null}
  
@@ -315,9 +693,11 @@
                  <div className="flex items-center gap-2">
                      {questions.length > 1 ? (
                          <Button
+diff --git a/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts b/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts
+index d8d200e..4f89718 100644
 --- a/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts
 +++ b/vendor/hapi/web/src/components/ToolCard/requestUserInput.ts
-@@ -44,6 +44,14 @@
+@@ -44,6 +44,14 @@ export function isRequestUserInputToolName(toolName: string): boolean {
  }
  
  export function openRequestUserInputUrl(url: string): boolean {
@@ -332,9 +712,84 @@
      const opened = window.open('about:blank', '_blank')
      if (!opened) return false
      try {
+diff --git a/vendor/hapi/web/src/components/assistant-ui/markdown-text.tsx b/vendor/hapi/web/src/components/assistant-ui/markdown-text.tsx
+index 68ea713..a7797e3 100644
+--- a/vendor/hapi/web/src/components/assistant-ui/markdown-text.tsx
++++ b/vendor/hapi/web/src/components/assistant-ui/markdown-text.tsx
+@@ -771,11 +771,11 @@ function Hr(props: ComponentPropsWithoutRef<'hr'>) {
+     return <hr {...props} className={cn('aui-md-hr my-4 border-[var(--app-divider)]', props.className)} />
+ }
+ 
+-function Table(props: ComponentPropsWithoutRef<'table'>) {
++export function Table(props: ComponentPropsWithoutRef<'table'>) {
+     const { className, ...rest } = props
+ 
+     return (
+-        <div className="aui-md-table-wrapper my-3 max-w-full overflow-x-auto rounded-xl bg-[var(--app-md-table-bg)]">
++        <div tabIndex={0} className="aui-md-table-wrapper my-3 max-w-full overflow-x-auto rounded-xl bg-[var(--app-md-table-bg)]">
+             <table {...rest} className={cn('aui-md-table w-full border-collapse text-sm', className)} />
+         </div>
+     )
+diff --git a/vendor/hapi/web/src/hooks/queries/useHermesModels.ts b/vendor/hapi/web/src/hooks/queries/useHermesModels.ts
+new file mode 100644
+index 0000000..7e25f49
+--- /dev/null
++++ b/vendor/hapi/web/src/hooks/queries/useHermesModels.ts
+@@ -0,0 +1,36 @@
++import { useRef } from 'react'
++import { useQuery } from '@tanstack/react-query'
++import type { ApiClient } from '@/api/client'
++
++export function useHermesModels(args: {
++    api: ApiClient; sessionId?: string; machineId?: string | null; cwd?: string;
++    enabled: boolean; model?: string | null
++}) {
++    const refresh = useRef(false)
++    const query = useQuery({
++        queryKey: args.sessionId
++            ? ['session-hermes-models', args.sessionId, args.model]
++            : ['machine-hermes-models', args.machineId, args.cwd],
++        queryFn: async () => {
++            const force = refresh.current
++            refresh.current = false
++            return args.sessionId
++                ? await args.api.getSessionHermesModels(args.sessionId, force)
++                : await args.api.getMachineHermesModels(args.machineId!, args.cwd!, force)
++        },
++        enabled: args.enabled,
++        staleTime: 30_000,
++        retry: false
++    })
++    return {
++        availableModels: query.data?.availableModels ?? [],
++        currentModelId: query.data?.currentModelId ?? null,
++        isLoading: query.isFetching,
++        error: query.error?.message ?? (query.data?.success === false ? query.data.error ?? 'Hermes model discovery failed' : null),
++        refetch: () => {
++            if (!args.enabled) return
++            refresh.current = true
++            void query.refetch()
++        }
++    }
++}
+diff --git a/vendor/hapi/web/src/lib/codexFamilyPermissionAgents.ts b/vendor/hapi/web/src/lib/codexFamilyPermissionAgents.ts
+index 1b5b505..6d635dc 100644
+--- a/vendor/hapi/web/src/lib/codexFamilyPermissionAgents.ts
++++ b/vendor/hapi/web/src/lib/codexFamilyPermissionAgents.ts
+@@ -27,7 +27,7 @@ export function usesCodexFamilyPermissionModes(
+  * through the same native select.
+  */
+ export function usesNativePermissionSelect(flavor: string | null | undefined): boolean {
+-    return flavor === 'claude' || flavor === 'grok' || usesCodexFamilyPermissionModes(flavor)
++    return flavor === 'hermes' || flavor === 'claude' || flavor === 'grok' || usesCodexFamilyPermissionModes(flavor)
+ }
+ 
+ /**
+diff --git a/vendor/hapi/web/src/lib/message-window-store.ts b/vendor/hapi/web/src/lib/message-window-store.ts
+index 912d4e1..743e735 100644
 --- a/vendor/hapi/web/src/lib/message-window-store.ts
 +++ b/vendor/hapi/web/src/lib/message-window-store.ts
-@@ -140,7 +140,7 @@
+@@ -140,7 +140,7 @@ function getStorageKey(sessionId: string): string {
  
  function isSessionStorageAvailable(): boolean {
      try {
@@ -343,9 +798,11 @@
      } catch {
          return false
      }
+diff --git a/vendor/hapi/web/src/lib/sessionReference.ts b/vendor/hapi/web/src/lib/sessionReference.ts
+index 6aec0cc..604aa6d 100644
 --- a/vendor/hapi/web/src/lib/sessionReference.ts
 +++ b/vendor/hapi/web/src/lib/sessionReference.ts
-@@ -4,8 +4,7 @@
+@@ -4,8 +4,7 @@ import { truncateGraphemes } from '@/lib/graphemes'
  import { getSessionTitle } from '@/lib/sessionTitle'
  import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
  
@@ -355,7 +812,7 @@
      const normalizedBase = base.endsWith('/') ? base : `${base}/`
      return `${normalizedBase}sessions/${encodeURIComponent(sessionId)}`.replace(/\/{2,}/g, '/')
  }
-@@ -15,8 +14,8 @@
+@@ -15,8 +14,8 @@ function sanitizeSessionReferenceTitle(sessionTitle: string): string {
  }
  
  /** Clipboard text for citing this session in another HAPI chat (not a public share link). */
@@ -366,9 +823,23 @@
      const title = sanitizeSessionReferenceTitle(sessionTitle)
      const base = title
          ? `See session ${JSON.stringify(title)} (${path}) for context`
+diff --git a/vendor/hapi/web/src/lib/sessionResume.ts b/vendor/hapi/web/src/lib/sessionResume.ts
+index 5837d01..cfb2645 100644
+--- a/vendor/hapi/web/src/lib/sessionResume.ts
++++ b/vendor/hapi/web/src/lib/sessionResume.ts
+@@ -17,6 +17,7 @@ export function resolveAgentSessionIdFromMetadata(
+         case 'codex': return metadata.codexSessionId ?? undefined
+         case 'gemini': return metadata.geminiSessionId ?? undefined
+         case 'opencode': return metadata.opencodeSessionId ?? undefined
++        case 'hermes': return metadata.hermesSessionId ?? undefined
+         case 'grok': return metadata.grokSessionId ?? undefined
+         case 'cursor': return metadata.cursorSessionId ?? undefined
+         case 'kimi': return metadata.kimiSessionId ?? undefined
+diff --git a/vendor/hapi/web/src/routes/sessions/file.tsx b/vendor/hapi/web/src/routes/sessions/file.tsx
+index 6d5a70d..e30bf06 100644
 --- a/vendor/hapi/web/src/routes/sessions/file.tsx
 +++ b/vendor/hapi/web/src/routes/sessions/file.tsx
-@@ -91,7 +91,7 @@
+@@ -91,7 +91,7 @@ function BackIcon(props: { className?: string }) {
      )
  }
  
@@ -377,7 +848,7 @@
      const lines = props.diffContent.split('\n')
  
      return (
-@@ -196,7 +196,7 @@
+@@ -196,7 +196,7 @@ function FileContentHeader(props: {
      )
  }
  
@@ -386,7 +857,7 @@
      const parts = path.split('.')
      if (parts.length <= 1) return undefined
      const ext = parts[parts.length - 1]?.toLowerCase()
-@@ -204,7 +204,7 @@
+@@ -204,7 +204,7 @@ function resolveLanguage(path: string): string | undefined {
      return langAlias[ext] ?? ext
  }
  
@@ -395,7 +866,7 @@
      const parts = path.split('.')
      if (parts.length <= 1) return null
      const ext = parts[parts.length - 1]?.toLowerCase()
-@@ -216,7 +216,7 @@
+@@ -216,7 +216,7 @@ function getUtf8ByteLength(value: string): number {
      return new TextEncoder().encode(value).length
  }
  
@@ -404,9 +875,11 @@
      if (!content) return false
      if (content.includes('\0')) return true
      const nonPrintable = content.split('').filter((char) => {
+diff --git a/vendor/hapi/web/src/routes/sessions/files.tsx b/vendor/hapi/web/src/routes/sessions/files.tsx
+index 96d3f28..5ce7f2e 100644
 --- a/vendor/hapi/web/src/routes/sessions/files.tsx
 +++ b/vendor/hapi/web/src/routes/sessions/files.tsx
-@@ -105,7 +105,7 @@
+@@ -105,7 +105,7 @@ function readDirectorySort(): DirectorySort {
      return DEFAULT_DIRECTORY_SORT
  }
  
@@ -415,7 +888,7 @@
      const { t } = useTranslation()
      const fields: Array<{ value: DirectorySortField; label: string }> = [
          { value: 'name', label: t('files.sort.name') },
-@@ -259,7 +259,7 @@
+@@ -259,7 +259,7 @@ function LineChanges(props: { added: number; removed: number }) {
      )
  }
  
@@ -424,7 +897,7 @@
      file: GitFileStatus
      onOpen: () => void
      onOpenMenu: (point: AnchoredMenuPoint) => void
-@@ -291,7 +291,7 @@
+@@ -291,7 +291,7 @@ function GitFileRow(props: {
      )
  }
  

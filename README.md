@@ -1,16 +1,22 @@
 # HAPI Desktop
 
-通过现有 HAPI Hub API 管理 Linux 服务器上的 Codex、Claude Code 和 OpenCode。独立 Electron 桌面客户端，面向 Windows 10/11 x64。新建会话固定提供这三类 CLI；服务器安装其他 HAPI 支持的 CLI 不会自动增加桌面创建选项，Hermes 等入口仍需后续适配。
+通过现有 HAPI Hub API 管理 Linux 服务器上的 Codex、Claude Code、OpenCode 和 Hermes。独立 Electron 桌面客户端，面向 Windows 10/11 x64。新建会话提供这四类 CLI，是否可创建由远端 runner 的可用性检测决定；新增其他 CLI 仍需桌面适配。
 
 ## 使用
 
-运行 `HAPI-Desktop-0.1.9-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
+运行 `HAPI-Desktop-0.1.10-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
 
 内网 HTTP 支持 IPv4 `10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，共享/VPN 网段 `100.64.0.0/10`，IPv6 ULA `fc00::/7`，以及 localhost、IPv4/IPv6 回环地址。使用内网域名时请填写对应内网 IP，或使用 HTTPS；公网地址仍要求 HTTPS。HTTP 连接不会加密传输的令牌与消息，此选项按内网部署需求提供。
 
 左侧默认分为“进行中”“活跃会话”“历史会话”：只有 active 且 thinking 的会话进入“进行中”，停止思考即移入“活跃会话”；仅有后台任务的会话留在活跃区。归档/离线会话在底部按机器和工作区分组，名称灰显。历史工作区标题仅显示文件夹图标与路径，支持点击或键盘折叠，并显示会话数量；默认折叠，可在设置中关闭。手动展开/折叠的选择优先于默认设置，按 Hub/账户保存；搜索时临时展开匹配结果，清除搜索后恢复。设置中的“按状态分区显示会话”可关闭分区，恢复统一的机器/项目列表。搜索和筛选在各分区一致生效。可打开、创建或恢复会话。顶部切换双栏，在标签栏将会话移到另一栏，中间分隔线可拖动，也支持方向键调整。右侧文件和 Git diff 均为只读。
 
 新建会话组合 HAPI Web 的模型、思考强度、权限、协作模式、快速模式与会话类型组件。Codex 模型与思考档位由远端返回，只有模型支持时显示快速模式；Claude 使用 Web 同源模型与 effort 选项；OpenCode 按机器和目录查询模型与变体，切换目录或模型会清除不适用的旧选择。支持直接使用目录或创建 Git 工作树。远端目录浏览复用 WorkspaceBrowser，支持子目录导航与隐藏文件夹；选择目录后返回表单并保留配置。浏览范围由 runner 的 `--workspace-root` 决定，未配置时显示 Web 同样的设置指引。
+
+0.1.10 对齐 HAPI Web 的 Hermes 创建与设置。选择 Hermes 后可沿用远端配置，也可搜索供应商分组的模型目录、手动填写完整模型 ID，并刷新目录；如 `custom:office:qwen:32b` 会保留供应商前缀。目录发现失败或为空时仍可使用默认配置或手动 ID 创建；换机器或工作目录会重置模型选择。需要支持 Hermes 的 Hub/runner，以及该 runner 能检测到的 Hermes CLI；远端配置和 `HERMES_HOME` 沿用现有部署。只提供原生“默认 / 允许编辑”权限，不提供 YOLO、计划模式、思考强度或快速模式。当前轮结束后可切换模型和权限，失败保留服务端原值并允许刷新重试。
+
+Hermes 原生命令包含 `/help`、`/model`、`/tools`、`/context`、`/reset`、`/compress`、`/version`、`/steer`，按原文提交给 CLI。支持活动轮优先插入、中断、原生审批与同一 HAPI 会话 ID 的恢复；模型响应仍取决于远端供应商配置。
+
+0.1.10 修复宽 Markdown 表格挤压列宽或令整个聊天区横向溢出的问题：表格独立横向滚动，聚焦后可用方向键滚动；表头、对齐、链接、行内代码和转义竖线保持正常。复用 Web 的分隔行补齐逻辑，分隔行少列的表格也能显示，代码围栏内的示例保持原样。复制仍保留原 Markdown，分享图片会展开表格以包含所有列。
 
 会话右上角的“会话大纲”列出已加载的用户消息，支持搜索，点击条目跳转并突出显示对应消息；可继续加载更早记录。翻阅历史时新回复不会打断阅读，点击“回到最新消息”取回最新记录并恢复自动跟随；两个会话的导航互不影响。
 
@@ -32,7 +38,7 @@
 
 设置中可选择“回车换行”或“回车发送”，默认保持回车换行；`Ctrl+Enter` 始终可发送，`Shift+Enter` 换行，输入法选词的回车不会发送。界面字号提供小、标准、大、特大四档，两栏同步生效。设置保存到本机，重启后保持。0.1.3 修正全局字体重置覆盖按钮字号与字重的问题；按钮采用更紧凑的比例，工具与问答文字同步缩小，聊天正文保持原有字号与行距。
 
-排队消息在输入框上方显示内容、时间、数量和附件名称，不重复放入已执行的聊天记录。支持取消、明确重试结果不明的消息，以及把已有队列消息或新输入内容“优先插入”当前轮。插入能力遵循 HAPI：Codex、Cursor ACP、Pi 需有可插入的活动轮且受远程控制；Claude、OpenCode 等未提供此能力的会话仍可正常排队。网络恢复或插入失败不会自动重发。
+排队消息在输入框上方显示内容、时间、数量和附件名称，不重复放入已执行的聊天记录。支持取消、明确重试结果不明的消息，以及把已有队列消息或新输入内容“优先插入”当前轮。插入能力遵循 HAPI：Codex、Cursor ACP、Pi、Hermes 需有可插入的活动轮且受远程控制；Claude、OpenCode 等未提供此能力的会话仍可正常排队。网络恢复或插入失败不会自动重发。
 
 输入 `/` 或点击“原生命令”打开命令列表，复用 HAPI 内置命令与远端 CLI 返回的项目、自定义命令；方向键选择，Tab/Enter 补全，Escape 关闭菜单。补全只修改草稿，命令和参数按原文提交给 CLI，例如 `/model ...`、`/plan`、`/compact`、`/goal ...`。共享 Codex 的 `/clear` 和 `/new` 走 HAPI 新会话接口，并切换到返回的会话 ID。实际可执行命令以对应 HAPI CLI 的支持范围为准。
 
@@ -70,6 +76,8 @@ bun run package:win
 
 Windows 测试脚本通过 `start /affinity` 限制进程树到两个 CPU。Linux 打包使用 electron-builder 26.15.3 内置的跨平台 NSIS uninstaller reader，避免 Wine 与宿主 glibc 版本不匹配；该适配仅处理生成的安装器 stub，升级 builder 时需重新验证。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip，减少重复下载。
 
+0.1.10 验证：`bun run typecheck`、`bun run build`、`bun run test`（431 项）、`xvfb-run -a bun run test:e2e`（41 项）通过，编译与测试进程均限制在 CPU 0,1。新增覆盖 Hermes 可用性检测、完整供应商模型 ID、原生权限、空目录与发现失败时的默认/手动回退、切换工作目录重置选择、目录刷新、设置失败保留原值、思考时禁用修改、命令、优先插入、审批和同 ID 恢复；覆盖窄双栏特大字号下表格滚动、对齐、转义、Markdown 原文复制、宽表格图片导出、少列分隔行及代码围栏。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 935 个来源文件与 30 个累计补丁文件能恢复重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 216 个键齐全。`node scripts/limit-cpu.mjs node scripts/package-win.mjs` 构建完整 NSIS 包，已校验内外层归档、包内版本、98 个编译文件、图标、许可证与来源信息。验证环境为 Linux Electron、模拟 Hub 与 Windows 交叉构建，未操作已部署的 HAPI 或真实 Hermes 会话；Windows 实机仍需验收。
+
 0.1.9 验证：`bun run typecheck`、`bun run build`、`bun run test`（428 项）、`xvfb-run -a bun run test:e2e`（36 项）通过，全部编译与测试进程限制在 CPU 0,1。新增覆盖探索分组分类/时间/历史补读/折叠设置，以及多文件选择、拖放、粘贴图片、排序、附件单独发送、双栏隔离、持久化草稿与取消迟到上传；验证未知送达后的原 ID 与优先插入重试、发送期间切换标签、归档恢复 ID 迁移、目标已打开时合并、会话删除/注销清理及小窗口特大字号。实际通过 7 MiB 二进制上传及四张各 5 MiB 的图片上传、SSE 接收和历史重载，主进程协议测试覆盖 50 MiB 边界、超限、非法文件名/MIME/Base64 与账户切换。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、12 个补丁文件可恢复重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 209 个键齐全。NSIS 内外层归档、包内版本/编译文件/图标/许可证、源码 ZIP 内容及校验和逐项校验。以上为 Linux Electron、模拟 Hub 与 Windows 交叉构建验证，0.1.9 尚待 Windows 实机验收。
 
 0.1.8 验证：`bun run typecheck`、`bun run build`、`bun run test`（386 项）与 `xvfb-run -a bun run test:e2e`（28 项）通过，测试与编译均限制为 CPU 0,1。新增用例在 0.1.7 构建上复现正文链接点击后未调用浏览器；修复后覆盖首次点击、双栏焦点切换、中键/键盘打开、失败重试/复制链接、带行号的远端文件链接、重复文件链接及会话引用跳转。文件栏验证涵盖目录/排序持久化、搜索失败、路径/内容复制、Markdown/源码、图片放大、空文件保存、部分 Git 结果、缺失文件的 diff 与读取重试、插入引用后刷新、双栏草稿隔离，以及 920×640 深色特大字号下操作按钮完整可见。会话菜单验证复制引用、键盘打开、归档取消/确认、删除失败/重试和无 SSE 时更新列表。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、12 个补丁文件的恢复与重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 195 个键无缺失。以上为 Linux Electron 与模拟 Hub 验证；浏览器测试验证主进程收到准确 URL，Windows 默认浏览器实际启动仍待实机验收。
@@ -91,7 +99,7 @@ Windows 测试脚本通过 `start /affinity` 限制进程树到两个 CPU。Linu
 
 历史工作区复用 Button 组合可访问的折叠标题；上游 SessionList 的分组折叠依赖 Web 路由和列表状态，桌面工作区独立持久化。会话设置组合共享 Dialog、SelectControl、模型发现 hooks、模式/模型/思考档位 helpers 和 API 客户端；PermissionField 是新建会话的启动权限表单，不适合运行时设置，SessionChat/HappyComposer 则绑定 Web 路由与 composer。
 
-新建会话复用 Web 的独立字段组件、模型查询 hooks、useSpawnSession 和 WorkspaceBrowser。完整 NewSession 表单包含其他代理、历史导入及桌面重启等操作，超出当前三类 CLI 的创建范围，因此采用组件组合并保留桌面双栏/对话框布局。
+新建会话复用 Web 的独立字段组件、模型查询 hooks、useSpawnSession 和 WorkspaceBrowser。完整 NewSession 表单包含其他代理、历史导入及桌面重启等操作，超出当前四类 CLI 的创建范围，因此采用组件组合并保留桌面双栏/对话框布局。
 
 API 客户端通过注入 transport 复用上游请求结构。桌面布局不使用上游 SessionChat：该组件绑定 Web 路由、语音及单会话状态；本项目组合上游 ToolCard、CodeBlock、MachineSelector、PermissionField、RenameSessionDialog、ConfirmDialog 等可独立复用的组件。待回答问题直接组合上游 RequestUserInputFooter/AskUserQuestionFooter，省去 ToolCard 重复的题目摘要；两个 footer 通过可选 scrollable 属性适配受限高度，保持上游答案协议与默认 Web 布局。Markdown 展示适配桌面 IPC 链接，禁用原始 HTML 与自动远程图片请求。
 
@@ -105,9 +113,11 @@ API 客户端通过注入 transport 复用上游请求结构。桌面布局不�
 
 附件上传复用 Web 的 `createAttachmentAdapter`、IndexedDB 草稿存储与原子迁移、`moveAttachmentId` 和 `MessageAttachments`。附件条组合共享 `ImagePreview`、`FileIcon`、`Spinner`、`Button`；完整 `AttachmentItem` / `SortableComposerAttachments` 依赖 assistant-ui composer 运行时，无法直接用于桌面的独立输入框。桌面 hook 负责账户作用域、异步上传生命周期、恢复 ID 迁移及未确认发送记录的衔接。
 
-工具分组直接复用 `buildVisibleChatBlocks`、`ToolGroupCard` 与 `getToolPresentation`，不另写分类器或分组卡片。通过 `HappyChatProvider` 接入桌面的会话数据和保留滚动位置的历史加载函数；沿用 Web 的稳定分组 ID，使追加消息和补齐历史时保持展开状态。此版本无需修改 vendored 组件或升级 HAPI 源码快照。
+工具分组直接复用 `buildVisibleChatBlocks`、`ToolGroupCard` 与 `getToolPresentation`，不另写分类器或分组卡片。通过 `HappyChatProvider` 接入桌面的会话数据和保留滚动位置的历史加载函数；沿用 Web 的稳定分组 ID，使追加消息和补齐历史时保持展开状态。0.1.9 的工具分组接入无需修改 vendored 组件或升级 HAPI 源码快照。
 
 队列复用 QueuedMessagesBar 导出的排序、预览和可操作性判断，以及 HAPI 的取消、插入、重试 mutation hooks 和状态恢复逻辑。原队列组件依赖 assistant-ui composer 与定时草稿恢复，桌面采用独立草稿，故使用桌面视图组合这些共享行为。提示复用 ToastProvider/Toast，以桌面标签激活替代 ToastContainer 的 Web 路由跳转。会话未读状态复用 sessionLastSeen 的水位存储和 classifySessionAttention，存储 ID 增加 Hub/账户作用域，避免同名会话交叉影响。命令菜单复用 useSlashCommands、useActiveSuggestions、Autocomplete 和 applySuggestion，命令状态反馈复用 getEventPresentation；不另行维护命令清单或在前端模拟执行。
+
+Hermes 创建与会话设置复用 Web 的 `HermesModelPicker`、`useHermesModels` 和原生权限组件，适配桌面的双栏与对话框；创建时保留默认配置/手动模型输入，运行中沿用 Web 的模型目录选择。Markdown 表格复用 Web 导出的 `Table` 及 `remarkRepairTables`，桌面补充列宽、键盘滚动和本地图片导出适配。
 
 中文默认，主题跟随系统。桌面新增文案包含七种语言；上游工具卡当前随 HAPI 提供中文或英文，其他界面语言使用英文工具卡。完整 transcript 只保存在 Hub 和客户端内存；本地保留工作区、文字与文件附件草稿、滚动/折叠状态与未确认发送记录。注销会删除凭据并清理本地浏览器存储。请把含本地草稿的 Windows 用户目录视为个人数据。
 
@@ -130,3 +140,5 @@ Renderer 使用本地 `app://desktop` 协议、sandbox、context isolation、禁
 AGPL-3.0-only，保留 HAPI 与 Happy 的来源和版权信息，见 `LICENSE`、`THIRD_PARTY_NOTICES.md`。分发修改版本时一并提供对应源码。此项目不是官方 HAPI 发行版。
 
 `bun run verify:upstream` 校验全部 vendored 文件哈希，并在临时目录反向/正向应用补丁，验证能恢复上游源码和桌面修改。升级 HAPI 时先更新 pinned commit、补丁与哈希，再运行 golden fixture 和桌面回归测试。修改本地化文件通过 `scripts/add-missing-keys.mjs` 与 `bun run i18n:sync` 同步全部语言。
+
+0.1.10 保持基线 `0239edf38e2da653d662f31039e24ccea04c7837`，选择性移入 `drch90/hapi` 工作树中的 Hermes 实现；该来源基于 `0b70cac04c7492eb08f0c04466a576d5f157d67e`，Hermes 改动尚未提交，并非该提交本身已包含 Hermes。`UPSTREAM.json` 的 `backports` 保存实际读取源文件的 SHA256，累计补丁保存桌面适配结果。`UPSTREAM-FILES.json` 中新增文件的 `upstream: null` 表示其不在原基线中；验证器要求反向补丁删除它们，重放后逐字节恢复。不会读取或打包远端 Hermes 配置与凭据。

@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { MachineSelector } from '@/components/NewSession/MachineSelector'
 import { PermissionField } from '@/components/NewSession/PermissionField'
 import { ModelSelector } from '@/components/NewSession/ModelSelector'
+import { HermesModelPicker } from '@/components/HermesModelPicker'
+import { useHermesModels } from '@/hooks/queries/useHermesModels'
 import { OpencodeModelSelector } from '@/components/NewSession/OpencodeModelSelector'
 import { EffortField } from '@/components/NewSession/EffortField'
 import { CollaborationModeSelector } from '@/components/NewSession/CollaborationModeSelector'
@@ -41,7 +43,7 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
   const online = machines.data?.filter((machine) => machine.active) ?? []
   const [chosenMachine, setMachine] = useState('')
   const machineId = chosenMachine || online[0]?.id || ''
-  const [agent, setAgent] = useState<'claude' | 'codex' | 'opencode'>('codex')
+  const [agent, setAgent] = useState<'claude' | 'codex' | 'opencode' | 'hermes'>('codex')
   const [directory, setDirectory] = useState('')
   const [permission, setPermission] = useState<PermissionMode>('default')
   const [yolo, setYolo] = useState(false)
@@ -68,6 +70,13 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
   const paths = useMemo(() => (cwd ? [cwd] : []), [cwd])
   const { pathExistence, outsideWorkspaceRoots } = useMachinePathsExists(api, machineId, paths)
   const discoverOpencode = agent === 'opencode' && available && pathExistence[cwd] === true
+  const hermes = useHermesModels({
+    api,
+    machineId,
+    cwd,
+    enabled:
+      agent === 'hermes' && available && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd),
+  })
   const codex = useCodexModels({ api, machineId, enabled: agent === 'codex' && available })
   const opencode = useOpencodeModelsForCwd({ api, machineId, cwd, enabled: discoverOpencode })
   const variants = useOpencodeModelVariants({ api, machineId, cwd, enabled: discoverOpencode })
@@ -141,10 +150,13 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                 directory: directory.trim(),
                 agent,
                 model: model === 'auto' ? undefined : model,
-                modelReasoningEffort: agent !== 'claude' && reasoning !== 'default' ? reasoning : undefined,
+                modelReasoningEffort:
+                  (agent === 'codex' || agent === 'opencode') && reasoning !== 'default'
+                    ? reasoning
+                    : undefined,
                 effort: agent === 'claude' && effort !== 'auto' ? effort : undefined,
                 permissionMode: permission,
-                yolo,
+                yolo: agent === 'hermes' ? undefined : yolo,
                 sessionType,
                 worktreeName: sessionType === 'worktree' ? worktreeName.trim() || undefined : undefined,
                 collaborationMode: agent === 'codex' && mode !== 'default' ? mode : undefined,
@@ -195,6 +207,7 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                   <option value="codex">Codex</option>
                   <option value="claude">Claude Code</option>
                   <option value="opencode">OpenCode</option>
+                  <option value="hermes">Hermes</option>
                 </select>
               </label>
               {!available && (
@@ -213,7 +226,7 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                     disabled={busy}
                     onChange={(event) => {
                       setDirectory(event.target.value)
-                      if (agent === 'opencode') resetModel()
+                      if (agent === 'opencode' || agent === 'hermes') resetModel()
                     }}
                   />
                 </label>
@@ -229,7 +242,19 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
               </div>
             </div>
             <fieldset aria-label={t('Model')} disabled={busy}>
-              {agent === 'opencode' ? (
+              {agent === 'hermes' ? (
+                <HermesModelPicker
+                  key={`${machineId}:${cwd}`}
+                  models={hermes.availableModels}
+                  value={model}
+                  onChange={setModel}
+                  isLoading={hermes.isLoading}
+                  error={hermes.error ? t('Unable to load session options. Use Refresh to retry.') : null}
+                  allowDefault
+                  disabled={busy}
+                  onRefresh={hermes.refetch}
+                />
+              ) : agent === 'opencode' ? (
                 <OpencodeModelSelector
                   cwd={cwd}
                   machineId={machineId}
@@ -271,18 +296,20 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                 />
               )}
             </fieldset>
-            <fieldset aria-label={t('Reasoning effort')} disabled={busy}>
-              <EffortField
-                agent={agent}
-                effort={effort}
-                onEffortChange={setEffort}
-                reasoningEffort={reasoning}
-                onReasoningEffortChange={setReasoning}
-                codexReasoningOptions={codexEfforts?.map((value) => ({ value }))}
-                opencodeVariantOptions={variantOptions}
-                isDisabled={busy || optionsPending || (agent === 'opencode' && !discoverOpencode)}
-              />
-            </fieldset>
+            {agent !== 'hermes' && (
+              <fieldset aria-label={t('Reasoning effort')} disabled={busy}>
+                <EffortField
+                  agent={agent}
+                  effort={effort}
+                  onEffortChange={setEffort}
+                  reasoningEffort={reasoning}
+                  onReasoningEffortChange={setReasoning}
+                  codexReasoningOptions={codexEfforts?.map((value) => ({ value }))}
+                  opencodeVariantOptions={variantOptions}
+                  isDisabled={busy || optionsPending || (agent === 'opencode' && !discoverOpencode)}
+                />
+              </fieldset>
+            )}
             <fieldset aria-label={t('Permission mode')} disabled={busy}>
               <PermissionField
                 agent={agent}
@@ -348,7 +375,7 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                     initialMachineId={machineId}
                     onStartSession={(_, path) => {
                       setDirectory(path)
-                      if (agent === 'opencode') resetModel()
+                      if (agent === 'opencode' || agent === 'hermes') resetModel()
                       setBrowsing(false)
                     }}
                   />

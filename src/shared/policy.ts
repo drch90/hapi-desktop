@@ -86,9 +86,11 @@ const allowed: Record<string, RegExp[]> = {
     /^\/api\/(sessions|machines)$/,
     new RegExp(`^${session}$`),
     new RegExp(
-      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|codex-models|opencode-models|opencode-reasoning-effort-options)$`,
+      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options)$`,
     ),
-    new RegExp(`^${machine}/(agent-availability|codex-models|opencode-models|opencode-model-variants)$`),
+    new RegExp(
+      `^${machine}/(agent-availability|hermes-models|codex-models|opencode-models|opencode-model-variants)$`,
+    ),
   ],
   POST: [
     new RegExp(

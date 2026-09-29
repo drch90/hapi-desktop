@@ -22,9 +22,15 @@ async function renderShareImage(element: HTMLElement, width: number): Promise<Bl
     body.style.maxHeight = 'none'
     body.style.overflow = 'visible'
   }
+  for (const table of clone.querySelectorAll<HTMLElement>('.aui-md-table-wrapper')) {
+    table.style.overflow = 'visible'
+  }
   document.body.appendChild(clone)
   try {
     await document.fonts.ready
+    // Include every table column even when the live message scrolls horizontally.
+    width = Math.max(width, Math.ceil(clone.scrollWidth))
+    clone.style.width = `${width}px`
     const height = Math.ceil(clone.scrollHeight)
     const pixelRatio = Math.min(2, Math.sqrt(24_000_000 / Math.max(1, width * height)))
     const blob = await toBlob(clone, {

@@ -140,6 +140,14 @@ export class FixtureHub {
   emitQueueEvents = true
   commandEvents = false
   failSetting = false
+  hermesAvailable = true
+  failHermesModels = false
+  emptyHermesModels = false
+  hermesModelRequests: { path: string; cwd: string | null; refresh: boolean }[] = []
+  hermesModels = [
+    { modelId: 'custom:office:qwen:32b', name: 'Qwen 32B', providerLabel: 'Office' },
+    { modelId: 'custom:home:qwen:32b', name: 'Qwen 32B', providerLabel: 'Home' },
+  ]
   failModelDiscovery = false
   failDelete = false
   emitDeleteEvents = true
@@ -226,7 +234,32 @@ export class FixtureHub {
       return
     }
     if (path.endsWith('/agent-availability')) {
-      reply({ agents: ['codex', 'claude', 'opencode'].map((agent) => ({ agent, available: true })) })
+      reply({
+        agents: ['codex', 'claude', 'opencode', 'hermes'].map((agent) => ({
+          agent,
+          available: agent !== 'hermes' || this.hermesAvailable,
+        })),
+      })
+      return
+    }
+    if (path.endsWith('/hermes-models')) {
+      this.hermesModelRequests.push({
+        path,
+        cwd: url.searchParams.get('cwd'),
+        refresh: url.searchParams.get('refresh') === 'true',
+      })
+      const sessionId = /^\/api\/sessions\/([^/]+)\/hermes-models$/.exec(path)?.[1]
+      reply(
+        this.failHermesModels
+          ? { success: false, error: 'fixture internal details' }
+          : {
+              success: true,
+              availableModels: this.emptyHermesModels ? [] : this.hermesModels,
+              currentModelId: sessionId
+                ? (this.sessions.get(sessionId)?.model ?? null)
+                : this.hermesModels[0].modelId,
+            },
+      )
       return
     }
     if (path.endsWith('/codex-models')) {
@@ -257,7 +290,8 @@ export class FixtureHub {
       const id = ++this.spawnCount === 1 ? 'created' : `created-${this.spawnCount}`
       const s = fixtureSession(id, '新建远程会话', String(body.agent))
       s.metadata!.path = String(body.directory)
-      s.model = (body.model as string) ?? null
+      if (body.agent === 'hermes') s.metadata!.hermesSessionId = `native-${id}`
+      s.model = (body.model as string) ?? (body.agent === 'hermes' ? this.hermesModels[0].modelId : null)
       s.permissionMode = body.permissionMode as Session['permissionMode']
       s.collaborationMode = body.collaborationMode as Session['collaborationMode']
       s.effort = (body.effort as string) ?? null
@@ -431,7 +465,7 @@ export class FixtureHub {
       return
     }
     if (action === '/resume') {
-      const nextId = session.active ? id : 'resumed'
+      const nextId = session.active || session.metadata?.flavor === 'hermes' ? id : 'resumed'
       const next = { ...session, id: nextId, active: true }
       this.sessions.set(nextId, next)
       this.messages.set(nextId, this.messages.get(id) ?? [])
