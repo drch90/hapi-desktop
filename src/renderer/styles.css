@@ -82,6 +82,7 @@ select {
   --text-xs: calc(11px * var(--desk-font-scale));
 }
 .message-tool,
+.message-tool-group,
 .approval-area {
   --text-base: calc(13px * var(--desk-font-scale));
   --text-base--line-height: 1.6;
@@ -89,6 +90,7 @@ select {
   line-height: 1.6;
 }
 .message-tool .markdown,
+.message-tool-group .markdown,
 .approval-area .markdown {
   font-size: calc(12px * var(--desk-font-scale));
   line-height: 1.65;
@@ -1024,6 +1026,27 @@ input[type='checkbox'] {
 .message-tool > div {
   margin: 7px;
 }
+.message-tool-group {
+  margin: 12px 0 23px;
+}
+.message-tool-group [aria-expanded] > div {
+  flex-wrap: wrap;
+}
+.tool-operation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tool-operation > span,
+.tool-operation > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-operation > small {
+  color: var(--desk-muted);
+  font-weight: 400;
+}
 .disclosure {
   background: transparent;
   color: var(--desk-muted);
@@ -1208,6 +1231,70 @@ input[type='checkbox'] {
   background: var(--app-bg);
   border-radius: 11px;
   box-shadow: 0 2px 5px #00000003;
+}
+.attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: min(200px, 28vh);
+  overflow-y: auto;
+  padding: 8px;
+  border-bottom: 1px solid var(--desk-border);
+}
+.attachment-draft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--desk-border);
+  border-radius: 8px;
+  background: var(--app-bg);
+  font-size: calc(11px * var(--desk-font-scale));
+}
+.attachment-thumbnail {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  overflow: hidden;
+  border-radius: 5px;
+  cursor: zoom-in;
+}
+.attachment-draft > svg {
+  flex-shrink: 0;
+}
+.attachment-info {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.attachment-info > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-info > [role='status'] {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--desk-muted);
+}
+.attachment-info > .error {
+  overflow-wrap: anywhere;
+}
+.attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 90px;
+}
+.attachment-actions > button {
+  height: auto;
+  min-height: 26px;
+  padding: 4px;
+  font-size: inherit;
 }
 .composer:focus-within {
   border-color: var(--desk-accent);

@@ -148,6 +148,8 @@ export class HubConnection {
 
   async request(input: HubRequest): Promise<unknown> {
     const request = hubRequestSchema.parse(input)
+    if (request.scope !== undefined && request.scope !== `${this.state.hubUrl}:${this.state.profile ?? ''}`)
+      throw new HubError('CONNECTION_CHANGED')
     return this.authorizedRequest(request.path, request.method, request.body)
   }
 
@@ -229,7 +231,9 @@ export class HubConnection {
       try {
         // Enforce the bound while reading, including responses without Content-Length.
         // HAPI's generated-media protocol allows up to 25 MiB per file.
-        const limit = (format === 'binary' ? 25 : 24) * 1024 * 1024
+        // Chat pages may contain several Web image attachment previews.
+        const messagePage = method === 'GET' && /^\/api\/sessions\/[^/?]+\/messages(?:\?|$)/.test(path)
+        const limit = (format === 'binary' ? 25 : messagePage ? 96 : 24) * 1024 * 1024
         if (Number(response.headers.get('content-length')) > limit) {
           await response.body?.cancel()
           throw new HubError('RESPONSE_TOO_LARGE')
@@ -332,7 +336,8 @@ export class HubConnection {
         }, 10_000)
         const reader = response.body.getReader()
         const text = new TextDecoder()
-        const decoder = new SseDecoder()
+        // Match the 80 MiB message request ceiling, plus the SSE envelope.
+        const decoder = new SseDecoder(81 * 1024 * 1024)
         try {
           while (generation === this.generation) {
             const next = await reader.read()

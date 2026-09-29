@@ -21,6 +21,7 @@ import {
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import type { DesktopEvent } from '../../shared/bridge'
 import { api } from './api'
+import { resetAttachmentRuntime } from './useAttachments'
 
 export const queries = new QueryClient({
   defaultOptions: {
@@ -51,7 +52,8 @@ export function refreshSessions() {
   }, 250)
 }
 
-export function resetCaches() {
+export function resetCaches(eraseDrafts = false) {
+  resetAttachmentRuntime(eraseDrafts)
   clearTimeout(refreshTimer)
   refreshTimer = undefined
   for (const query of queries.getQueryCache().findAll({ queryKey: ['session'] }))

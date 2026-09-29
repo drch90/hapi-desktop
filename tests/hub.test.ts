@@ -176,6 +176,42 @@ async function connected(origin = 'https://hub.example') {
 }
 
 describe('Hub API authentication and delivery', () => {
+  it('binds uploads and their cleanup to the initiating account and rejects late completion', async () => {
+    const { fake, hub } = await connected()
+    const scope = `${hub.state.hubUrl}:${hub.state.profile ?? ''}`
+    const body = {
+      filename: 'binary.bin',
+      content: Buffer.from([0, 255, 128]).toString('base64'),
+      mimeType: 'application/octet-stream',
+    }
+    await hub.request({ path: '/api/sessions/s/upload', method: 'POST', body, scope })
+    expect(JSON.parse(String(fake.requests.at(-1)?.init?.body))).toEqual(body)
+    expect(fake.requests.at(-1)?.init?.redirect).toBe('error')
+    const before = fake.requests.length
+    for (const path of ['/api/sessions/s/upload', '/api/sessions/s/upload/delete']) {
+      await expect(
+        hub.request({
+          path,
+          method: 'POST',
+          body: path.endsWith('delete') ? { path: '/tmp/upload' } : body,
+          scope: 'https://other.example:alice',
+        }),
+      ).rejects.toThrow('CONNECTION_CHANGED')
+    }
+    expect(fake.requests).toHaveLength(before)
+    let finish!: (response: Response) => void
+    fake.route = () =>
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    const pending = hub.request({ path: '/api/sessions/s/upload', method: 'POST', body, scope })
+    const rejected = expect(pending).rejects.toThrow('CONNECTION_CHANGED')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    hub.disconnect()
+    finish(Response.json({ success: true, path: '/tmp/old-private-upload' }))
+    await rejected
+  })
+
   it('uses the configured private HTTP origin for login, SSE and authenticated requests', async () => {
     const origin = 'http://192.168.1.5:3006'
     const { fake, hub, events } = await connected(origin)

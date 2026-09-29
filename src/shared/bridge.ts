@@ -9,13 +9,14 @@ export type Settings = {
   fontSize: 'small' | 'normal' | 'large' | 'extra-large'
   groupSessionsByStatus: boolean
   collapseHistoryByDefault: boolean
+  codexExplorationCollapsed: boolean
   notifications: boolean
   launchAtLogin: boolean
 }
 export type ConnectionStatus =
   'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'authentication-required'
 export type ConnectionState = { status: ConnectionStatus; hubUrl: string; profile?: string; error?: string }
-export type HubRequest = { path: string; method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown }
+export type HubRequest = { path: string; method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; scope?: string }
 export type RemoteFile =
   | { kind: 'generated'; sessionId: string; imageId: string }
   | { kind: 'file'; sessionId: string; path: string }

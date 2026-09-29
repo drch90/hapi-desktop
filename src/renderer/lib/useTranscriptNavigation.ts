@@ -1,5 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
-import type { ChatBlock } from '@/chat/types'
+import type { VisibleChatBlock } from '@/chat/toolGroups'
+import type { OlderHistoryLoadResult } from '@/components/AssistantChat/context'
 import type { useMessages } from '@/hooks/queries/useMessages'
 import { getConversationMessageAnchorId } from '@/chat/outline'
 import { captureScrollAnchor, restoreScrollAnchor } from '@/components/AssistantChat/HappyThread'
@@ -8,7 +9,7 @@ import { setMessageViewMode } from '@/lib/message-window-store'
 export function useTranscriptNavigation(props: {
   sessionId: string
   initialScrollTop: number
-  blocks: readonly ChatBlock[]
+  blocks: readonly VisibleChatBlock[]
   messages: ReturnType<typeof useMessages>
   onPosition: (position: number) => void
 }) {
@@ -16,6 +17,7 @@ export function useTranscriptNavigation(props: {
   const viewport = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const following = useRef(props.initialScrollTop < 0)
+  const lastScrollTop = useRef(0)
   const restored = useRef(false)
   const active = useRef(false)
   const navigation = useRef(0)
@@ -35,6 +37,7 @@ export function useTranscriptNavigation(props: {
       if (!el || !restored.current || !following.current) return
       // Images, expanded tools, font changes and the composer can resize after render.
       el.scrollTop = el.scrollHeight
+      lastScrollTop.current = el.scrollTop
     })
     if (viewport.current) observer.observe(viewport.current)
     if (content.current) observer.observe(content.current)
@@ -59,6 +62,7 @@ export function useTranscriptNavigation(props: {
       restored.current = true
       if (!following.current) setMessageViewMode(props.sessionId, 'history')
     } else if (following.current) el.scrollTop = el.scrollHeight
+    lastScrollTop.current = el.scrollTop
     props.onPosition(following.current ? -1 : el.scrollTop)
   }, [props.blocks, props.messages.messages, props.messages.historyVersion])
 
@@ -69,7 +73,12 @@ export function useTranscriptNavigation(props: {
   function onScroll() {
     const el = viewport.current
     if (!el || !restored.current) return
-    if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) {
+    // An already queued programmatic scroll event may run after an image
+    // grows the content but before ResizeObserver follows it. Only moving
+    // upward should detach a reader who was following the latest message.
+    const movedUp = el.scrollTop < lastScrollTop.current - 1
+    lastScrollTop.current = el.scrollTop
+    if (movedUp && el.scrollHeight - el.scrollTop - el.clientHeight > 80) {
       following.current = false
       setMessageViewMode(props.sessionId, 'history')
     }
@@ -86,7 +95,10 @@ export function useTranscriptNavigation(props: {
     setLocated('')
     // Set the store directly so the caller controls the single tail refresh.
     setMessageViewMode(props.sessionId, 'tail')
-    if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight
+    if (viewport.current) {
+      viewport.current.scrollTop = viewport.current.scrollHeight
+      lastScrollTop.current = viewport.current.scrollTop
+    }
     props.onPosition(-1)
   }
 
@@ -107,8 +119,9 @@ export function useTranscriptNavigation(props: {
     return true
   }
 
-  async function loadEarlier() {
-    if (!props.messages.hasMore || props.messages.isLoadingMore || props.messages.isSyncingTail) return
+  async function loadEarlier(): Promise<OlderHistoryLoadResult> {
+    if (!props.messages.hasMore) return 'terminal-stop'
+    if (props.messages.isLoadingMore || props.messages.isSyncingTail) return 'transient-stop'
     const run = ++navigation.current
     following.current = false
     setAway(true)
@@ -126,6 +139,10 @@ export function useTranscriptNavigation(props: {
       return true
     })
     if (run === navigation.current && outcome.kind !== 'applied') pendingHistory.current = null
+    if (outcome.kind === 'applied') return 'loaded'
+    if (outcome.kind === 'stopped' && (outcome.reason === 'busy' || outcome.reason === 'epoch-reset'))
+      return 'transient-stop'
+    return 'terminal-stop'
   }
 
   return {

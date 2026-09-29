@@ -53,6 +53,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
     fontSize: 'normal',
     groupSessionsByStatus: true,
     collapseHistoryByDefault: true,
+    codexExplorationCollapsed: true,
     theme: 'dark',
     notifications: false,
   })
@@ -62,6 +63,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
     fontSize: 'extra-large',
     groupSessionsByStatus: false,
     collapseHistoryByDefault: false,
+    codexExplorationCollapsed: false,
   })
   expect(new DesktopStorage(directory).settings).toEqual({
     ...storage.settings,

@@ -2,7 +2,7 @@ import { test, expect, _electron, type ElectronApplication, type Page } from '@p
 import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
-import { FixtureHub, fixtureMessage } from './fake-server'
+import { FixtureHub, fixtureMessage, fixtureCodexEvent } from './fake-server'
 import { version as appVersion } from '../package.json'
 
 let electron: ElectronApplication
@@ -413,6 +413,181 @@ test('return to latest reloads the tail after older history evicts recent messag
   expect(errors).toEqual([])
 })
 
+test('web exploration groups distinguish reads, searches and mutations, update live and follow the collapse setting', async () => {
+  const start = Date.now() - 5000
+  const messages: ReturnType<typeof fixtureMessage>[] = [
+    {
+      ...fixtureMessage('explore-request', 1, '检查项目文件', true),
+      createdAt: start - 1000,
+      invokedAt: start - 1000,
+    },
+  ]
+  const read = { type: 'read', command: 'cat package.json', name: 'package.json', path: '/repo/package.json' }
+  const list = { type: 'listFiles', command: 'ls src', path: 'src' }
+  for (const [index, action] of [read, list].entries()) {
+    messages.push(
+      fixtureCodexEvent(
+        `explore-${index}`,
+        index + 2,
+        {
+          type: 'tool-call',
+          callId: `explore-${index}`,
+          name: 'CodexBash',
+          input: { command: action.command, command_actions: [action], command_source: 'agent' },
+        },
+        start + index * 1000,
+      ),
+    )
+  }
+  server.messages.set('design', messages)
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const exploration = chat.locator('[data-presentation="codex-exploration"]')
+  const toggle = exploration.getByRole('button', { name: /^正在探索|^已探索/ })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle).toContainText('开始')
+  await expect(toggle).toContainText('耗时')
+  await toggle.click()
+  await exploration.getByRole('button', { name: /读取 package.json/ }).click()
+  await expect(page.getByRole('dialog')).toContainText('cat package.json')
+  await page.keyboard.press('Escape')
+  await expect(exploration.getByRole('button', { name: /列出 src/ })).toBeVisible()
+  for (let index = 0; index < 2; index++) {
+    const message = fixtureCodexEvent(
+      `explore-result-${index}`,
+      messages.length + 1,
+      {
+        type: 'tool-call-result',
+        callId: `explore-${index}`,
+        output: { stdout: `文件内容 ${index}`, exit_code: 0 },
+      },
+      start + 3000 + index * 1000,
+    )
+    messages.push(message)
+    server.emit({ type: 'message-received', sessionId: 'design', message })
+  }
+  await expect(toggle).toContainText('已探索')
+  await expect(toggle).toContainText('结束')
+  await expect(toggle).toContainText('4.0s')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  const moreEvents = [
+    {
+      type: 'tool-call',
+      callId: 'search',
+      name: 'CodexBash',
+      input: {
+        command: 'rg cursor src',
+        command_actions: [{ type: 'search', command: 'rg cursor src', query: 'cursor', path: 'src' }],
+      },
+    },
+    {
+      type: 'tool-call-result',
+      callId: 'search',
+      output: { stdout: 'src/pagination.ts:cursor', exit_code: 0 },
+    },
+    {
+      type: 'tool-call',
+      callId: 'edit',
+      name: 'Edit',
+      input: { file_path: '/repo/src/pagination.ts', old_string: 'before', new_string: 'after' },
+    },
+    { type: 'tool-call-result', callId: 'edit', output: 'Updated' },
+    { type: 'tool-call', callId: 'build', name: 'Bash', input: { command: 'bun run build' } },
+    { type: 'tool-call-result', callId: 'build', output: 'Build failed', is_error: true },
+  ]
+  for (const data of moreEvents) {
+    const message = fixtureCodexEvent(`more-${messages.length}`, messages.length + 1, data)
+    messages.push(message)
+    server.emit({ type: 'message-received', sessionId: 'design', message })
+  }
+  await expect(exploration).toHaveCount(1)
+  await expect(exploration.getByRole('button', { name: /搜索.*cursor/ })).toBeVisible()
+  const operations = chat.locator('[data-presentation="default"]')
+  await expect(operations).toHaveCount(1)
+  await expect(operations).toContainText('编辑 1')
+  await expect(operations).toContainText('执行 1')
+  await expect(operations).toContainText('错误 1')
+  await operations.getByRole('button', { expanded: false }).click()
+  await operations.getByRole('button', { name: /bun run build/ }).click()
+  await expect(page.getByRole('dialog')).toContainText('Build failed')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('checkbox', { name: '探索记录默认收起' }).click()
+  await expect(page.getByRole('checkbox', { name: '探索记录默认收起' })).not.toBeChecked()
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  server.messages.set('review', messages)
+  await page.getByTestId('session-review').click()
+  const otherToggle = page.getByTestId('chat-review').getByRole('button', { name: /^已探索/ })
+  await expect(otherToggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.click()
+  await expect(otherToggle).toHaveAttribute('aria-expanded', 'true')
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await otherToggle.scrollIntoViewIfNeeded()
+  await expect(otherToggle).toBeInViewport()
+  await expect(
+    page.getByTestId('chat-review').getByRole('button', { name: /读取 package.json/ }),
+  ).toBeInViewport()
+  expect(errors).toEqual([])
+})
+
+test('opening a partial exploration group loads older tools without losing the open group or scroll anchor', async () => {
+  const messages = [fixtureMessage('older-question', 1, '搜索前的问题', true)]
+  for (let index = 0; index < 6; index++) {
+    messages.push(
+      fixtureCodexEvent(`history-read-${index}`, messages.length + 1, {
+        type: 'tool-call',
+        callId: `read-${index}`,
+        name: 'CodexBash',
+        input: {
+          command: `cat file-${index}.ts`,
+          command_actions: [
+            {
+              type: 'read',
+              command: `cat file-${index}.ts`,
+              name: `file-${index}.ts`,
+              path: `/repo/file-${index}.ts`,
+            },
+          ],
+        },
+      }),
+    )
+    messages.push(
+      fixtureCodexEvent(`history-result-${index}`, messages.length + 1, {
+        type: 'tool-call-result',
+        callId: `read-${index}`,
+        output: `文件 ${index}`,
+      }),
+    )
+  }
+  server.messages.set('design', messages)
+  server.messagePageSize = 4
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const group = chat.locator('[data-presentation="codex-exploration"]')
+  await group.getByRole('button', { name: /^已探索/ }).click()
+  await expect(group.getByRole('button', { name: /读取 file-0.ts/ })).toBeVisible()
+  await expect(group.getByRole('button', { name: /读取 file-5.ts/ })).toBeVisible()
+  await expect(group).toHaveCount(1)
+  await expect(group.getByRole('button', { name: /^已探索/ })).toHaveAttribute('aria-expanded', 'true')
+  await expect(chat.getByText('搜索前的问题', { exact: true })).toBeVisible()
+  expect(server.messagePageRequests.filter((request) => request.beforeSeq !== null).length).toBeGreaterThan(1)
+  await group.getByRole('button', { name: /读取 file-0.ts/ }).click()
+  await expect(page.getByRole('dialog')).toContainText('文件 0')
+  await page.keyboard.press('Escape')
+  await chat.getByRole('button', { name: '回到最新消息' }).click()
+  await expect
+    .poll(() =>
+      chat.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    )
+    .toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
 test('plans show their proposal and progress without opening a tool disclosure, including restored history', async () => {
   const codex = server.sessions.get('design')!
   codex.collaborationMode = 'plan'
@@ -501,6 +676,19 @@ test('outline navigation and live message following stay independent between pan
   expect(await left.locator('.transcript').evaluate((el) => el.scrollTop)).toBeCloseTo(readingTop, 0)
   await left.getByRole('button', { name: '回到最新消息' }).click()
   await expect(left.getByText('design 新回复', { exact: true })).toBeInViewport()
+  // A queued scroll event can arrive after asynchronous content growth, before
+  // ResizeObserver. It must not be mistaken for the reader scrolling upward.
+  await left.locator('.transcript').evaluate((el) => {
+    const spacer = document.createElement('div')
+    spacer.style.height = '180px'
+    el.firstElementChild!.append(spacer)
+    el.dispatchEvent(new Event('scroll'))
+  })
+  await expect
+    .poll(() =>
+      left.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    )
+    .toBeLessThan(3)
   // Content growth after a render also follows the latest message in this pane.
   server.displayMedia(
     'design',
@@ -1740,5 +1928,402 @@ test('background notifications deduplicate and activate their session', async ()
   expect(
     await electron.evaluate(() => (globalThis as unknown as { notices: unknown[] }).notices.length),
   ).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('attachments support selection, file drop, image paste, ordering, drafts and attachment-only sends', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const binary = Buffer.alloc(7 * 1024 * 1024, 0xe7) // Base64 exceeds the former 8 MiB IPC limit.
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'binary.bin', mimeType: 'application/octet-stream', buffer: binary })
+  await expect(chat.getByTestId('attachment-draft')).toContainText('待发送')
+  expect([...server.uploads.values()][0].bytes.equals(binary)).toBe(true)
+  await chat.locator('form').evaluate((form) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['文件拖入内容'], 'notes.txt', { type: 'text/plain' }))
+    form.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+  })
+  const png = await readFile('resources/icon.png')
+  await chat.getByRole('textbox').evaluate(
+    (input, bytes) => {
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([new Uint8Array(bytes)], 'pasted.png', { type: 'image/png' }))
+      input.dispatchEvent(
+        new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }),
+      )
+    },
+    [...png],
+  )
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(3)
+  await expect(chat.getByTestId('attachment-draft').filter({ hasText: 'pasted.png' })).toContainText('待发送')
+  await chat
+    .getByTestId('attachment-draft')
+    .filter({ hasText: 'pasted.png' })
+    .getByRole('button', { name: '附件左移' })
+    .click()
+  await expect(chat.getByTestId('attachment-draft').nth(1)).toContainText('pasted.png')
+  await expect(chat.getByTestId('attachment-draft').getByRole('status')).toHaveText([
+    '待发送',
+    '待发送',
+    '待发送',
+  ])
+  await page.getByTestId('session-review').click()
+  await expect(page.getByTestId('attachment-draft')).toHaveCount(0)
+  await page.getByTestId('session-design').click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(3)
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.getByTestId('session-review').click()
+  await page.locator('.chat-pane').nth(0).getByRole('button', { name: '移动到另一栏' }).click()
+  await page.getByTestId('session-design').click()
+  const review = page.getByTestId('chat-review')
+  await expect(review.getByRole('button', { name: '上传文件' })).toBeEnabled()
+  await review
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'other-pane.txt', mimeType: 'text/plain', buffer: Buffer.from('independent') })
+  await expect(review.getByTestId('attachment-draft')).toContainText('待发送')
+  // The Web draft store writes asynchronously; verify the durable snapshot
+  // before asserting that reload reuses its remote paths without another upload.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<number>((resolve, reject) => {
+            const open = indexedDB.open('hapi-composer-drafts')
+            open.onsuccess = () => {
+              const request = open.result.transaction('attachments').objectStore('attachments').getAll()
+              request.onsuccess = () => {
+                open.result.close()
+                resolve(request.result.flatMap((row) => row.files).filter((file) => file.path).length)
+              }
+              request.onerror = () => reject(request.error)
+            }
+            open.onerror = () => reject(open.error)
+          }),
+      ),
+    )
+    .toBe(4)
+  await page.reload()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(3)
+  await expect(chat.getByTestId('attachment-draft').nth(1)).toContainText('pasted.png')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  expect(server.uploads.size).toBe(4)
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  const sent = server.requests.filter(
+    (r) => r.path === '/api/sessions/design/messages' && r.method === 'POST',
+  )
+  expect(sent).toHaveLength(1)
+  expect(sent[0].body.text).toBe('')
+  expect((sent[0].body.attachments as { filename: string }[]).map((a) => a.filename)).toEqual([
+    'binary.bin',
+    'pasted.png',
+    'notes.txt',
+  ])
+  await expect(chat.locator('.transcript')).toContainText('binary.bin')
+  await expect(chat.locator('.transcript').getByRole('img', { name: 'pasted.png' })).toBeVisible()
+  await chat.locator('.transcript').getByRole('img', { name: 'pasted.png', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  expect(server.uploadDeletes).toEqual([]) // Sent files must remain available to the CLI.
+  await expect(review.getByTestId('attachment-draft')).toContainText('other-pane.txt')
+  await page.reload()
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('attachment errors can be retried or removed; late uploads are cleaned and compact controls fit', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  server.failUpload = true
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'retry.txt', mimeType: 'text/plain', buffer: Buffer.from('retry') })
+  const draft = chat.getByTestId('attachment-draft')
+  await expect(draft).toContainText('上传失败')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeDisabled()
+  server.failUpload = false
+  await draft.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(draft).toContainText('待发送')
+  const uploadedPath = [...server.uploads.keys()][0]
+  await draft.getByRole('button', { name: '移除附件' }).click()
+  await expect.poll(() => server.uploadDeletes).toContain(uploadedPath)
+  let finish!: () => void
+  server.uploadGate = new Promise((resolve) => {
+    finish = resolve
+  })
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat.locator('input[type=file]').setInputFiles({
+    name: 'late.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from([0, 255, 7]),
+  })
+  await expect
+    .poll(
+      () =>
+        server.requests.filter((r) => r.path.endsWith('/upload') && r.body.filename === 'late.bin').length,
+    )
+    .toBe(1)
+  await draft.getByRole('button', { name: '移除附件' }).click()
+  finish()
+  server.uploadGate = null
+  await expect.poll(() => server.uploadDeletes.length).toBe(2)
+  await expect(draft).toHaveCount(0)
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'empty.txt', mimeType: 'text/plain', buffer: Buffer.alloc(0) })
+  await expect(draft).toContainText('不能上传空文件')
+  await draft.getByRole('button', { name: '移除附件' }).click()
+  await chat.locator('form').evaluate((form) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([new Uint8Array(50 * 1024 * 1024 + 1)], 'too-large.bin'))
+    form.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+  })
+  await expect(draft).toContainText('单个文件不能超过 50 MB')
+  expect(server.requests.some((r) => r.body.filename === 'too-large.bin')).toBe(false)
+  await draft.getByRole('button', { name: '移除附件' }).click()
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat.locator('input[type=file]').setInputFiles({
+    name: 'long-filename-for-preview-and-layout-check.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('visible'),
+  })
+  await expect(draft).toContainText('待发送')
+  await expect(draft.getByRole('button', { name: '移除附件' })).toBeInViewport()
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeInViewport()
+  await expect(chat.getByRole('button', { name: '上传文件' })).toBeInViewport()
+  expect(errors).toEqual([])
+})
+
+test('uncertain sends preserve attachments and priority mode across reload and receipt checks', async () => {
+  const session = server.sessions.get('design')!
+  session.thinking = true
+  session.agentState!.steeringActive = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  server.failSend = 'absent'
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'priority.txt', mimeType: 'text/plain', buffer: Buffer.from('priority') })
+  await expect(chat.getByTestId('attachment-draft')).toContainText('待发送')
+  await chat.getByRole('button', { name: '优先插入', exact: true }).click()
+  await expect(chat.getByRole('button', { name: '检查送达状态' })).toBeVisible()
+  await page.reload()
+  await expect(chat.getByTestId('attachment-draft')).toContainText('priority.txt')
+  await chat.getByRole('button', { name: '检查送达状态' }).click()
+  server.failSend = 'none'
+  await chat.getByRole('button', { name: '重试发送', exact: true }).click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  const sends = server.requests.filter(
+    (r) => r.path === '/api/sessions/design/messages' && r.method === 'POST',
+  )
+  expect(sends).toHaveLength(2)
+  expect(sends[1].body).toEqual(sends[0].body)
+  expect(sends[1].body.deliveryMode).toBe('steer')
+  expect(server.uploads.size).toBe(1)
+  server.failSend = 'accepted'
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'accepted.txt', mimeType: 'text/plain', buffer: Buffer.from('accepted') })
+  await expect(chat.getByTestId('attachment-draft')).toContainText('待发送')
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.getByRole('button', { name: '检查送达状态' })).toBeVisible()
+  await page.reload()
+  await chat.getByRole('button', { name: '检查送达状态' }).click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  expect(
+    server.requests.filter((r) => r.path === '/api/sessions/design/messages' && r.method === 'POST'),
+  ).toHaveLength(3)
+  expect(server.uploadDeletes).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('attachments follow resumed session IDs, remain separate in panes and are erased on logout', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await chat
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'resume.txt', mimeType: 'text/plain', buffer: Buffer.from('resume') })
+  await expect(chat.getByTestId('attachment-draft')).toContainText('待发送')
+  server.sessions.get('design')!.active = false
+  server.emit({ type: 'session-updated', sessionId: 'design', data: server.sessions.get('design')! })
+  await expect(chat.getByRole('button', { name: '恢复会话', exact: true })).toBeVisible()
+  server.resumeRemovesSource = true
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  const resumed = page.getByTestId('chat-resumed')
+  await expect(resumed).toBeVisible()
+  await expect(resumed.locator('.transcript')).toContainText('resume.txt')
+  const sent = server.requests.find(
+    (r) => r.path === '/api/sessions/resumed/messages' && r.method === 'POST',
+  )!
+  expect(sent.body.attachments).toEqual([
+    expect.objectContaining({ filename: 'resume.txt', path: expect.stringContaining('/resumed/') }),
+  ])
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-history').click()
+  // Selecting on an archived session resumes before upload, including a source-removed SSE event.
+  server.sessions.get('resumed')!.active = true
+  await expect(
+    page.getByTestId('chat-history').getByRole('button', { name: '上传文件', exact: true }),
+  ).toBeEnabled()
+  await page
+    .getByTestId('chat-history')
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'archived.txt', mimeType: 'text/plain', buffer: Buffer.from('archived') })
+  await expect(page.getByTestId('chat-resumed').getByTestId('attachment-draft')).toContainText('待发送')
+  await expect(
+    page.getByTestId('chat-resumed').getByRole('button', { name: '上传文件', exact: true }),
+  ).toBeEnabled()
+  await page
+    .getByTestId('chat-resumed')
+    .locator('input[type=file]')
+    .setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('logout draft') })
+  await expect(page.getByTestId('chat-resumed').getByTestId('attachment-draft')).toHaveCount(2)
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '断开并清除本机凭据', exact: true }).click()
+  await expect(page.getByLabel('Hub 地址', { exact: true })).toBeVisible()
+  expect(
+    await page.evaluate(async () => {
+      const dbs = await indexedDB.databases()
+      if (!dbs.some((db) => db.name === 'hapi-composer-drafts')) return 0
+      return new Promise<number>((resolve, reject) => {
+        const open = indexedDB.open('hapi-composer-drafts')
+        open.onsuccess = () => {
+          const request = open.result.transaction('attachments').objectStore('attachments').count()
+          request.onsuccess = () => {
+            open.result.close()
+            resolve(request.result)
+          }
+          request.onerror = () => reject(request.error)
+        }
+        open.onerror = () => reject(open.error)
+      })
+    }),
+  ).toBe(0)
+  expect(errors).toEqual([])
+})
+
+test('switching tabs during a send clears accepted attachments and pending uploads restore safely', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.getByRole('button', { name: '上传文件' })).toBeEnabled()
+  await chat.locator('input[type=file]').setInputFiles({
+    name: 'sent-in-background.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('background'),
+  })
+  await expect(chat.getByTestId('attachment-draft')).toContainText('待发送')
+  let acknowledge!: () => void
+  server.sendGate = new Promise((resolve) => {
+    acknowledge = resolve
+  })
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect
+    .poll(
+      () =>
+        server.requests.filter((r) => r.path === '/api/sessions/design/messages' && r.method === 'POST')
+          .length,
+    )
+    .toBe(1)
+  await page.getByTestId('session-review').click()
+  acknowledge()
+  server.sendGate = null
+  await expect
+    .poll(() =>
+      page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('desktop:outbox:'))),
+    )
+    .toEqual([])
+  await page.getByTestId('session-design').click()
+  await expect(chat.getByRole('button', { name: '上传文件' })).toBeEnabled()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  expect(server.uploadDeletes).toEqual([])
+  let finish!: () => void
+  server.uploadGate = new Promise((resolve) => {
+    finish = resolve
+  })
+  await chat.locator('input[type=file]').setInputFiles([
+    { name: 'pending.txt', mimeType: 'text/plain', buffer: Buffer.from('pending') },
+    { name: 'waiting.txt', mimeType: 'text/plain', buffer: Buffer.from('waiting') },
+  ])
+  await expect
+    .poll(
+      () =>
+        server.requests.filter((r) => r.path.endsWith('/upload') && r.body.filename === 'pending.txt').length,
+    )
+    .toBe(1)
+  await page.getByTestId('session-review').click()
+  finish()
+  server.uploadGate = null
+  await expect.poll(() => server.uploadDeletes.length).toBeGreaterThan(0)
+  await page.getByTestId('session-design').click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(2)
+  await expect(chat.getByTestId('attachment-draft').nth(0)).toContainText('待发送')
+  await expect(chat.getByTestId('attachment-draft').nth(1)).toContainText('待发送')
+  server.sessions.get('design')!.active = false
+  await page.evaluate(() => window.desktop.request({ path: '/api/sessions/design', method: 'DELETE' }))
+  await expect(chat).toHaveCount(0)
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        return new Promise<number>((resolve, reject) => {
+          const open = indexedDB.open('hapi-composer-drafts')
+          open.onsuccess = () => {
+            const request = open.result.transaction('attachments').objectStore('attachments').getAllKeys()
+            request.onsuccess = () => {
+              open.result.close()
+              resolve(request.result.filter((key) => String(key).endsWith(':design')).length)
+            }
+            request.onerror = () => reject(request.error)
+          }
+          open.onerror = () => reject(open.error)
+        })
+      }),
+    )
+    .toBe(0)
+  expect(errors).toEqual([])
+})
+
+test('multiple large image attachments survive SSE and history reload without disconnecting', async () => {
+  const png = await readFile('resources/icon.png')
+  const image = Buffer.concat([png, Buffer.alloc(5 * 1024 * 1024 - png.length)])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.getByRole('button', { name: '上传文件' })).toBeEnabled()
+  await chat.locator('input[type=file]').setInputFiles(
+    Array.from({ length: 4 }, (_, index) => ({
+      name: `large-${index}.png`,
+      mimeType: 'image/png',
+      buffer: image,
+    })),
+  )
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(4)
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
+  await expect(chat.locator('.transcript').getByRole('img', { name: /^large-/ })).toHaveCount(4)
+  // A following event must also arrive on the same SSE connection.
+  server.emit({
+    type: 'message-received',
+    sessionId: 'design',
+    message: fixtureMessage('after-images', 4, '图片消息后的实时回复'),
+  })
+  await expect(chat.locator('.transcript')).toContainText('图片消息后的实时回复')
+  expect(server.requests.filter((r) => r.path === '/api/events')).toHaveLength(1)
+  await page.reload()
+  await expect(chat.locator('.transcript').getByRole('img', { name: /^large-/ })).toHaveCount(4)
+  expect(server.uploads.size).toBe(4)
+  expect(server.uploadDeletes).toEqual([])
   expect(errors).toEqual([])
 })

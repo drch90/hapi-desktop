@@ -1,12 +1,15 @@
 import { z } from 'zod'
 import type { ApiClient } from '@/api/client'
 import { ApiError } from '@/api/client'
+import { AttachmentMetadataSchema } from '@hapi/protocol/schemas'
 
 const attemptSchema = z.object({
   localId: z.string(),
   text: z.string(),
   createdAt: z.number(),
   status: z.enum(['unconfirmed', 'absent', 'indeterminate']),
+  attachments: z.array(AttachmentMetadataSchema).optional(),
+  deliveryMode: z.enum(['queue', 'steer']).optional(),
 })
 export type SendAttempt = z.infer<typeof attemptSchema>
 
@@ -24,7 +27,16 @@ export function loadAttempt(scope: string, id: string): SendAttempt | null {
 
 export function storeAttempt(scope: string, id: string, attempt: SendAttempt | null) {
   const key = `desktop:outbox:${scope}:${id}`
-  if (attempt) localStorage.setItem(key, JSON.stringify(attempt))
+  if (attempt)
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        ...attempt,
+        // Binary drafts and image previews live in IndexedDB. The send receipt only
+        // needs the remote attachment identity, keeping localStorage small.
+        attachments: attempt.attachments?.map(({ previewUrl: _preview, ...metadata }) => metadata),
+      }),
+    )
   else localStorage.removeItem(key)
 }
 

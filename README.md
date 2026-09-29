@@ -4,7 +4,7 @@
 
 ## 使用
 
-运行 `HAPI-Desktop-0.1.8-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
+运行 `HAPI-Desktop-0.1.9-win-x64-setup.exe`，输入 Hub 地址和访问令牌。地址填写 origin，例如 `https://hapi.example.com` 或 `http://192.168.1.5:3006`；不含 `/api` 或子路径。远端 CLI 与 runner 由已有 HAPI 部署负责。
 
 内网 HTTP 支持 IPv4 `10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`，共享/VPN 网段 `100.64.0.0/10`，IPv6 ULA `fc00::/7`，以及 localhost、IPv4/IPv6 回环地址。使用内网域名时请填写对应内网 IP，或使用 HTTPS；公网地址仍要求 HTTPS。HTTP 连接不会加密传输的令牌与消息，此选项按内网部署需求提供。
 
@@ -23,6 +23,12 @@
 会话列表右键菜单与 Web 一致，支持复制会话引用、重命名，以及活动会话归档和历史会话删除；也可聚焦会话后按 Shift+F10。复制的是包含 `/sessions/<id>` 与 HAPI 会话读取提示的引用文本，可粘贴到另一会话；它不是公开分享链接。右键操作无需切换当前聊天，归档与删除均需确认，删除失败可重试；成功后即使没有 SSE 删除事件也会更新列表并清理本地对应会话状态。
 
 0.1.7 修复计划模式的正文和步骤被普通工具折叠层隐藏的问题。计划提案、`update_plan` 进度和 `TodoWrite` 清单直接展示共享 HAPI 卡片，恢复会话后仍可查看；普通工具继续按原设置折叠，待确认计划仍使用原生审批。
+
+0.1.9 接入 Web 的工具分组。Codex 上报为读取、列目录、搜索的连续操作合并成“正在探索 / 已探索”；展开后按操作类型和文件/搜索目标列出记录，点击单条查看命令、输入和结果。普通连续操作使用 Web 的操作摘要与统计，修改、执行、读取及搜索各有标识，运行中和错误状态会更新。单独工具显示 Web 的图标、名称和目标摘要。探索分组默认收起，可在设置中关闭“探索记录默认收起”；设置在两栏同步，重启后保留。展开较早历史边界的分组时自动补读前面的记录并保持阅读位置；计划、子代理和待审批/问答使用 Web 的分组边界。分组显示整体开始、结束和耗时，单条详情显示该操作时间；普通独立工具保留原来的三项时间栏。分类依赖 CLI 上报的结构化信息，缺少分类的命令按 Web 普通工具规则显示。
+
+0.1.9 补齐聊天附件上传：点击输入框的回形针选择多个文件，也可拖入文件或粘贴剪贴板图片。附件卡显示文件名、大小、预览和上传状态，支持移除、失败重试、拖动排序及左右按钮排序；可以仅发送附件。沿用 Web 的单文件 50 MiB 上限，空文件会提示错误；图片不超过 5 MiB 时生成内联预览，其他图片仍作为文件上传。附件通过现有 Hub 上传接口进入远端会话，由该会话的 CLI 使用。修复图片加载时延迟到达的滚动事件误判为向上翻阅，保持正在跟随最新消息的视图随图片展开。
+
+未发送附件按 Hub、账户、会话存入本机 IndexedDB，切换标签、双栏或重载后恢复。归档会话先恢复，返回新会话 ID 时重新匹配上传路径并迁移草稿；目标已在另一栏打开时同步更新附件。发送结果未知时保留附件和原消息 ID，先检查送达状态再明确重试，保留原排队/优先插入方式；成功后只清除本机草稿，不删除 CLI 尚需读取的远端文件。移除上传中的附件会清理迟到的上传结果，删除会话和注销会清理相应本机草稿。
 
 设置中可选择“回车换行”或“回车发送”，默认保持回车换行；`Ctrl+Enter` 始终可发送，`Shift+Enter` 换行，输入法选词的回车不会发送。界面字号提供小、标准、大、特大四档，两栏同步生效。设置保存到本机，重启后保持。0.1.3 修正全局字体重置覆盖按钮字号与字重的问题；按钮采用更紧凑的比例，工具与问答文字同步缩小，聊天正文保持原有字号与行距。
 
@@ -64,6 +70,8 @@ bun run package:win
 
 Windows 测试脚本通过 `start /affinity` 限制进程树到两个 CPU。Linux 打包使用 electron-builder 26.15.3 内置的跨平台 NSIS uninstaller reader，避免 Wine 与宿主 glibc 版本不匹配；该适配仅处理生成的安装器 stub，升级 builder 时需重新验证。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip，减少重复下载。
 
+0.1.9 验证：`bun run typecheck`、`bun run build`、`bun run test`（428 项）、`xvfb-run -a bun run test:e2e`（36 项）通过，全部编译与测试进程限制在 CPU 0,1。新增覆盖探索分组分类/时间/历史补读/折叠设置，以及多文件选择、拖放、粘贴图片、排序、附件单独发送、双栏隔离、持久化草稿与取消迟到上传；验证未知送达后的原 ID 与优先插入重试、发送期间切换标签、归档恢复 ID 迁移、目标已打开时合并、会话删除/注销清理及小窗口特大字号。实际通过 7 MiB 二进制上传及四张各 5 MiB 的图片上传、SSE 接收和历史重载，主进程协议测试覆盖 50 MiB 边界、超限、非法文件名/MIME/Base64 与账户切换。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、12 个补丁文件可恢复重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 209 个键齐全。NSIS 内外层归档、包内版本/编译文件/图标/许可证、源码 ZIP 内容及校验和逐项校验。以上为 Linux Electron、模拟 Hub 与 Windows 交叉构建验证，0.1.9 尚待 Windows 实机验收。
+
 0.1.8 验证：`bun run typecheck`、`bun run build`、`bun run test`（386 项）与 `xvfb-run -a bun run test:e2e`（28 项）通过，测试与编译均限制为 CPU 0,1。新增用例在 0.1.7 构建上复现正文链接点击后未调用浏览器；修复后覆盖首次点击、双栏焦点切换、中键/键盘打开、失败重试/复制链接、带行号的远端文件链接、重复文件链接及会话引用跳转。文件栏验证涵盖目录/排序持久化、搜索失败、路径/内容复制、Markdown/源码、图片放大、空文件保存、部分 Git 结果、缺失文件的 diff 与读取重试、插入引用后刷新、双栏草稿隔离，以及 920×640 深色特大字号下操作按钮完整可见。会话菜单验证复制引用、键盘打开、归档取消/确认、删除失败/重试和无 SSE 时更新列表。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、12 个补丁文件的恢复与重放；`node scripts/limit-cpu.mjs bun run i18n:sync` 确认七种语言各 195 个键无缺失。以上为 Linux Electron 与模拟 Hub 验证；浏览器测试验证主进程收到准确 URL，Windows 默认浏览器实际启动仍待实机验收。
 
 0.1.7 验证：`bun run typecheck`、`bun run build`、`bun run test`（386 项）与 `xvfb-run -a bun run test:e2e`（25 项）通过，测试与编译均限制为 CPU 0,1。新增回归覆盖大纲搜索/跳转、历史加载的阅读位置保持、取消后的迟到响应、历史窗口淘汰最新消息后的重新获取、双栏同名消息隔离、阅读时接收新消息及图片加载后的自动跟随；另覆盖文件栏/会话栏拖动和键盘调整、重载保持、缩小窗口后恢复偏好、旧工作区升级，以及 Codex 计划正文/进度、恢复后的计划和 Claude 计划审批。既有小窗口长问答、媒体、队列与命令用例全部通过。`node scripts/limit-cpu.mjs bun run verify:upstream` 验证 932 个来源文件、7 个补丁文件的恢复与重放；`bun run i18n:sync` 确认七种语言各 188 个键无缺失。以上为 Linux Electron 与模拟 Hub 验证，新增功能尚待 Windows 实机验收。
@@ -95,9 +103,13 @@ API 客户端通过注入 transport 复用上游请求结构。桌面布局不�
 
 大纲复用 HAPI 的 `buildConversationOutline`、`ConversationOutlinePanel` 和滚动锚点保存/恢复函数。桌面导航适配双栏独立滚动容器与本地草稿；共享 HappyThread 整体绑定 assistant-ui 运行时，不能直接替换桌面聊天视图。宽度调整从原有分栏分隔线抽取共享 `ResizeHandle`，统一指针与键盘行为；计划直接使用现有 `ToolCard` 与计划/清单视图。
 
+附件上传复用 Web 的 `createAttachmentAdapter`、IndexedDB 草稿存储与原子迁移、`moveAttachmentId` 和 `MessageAttachments`。附件条组合共享 `ImagePreview`、`FileIcon`、`Spinner`、`Button`；完整 `AttachmentItem` / `SortableComposerAttachments` 依赖 assistant-ui composer 运行时，无法直接用于桌面的独立输入框。桌面 hook 负责账户作用域、异步上传生命周期、恢复 ID 迁移及未确认发送记录的衔接。
+
+工具分组直接复用 `buildVisibleChatBlocks`、`ToolGroupCard` 与 `getToolPresentation`，不另写分类器或分组卡片。通过 `HappyChatProvider` 接入桌面的会话数据和保留滚动位置的历史加载函数；沿用 Web 的稳定分组 ID，使追加消息和补齐历史时保持展开状态。此版本无需修改 vendored 组件或升级 HAPI 源码快照。
+
 队列复用 QueuedMessagesBar 导出的排序、预览和可操作性判断，以及 HAPI 的取消、插入、重试 mutation hooks 和状态恢复逻辑。原队列组件依赖 assistant-ui composer 与定时草稿恢复，桌面采用独立草稿，故使用桌面视图组合这些共享行为。提示复用 ToastProvider/Toast，以桌面标签激活替代 ToastContainer 的 Web 路由跳转。会话未读状态复用 sessionLastSeen 的水位存储和 classifySessionAttention，存储 ID 增加 Hub/账户作用域，避免同名会话交叉影响。命令菜单复用 useSlashCommands、useActiveSuggestions、Autocomplete 和 applySuggestion，命令状态反馈复用 getEventPresentation；不另行维护命令清单或在前端模拟执行。
 
-中文默认，主题跟随系统。桌面新增文案包含七种语言；上游工具卡当前随 HAPI 提供中文或英文，其他界面语言使用英文工具卡。完整 transcript 只保存在 Hub 和客户端内存；本地保留工作区、草稿、滚动/折叠状态与未确认发送记录。注销会删除凭据并清理本地浏览器存储。请把含本地草稿的 Windows 用户目录视为个人数据。
+中文默认，主题跟随系统。桌面新增文案包含七种语言；上游工具卡当前随 HAPI 提供中文或英文，其他界面语言使用英文工具卡。完整 transcript 只保存在 Hub 和客户端内存；本地保留工作区、文字与文件附件草稿、滚动/折叠状态与未确认发送记录。注销会删除凭据并清理本地浏览器存储。请把含本地草稿的 Windows 用户目录视为个人数据。
 
 ## 认证设计与验证范围
 
@@ -110,6 +122,8 @@ Renderer 使用本地 `app://desktop` 协议、sandbox、context isolation、禁
 自动测试覆盖：到期刷新、并发 401、撤销、注销时旧请求失效、加密存储调用和无明文回退、IPC 路由校验、SSE 游标/缺口、未知事件、版本单调性、发送响应丢失、双栏隔离、审批请求 ID 与恢复 ID 迁移。Windows 的系统安全存储和通知实际呈现需在目标系统验收。
 
 0.1.6 的文件读取复用上述主进程认证与刷新流程，令牌不进入 URL 或 renderer，不跟随重定向。文件内容按流累计检查大小，不信任 `Content-Length`；连接切换会使读取和未完成保存失效。CSP 仅为音视频增加 `media-src blob:`，仍禁止 renderer 直接访问网络、加载子框架或嵌入对象。回归覆盖二进制与空文件、401 刷新和再次拒绝、非法资源 ID、响应大小限制、注销后的迟到响应、原生保存窗口期间断线、取消保存及失败时保留原文件。
+
+0.1.9 上传沿用主进程认证，并增加请求发起时的 Hub/账户作用域校验，拒绝旧账户的迟到上传、发送与清理请求；已有连接代际校验继续丢弃断开后的结果。主进程校验文件名、MIME、Base64 格式及解码后 50 MiB 大小上限，单独放宽上传请求容量，其他接口保持原限制；消息请求、SSE 单条消息和历史页为多图预览分别保留 80 / 81 / 96 MiB 的有界容量。参照 [File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)，客户端不执行上传内容、不提供任意本机路径读取能力，文件内容与凭据不写日志。服务器仍负责会话授权、上传目录和文件处理策略。
 
 ## 许可证与上游更新
 

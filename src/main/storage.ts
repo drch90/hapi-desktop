@@ -12,6 +12,7 @@ export const defaultSettings: Settings = {
   fontSize: 'normal',
   groupSessionsByStatus: true,
   collapseHistoryByDefault: true,
+  codexExplorationCollapsed: true,
   notifications: true,
   launchAtLogin: false,
 }

@@ -7,9 +7,11 @@ export class SseDecoder {
   private id: string | undefined
   private dataSize = 0
 
+  constructor(private readonly maxFrameBytes = 8 * 1024 * 1024) {}
+
   push(chunk: string): SseFrame[] {
     this.buffer += chunk
-    if (this.buffer.length > 8 * 1024 * 1024) throw new Error('SSE_FRAME_TOO_LARGE')
+    if (this.buffer.length > this.maxFrameBytes) throw new Error('SSE_FRAME_TOO_LARGE')
     const frames: SseFrame[] = []
     let end: number
     while ((end = this.buffer.indexOf('\n')) !== -1) {
@@ -30,7 +32,7 @@ export class SseDecoder {
           this.dataSize += value.length
         }
         if (field === 'id' && !value.includes('\0')) this.id = value
-        if (this.dataSize > 8 * 1024 * 1024) throw new Error('SSE_FRAME_TOO_LARGE')
+        if (this.dataSize > this.maxFrameBytes) throw new Error('SSE_FRAME_TOO_LARGE')
       }
     }
     return frames

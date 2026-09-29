@@ -61,6 +61,25 @@ export function normalizeHubUrl(input: string): string {
 // origin, headers, auth endpoints, terminal, host management, or shell access.
 const session = '/api/sessions/[^/?#]+'
 const machine = '/api/machines/[^/?#]+'
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+const uploadBodySchema = z
+  .object({
+    filename: z
+      .string()
+      .min(1)
+      .max(4096)
+      .regex(/^[^/\\\x00-\x1f]+$/),
+    content: z
+      .string()
+      .min(1)
+      .max(4 * Math.ceil(MAX_UPLOAD_BYTES / 3)),
+    mimeType: z
+      .string()
+      .min(1)
+      .max(255)
+      .regex(/^[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+$/),
+  })
+  .strict()
 const allowed: Record<string, RegExp[]> = {
   GET: [
     /^\/health$/,
@@ -76,6 +95,7 @@ const allowed: Record<string, RegExp[]> = {
       `^${session}/(messages|resume|reopen|abort|archive|clear|model|permission-mode|model-reasoning-effort|effort|collaboration-mode|upload)$`,
     ),
     new RegExp(`^${session}/messages/queued-state$`),
+    new RegExp(`^${session}/upload/delete$`),
     new RegExp(`^${session}/messages/[^/?#]+/(retry|steer)$`),
     new RegExp(`^${session}/permissions/[^/?#]+/(approve|deny)$`),
     new RegExp(`^${session}/codex/plan/implement$`),
@@ -90,6 +110,7 @@ export const hubRequestSchema = z
     path: z.string().max(12_000),
     method: z.enum(['GET', 'POST', 'PATCH', 'DELETE']),
     body: z.unknown().optional(),
+    scope: z.string().min(1).max(4096).optional(),
   })
   .strict()
   .superRefine((request, context) => {
@@ -111,7 +132,22 @@ export const hubRequestSchema = z
       )
         throw new Error()
       if (request.method === 'GET' && request.body !== undefined) throw new Error()
-      if (JSON.stringify(request.body ?? null).length > 8 * 1024 * 1024) throw new Error()
+      if (request.method === 'POST' && new RegExp(`^${session}/upload$`).test(url.pathname)) {
+        const body = uploadBodySchema.parse(request.body)
+        const base64 = body.content
+        if (
+          base64.length % 4 !== 0 ||
+          /[^A-Za-z0-9+/=]/.test(base64) ||
+          !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)
+        )
+          throw new Error()
+        const size = (base64.length / 4) * 3 - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
+        if (size > MAX_UPLOAD_BYTES) throw new Error()
+      } else {
+        const limit =
+          request.method === 'POST' && new RegExp(`^${session}/messages$`).test(url.pathname) ? 80 : 8
+        if (JSON.stringify(request.body ?? null).length > limit * 1024 * 1024) throw new Error()
+      }
     } catch {
       context.addIssue({ code: 'custom', message: 'REQUEST_NOT_ALLOWED' })
     }
@@ -125,6 +161,7 @@ export const settingsUpdateSchema = z
     fontSize: z.enum(['small', 'normal', 'large', 'extra-large']).optional(),
     groupSessionsByStatus: z.boolean().optional(),
     collapseHistoryByDefault: z.boolean().optional(),
+    codexExplorationCollapsed: z.boolean().optional(),
     notifications: z.boolean().optional(),
     launchAtLogin: z.boolean().optional(),
   })

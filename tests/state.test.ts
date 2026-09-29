@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { hubRequestSchema, normalizeHubUrl } from '../src/shared/policy'
+import { hubRequestSchema, normalizeHubUrl, MAX_UPLOAD_BYTES } from '../src/shared/policy'
 import { SseDecoder } from '../src/main/sse'
 import {
   emptyWorkspace,
@@ -17,6 +17,94 @@ import { toIntlLocale } from '../src/shared/i18n'
 beforeEach(() => localStorage.clear())
 
 describe('desktop trust boundary', () => {
+  it('accepts 50 MiB uploads while rejecting invalid payloads and preserving other route limits', () => {
+    const request = {
+      path: '/api/sessions/a/upload',
+      method: 'POST',
+      body: {
+        filename: '中文 binary.bin',
+        content: Buffer.alloc(MAX_UPLOAD_BYTES, 0xff).toString('base64'),
+        mimeType: 'application/octet-stream',
+      },
+    }
+    expect(hubRequestSchema.safeParse(request).success).toBe(true)
+    expect(
+      hubRequestSchema.safeParse({
+        ...request,
+        body: { ...request.body, content: Buffer.alloc(MAX_UPLOAD_BYTES + 1).toString('base64') },
+      }).success,
+    ).toBe(false)
+    for (const content of ['', 'abc', 'ab=c', '!!!!', '====']) {
+      expect(hubRequestSchema.safeParse({ ...request, body: { ...request.body, content } }).success).toBe(
+        false,
+      )
+    }
+    for (const filename of ['../secret', 'a/b', 'a\\b', 'a\0b']) {
+      expect(
+        hubRequestSchema.safeParse({ ...request, body: { ...request.body, content: 'YQ==', filename } })
+          .success,
+      ).toBe(false)
+    }
+    expect(
+      hubRequestSchema.safeParse({
+        ...request,
+        body: { ...request.body, content: 'YQ==', mimeType: 'text/plain\r\nInjected: header' },
+      }).success,
+    ).toBe(false)
+    expect(
+      hubRequestSchema.safeParse({
+        path: '/api/sessions/a/model',
+        method: 'POST',
+        body: { model: 'x'.repeat(9 * 1024 * 1024) },
+      }).success,
+    ).toBe(false)
+    expect(
+      hubRequestSchema.safeParse({
+        path: '/api/sessions/a/messages',
+        method: 'POST',
+        body: { text: '', attachments: [{ previewUrl: 'x'.repeat(9 * 1024 * 1024) }] },
+      }).success,
+    ).toBe(true)
+    expect(
+      hubRequestSchema.safeParse({
+        path: '/api/sessions/a/upload/delete',
+        method: 'POST',
+        body: { path: '/tmp/hapi-upload/a/x' },
+      }).success,
+    ).toBe(true)
+  })
+
+  it('retains attachment identities and delivery mode across an uncertain send reload', () => {
+    const attachment = {
+      id: 'file-id',
+      filename: 'image.png',
+      mimeType: 'image/png',
+      size: 42,
+      path: '/tmp/upload',
+      previewUrl: 'data:image/png;base64,YQ==',
+    }
+    storeAttempt('hub:alice', 's', {
+      localId: 'receipt-id',
+      text: '',
+      createdAt: 1,
+      status: 'absent',
+      attachments: [attachment],
+      deliveryMode: 'steer',
+    })
+    const { previewUrl: _, ...metadata } = attachment
+    expect(loadAttempt('hub:alice', 's')).toEqual({
+      localId: 'receipt-id',
+      text: '',
+      createdAt: 1,
+      status: 'unconfirmed',
+      attachments: [metadata],
+      deliveryMode: 'steer',
+    })
+    expect(loadAttempt('hub:bob', 's')).toBeNull()
+    storeAttempt('hub:alice', 's', null)
+    expect(loadAttempt('hub:alice', 's')).toBeNull()
+  })
+
   it('permits only the session effort POST route', () => {
     expect(
       hubRequestSchema.safeParse({ path: '/api/sessions/a/effort', method: 'POST', body: { effort: 'high' } })
@@ -104,6 +192,14 @@ describe('SSE wire framing', () => {
     ])
     expect(decoder.push('id: \ndata: reset\n\n')).toEqual([{ id: '', data: 'reset' }])
     expect(decoder.push('id: invalid\0id\ndata: safe\n\n')).toEqual([{ data: 'safe' }])
+  })
+  it('accepts attachment-sized frames and still bounds a fragmented event', () => {
+    const decoder = new SseDecoder(12 * 1024 * 1024)
+    const payload = 'x'.repeat(9 * 1024 * 1024)
+    expect(decoder.push(`data: ${payload}\n\n`)).toEqual([{ data: payload }])
+    const small = new SseDecoder(32)
+    small.push('data: ' + 'x'.repeat(20) + '\n')
+    expect(() => small.push('data: ' + 'y'.repeat(20) + '\n')).toThrow('SSE_FRAME_TOO_LARGE')
   })
   it('bounds oversized frames', () =>
     expect(() => new SseDecoder().push('data: ' + 'x'.repeat(8 * 1024 * 1024))).toThrow(

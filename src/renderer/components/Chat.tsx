@@ -8,18 +8,24 @@ import {
   Pencil,
   Archive,
   ChevronDown,
-  Terminal,
   Bot,
   SlidersHorizontal,
   Trash2,
   ListTree,
   ArrowDownToLine,
+  Paperclip,
 } from 'lucide-react'
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ToolCard } from '@/components/ToolCard/ToolCard'
+import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
+import { MessageAttachments } from '@/components/AssistantChat/messages/MessageAttachments'
+import { getToolPresentation } from '@/components/ToolCard/knownTools'
+import { useTranslation as useHapiTranslation } from '@/lib/use-translation'
+import { HappyChatProvider } from '@/components/AssistantChat/context'
+import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@/chat/toolGroups'
 import { RequestUserInputFooter } from '@/components/ToolCard/RequestUserInputFooter'
 import { AskUserQuestionFooter } from '@/components/ToolCard/AskUserQuestionFooter'
 import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
@@ -43,7 +49,9 @@ import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
 import { getEventPresentation } from '@/chat/presentation'
 import type { ChatBlock, ToolCallBlock } from '@/chat/types'
-import { api, errorKey } from '../lib/api'
+import { api, createApi, errorKey } from '../lib/api'
+import { useAttachments } from '../lib/useAttachments'
+import { AttachmentTray } from './AttachmentTray'
 import { queries, refreshSessions, sessionKey, watchSession } from '../lib/sync'
 import { loadDraft, saveDraft, type Draft } from '../lib/workspace'
 import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery, type SendAttempt } from '../lib/outbox'
@@ -65,6 +73,7 @@ type ChatProps = {
   scope: string
   connected: boolean
   enterBehavior: Settings['enterBehavior']
+  codexExplorationCollapsed: boolean
   replaceSession: (from: string, to: string) => void
   sessionDeleted: (id: string) => void
   openSession: (id: string) => void
@@ -77,6 +86,7 @@ export function Chat({
   scope,
   connected,
   enterBehavior,
+  codexExplorationCollapsed,
   replaceSession,
   sessionDeleted,
   openSession,
@@ -90,6 +100,9 @@ export function Chat({
     queryFn: async () => SessionSchema.parse((await api.getSession(id)).session),
   })
   const session = query.data
+  const scopedApi = useMemo(() => createApi(scope), [scope])
+  const attachments = useAttachments(scope, id, Boolean(session?.active && connected))
+  const fileInput = useRef<HTMLInputElement>(null)
   const messages = useMessages(api, id)
   const [draft, setDraft] = useState(() => loadDraft(scope, id))
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
@@ -170,10 +183,23 @@ export function Chat({
     [session?.agentState],
   )
   const outlineItems = useMemo(() => buildConversationOutline(blocks), [blocks])
+  const previousGroups = useRef<ToolGroupBlock[]>([])
+  const visibleBlocks = useMemo(
+    () =>
+      buildVisibleChatBlocks(blocks, {
+        hasMoreMessages: messages.hasMore,
+        previousGroups: previousGroups.current,
+        codexExplorationCollapsed,
+      }),
+    [blocks, messages.hasMore, codexExplorationCollapsed],
+  )
+  useEffect(() => {
+    previousGroups.current = visibleBlocks.filter(isToolGroupBlock)
+  }, [visibleBlocks])
   const navigation = useTranscriptNavigation({
     sessionId: id,
     initialScrollTop: draft.scrollTop,
-    blocks,
+    blocks: visibleBlocks,
     messages,
     onPosition: (scrollTop) => {
       latestDraft.current = { ...latestDraft.current, scrollTop }
@@ -244,7 +270,9 @@ export function Chat({
       (deliveryMode === 'steer' && !canSteer) ||
       !session ||
       !connected ||
-      !latestDraft.current.text.trim() ||
+      (!latestDraft.current.text.trim() && !attachments.items.length && !attempt?.attachments?.length) ||
+      attachments.loading ||
+      (session.active && !attachments.ready && !retry) ||
       (attempt && (!retry || attempt.status !== 'absent'))
     )
       return
@@ -254,39 +282,62 @@ export function Chat({
     let outgoing: SendAttempt | null = null
     try {
       if (!session.active) {
-        target = await api.resumeSession(id)
+        target = await scopedApi.resumeSession(id)
         if (typeof target !== 'string' || !target || target.length > 256) throw new Error('INVALID_RESPONSE')
       }
       // Shared Codex threads use HAPI's native clear endpoint, which creates
       // and returns the new conversation. Other CLI commands stay verbatim.
       if (
         session.metadata?.capabilities?.concurrentClients &&
+        !attachments.items.length &&
         /^\/(clear|new)\s*$/.test(latestDraft.current.text.trim())
       ) {
         const commandText = latestDraft.current.text
-        const result = await api.clearConversation(target)
+        const result = await scopedApi.clearConversation(target)
         if (typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId.length > 256)
           throw new Error('INVALID_RESPONSE')
         target = result.sessionId
         if (latestDraft.current.text === commandText) updateDraft({ text: '', scrollTop: -1 })
         return
       }
+      const uploaded = await attachments.prepare(target)
+      if (retry && target !== id && uploaded.length !== (attempt?.attachments?.length ?? 0))
+        throw new Error('UPLOAD_FAILED')
       outgoing =
         retry && attempt
-          ? { ...attempt, status: 'unconfirmed' }
+          ? {
+              ...attempt,
+              status: 'unconfirmed',
+              attachments:
+                target !== id
+                  ? uploaded
+                  : attempt.attachments?.map(
+                      (item) => uploaded.find((candidate) => candidate.id === item.id) ?? item,
+                    ),
+            }
           : {
               localId: crypto.randomUUID(),
               text: latestDraft.current.text.trim(),
               createdAt: Date.now(),
               status: 'unconfirmed',
+              ...(uploaded.length ? { attachments: uploaded } : {}),
+              deliveryMode,
             }
       // Persist before the network request; a crash or window reload cannot
       // turn an uncertain send into a fresh attempt with another localId.
       storeAttempt(scope, id, outgoing)
       setAttempt(outgoing)
-      await api.sendMessage(target, outgoing.text, outgoing.localId, undefined, undefined, deliveryMode)
+      await scopedApi.sendMessage(
+        target,
+        outgoing.text,
+        outgoing.localId,
+        outgoing.attachments,
+        undefined,
+        outgoing.deliveryMode ?? deliveryMode,
+      )
       storeAttempt(scope, id, null)
       setAttempt(null)
+      attachments.clearSent(outgoing.attachments?.map((item) => item.id) ?? [])
       if (latestDraft.current.text.trim() === outgoing.text) updateDraft({ text: '', scrollTop: -1 })
       navigation.followLatest()
       if (target === id) await messages.refetch()
@@ -299,21 +350,30 @@ export function Chat({
     } finally {
       // Resume can create a new session. Move tab, draft and uncertain send
       // together after the attempt has settled, even if delivery failed.
+      if (!attachments.isCurrent()) return
       saveDraft(scope, id, latestDraft.current)
-      if (target !== id) {
-        migrated.current = true
-        replaceSession(id, target)
+      try {
+        if (target !== id) {
+          await attachments.transfer(target)
+          migrated.current = true
+          replaceSession(id, target)
+        }
+      } catch (error) {
+        if (alive.current) setError(errorKey(error))
+      } finally {
+        attachments.release()
+        if (alive.current) setBusy(false)
       }
-      if (alive.current) setBusy(false)
     }
   }
   async function inspectAttempt() {
-    if (!attempt || busy) return
+    if (!attempt || busy || attachments.loading) return
     setBusy(true)
     setError('')
     try {
-      const status = await checkDelivery(api, id, attempt)
+      const status = await checkDelivery(scopedApi, id, attempt)
       if (status === 'accepted') {
+        attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
         if (latestDraft.current.text.trim() === attempt.text) updateDraft({ text: '' })
         setAttempt(null)
         storeAttempt(scope, id, null)
@@ -330,6 +390,21 @@ export function Chat({
     }
   }
   const links = useMemo(() => ({ openSession, openFile }), [openSession, openFile])
+  async function attachFiles(files: File[]) {
+    if (!files.length || busy || !connected || attempt || !session || attachments.loading) return
+    await attachments.add(files)
+    if (!session.active) {
+      await action(async () => {
+        const target = await scopedApi.resumeSession(id)
+        if (target !== id) {
+          await attachments.transfer(target)
+          saveDraft(scope, id, latestDraft.current)
+          migrated.current = true
+          replaceSession(id, target)
+        }
+      }).catch(() => {})
+    }
+  }
   const title =
     session?.metadata?.name ||
     session?.metadata?.summary?.text ||
@@ -513,33 +588,55 @@ export function Chat({
                 </p>
               )}
               {messages.isSyncingTail && blocks.length === 0 && <p className="muted">{t('Loading…')}</p>}
-              <div className="happy-thread-messages">
-                {blocks
-                  .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
-                  .map((block) => (
-                    <div
-                      key={block.id}
-                      id={navigation.anchorId(`${block.kind}:${block.id}`)}
-                      className={`message-anchor ${navigation.located === `${block.kind}:${block.id}` ? 'is-located' : ''}`}
-                      tabIndex={-1}
-                    >
-                      <MessageBlock
-                        block={block}
-                        session={session}
-                        disabled={!connected || busy}
-                        done={() => void refresh()}
-                        expanded={draft.expanded.includes(block.id)}
-                        toggle={() =>
-                          updateDraft({
-                            expanded: draft.expanded.includes(block.id)
-                              ? draft.expanded.filter((id) => id !== block.id)
-                              : [...draft.expanded, block.id],
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-              </div>
+              <HappyChatProvider
+                value={{
+                  api,
+                  sessionId: id,
+                  metadata: session?.metadata ?? null,
+                  terminalToolDisplayMode: 'detailed',
+                  showSessionSummaryInChat: false,
+                  disabled: !connected || busy,
+                  onRefresh: () => void refresh(),
+                  hasMoreMessages: messages.hasMore,
+                  isSyncingTail: messages.isSyncingTail,
+                  isLoadingMoreMessages: messages.isLoadingMore,
+                  loadOlderMessagesPreservingScroll: navigation.loadEarlier,
+                }}
+              >
+                <div className="happy-thread-messages">
+                  {visibleBlocks
+                    .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
+                    .map((block) => (
+                      <div
+                        key={block.id}
+                        id={navigation.anchorId(`${block.kind}:${block.id}`)}
+                        className={`message-anchor ${navigation.located === `${block.kind}:${block.id}` ? 'is-located' : ''}`}
+                        tabIndex={-1}
+                      >
+                        {isToolGroupBlock(block) ? (
+                          <div className="message-tool-group" data-presentation={block.presentationMode}>
+                            <ToolGroupCard block={block} metadata={session?.metadata ?? null} />
+                          </div>
+                        ) : (
+                          <MessageBlock
+                            block={block}
+                            session={session}
+                            disabled={!connected || busy}
+                            done={() => void refresh()}
+                            expanded={draft.expanded.includes(block.id)}
+                            toggle={() =>
+                              updateDraft({
+                                expanded: draft.expanded.includes(block.id)
+                                  ? draft.expanded.filter((id) => id !== block.id)
+                                  : [...draft.expanded, block.id],
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </HappyChatProvider>
               {session?.thinking && (
                 <div className="thinking-indicator">
                   <span />
@@ -675,7 +772,7 @@ export function Chat({
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || !connected}
+                    disabled={busy || !connected || attachments.loading}
                     onClick={() => void inspectAttempt()}
                   >
                     {t('Check delivery')}
@@ -696,11 +793,46 @@ export function Chat({
           )}
           <form
             className="composer"
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.files.length) return
+              event.preventDefault()
+              void attachFiles(Array.from(event.dataTransfer.files))
+            }}
             onSubmit={(event) => {
               event.preventDefault()
               void send()
             }}
           >
+            <input
+              ref={fileInput}
+              type="file"
+              disabled={!connected || busy || Boolean(attempt) || !session || attachments.loading}
+              multiple
+              hidden
+              aria-label={t('Upload files')}
+              onChange={(event) => {
+                const files = Array.from(event.currentTarget.files ?? [])
+                event.currentTarget.value = ''
+                void attachFiles(files)
+              }}
+            />
+            {attachments.items.length > 0 && (
+              <AttachmentTray
+                items={attachments.items}
+                disabled={busy || Boolean(attempt) || !connected}
+                remove={attachments.remove}
+                retry={attachments.retry}
+                move={attachments.move}
+              />
+            )}
+            {attachments.error && (
+              <p className="error" role="alert">
+                {t(attachments.error)}
+              </p>
+            )}
             {suggestions.length > 0 && !attempt && (
               <div className="command-menu" role="region" aria-label={t('Native commands')}>
                 <Autocomplete
@@ -716,6 +848,14 @@ export function Chat({
               placeholder={t('Send a message…')}
               value={draft.text}
               readOnly={Boolean(attempt)}
+              onPaste={(event) => {
+                const files = Array.from(event.clipboardData.files).filter((file) =>
+                  file.type.startsWith('image/'),
+                )
+                if (!files.length) return
+                event.preventDefault()
+                void attachFiles(files)
+              }}
               onChange={(e) => updateDraft({ text: e.target.value })}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
@@ -771,6 +911,17 @@ export function Chat({
                   type="button"
                   size="sm"
                   variant="outline"
+                  aria-label={t('Upload files')}
+                  title={t('Upload files')}
+                  disabled={!connected || busy || Boolean(attempt) || !session || attachments.loading}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Paperclip size={14} />
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
                   disabled={Boolean(attempt)}
                   onClick={() => {
                     setCommandMenuOpen((value) => !value)
@@ -784,7 +935,13 @@ export function Chat({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={!connected || busy || !draft.text.trim() || Boolean(attempt)}
+                    disabled={
+                      !connected ||
+                      busy ||
+                      (!draft.text.trim() && !attachments.items.length) ||
+                      !attachments.ready ||
+                      Boolean(attempt)
+                    }
                     onClick={() => void send(false, 'steer')}
                   >
                     {t('Insert into current turn')}
@@ -810,7 +967,8 @@ export function Chat({
                     disabled={!connected || busy || Boolean(attempt)}
                     onClick={() =>
                       void action(async () => {
-                        const to = await api.resumeSession(id)
+                        const to = await scopedApi.resumeSession(id)
+                        if (to !== id) await attachments.transfer(to)
                         saveDraft(scope, id, latestDraft.current)
                         if (to !== id) migrated.current = true
                         replaceSession(id, to)
@@ -823,7 +981,15 @@ export function Chat({
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={!connected || busy || !draft.text.trim() || Boolean(attempt) || !session}
+                  disabled={
+                    !connected ||
+                    busy ||
+                    (!draft.text.trim() && !attachments.items.length) ||
+                    Boolean(attempt) ||
+                    !session ||
+                    attachments.loading ||
+                    (session.active && !attachments.ready)
+                  }
                 >
                   <ArrowUp size={15} />
                   {t('Send')}
@@ -899,7 +1065,19 @@ function MessageBlock({
 }) {
   const { t } = useTranslation()
   const source = useRef<HTMLElement>(null)
+  const { t: web } = useHapiTranslation()
   if (block.kind === 'tool-call') {
+    const presentation = getToolPresentation(
+      {
+        toolName: block.tool.name,
+        input: block.tool.input,
+        result: block.tool.result,
+        childrenCount: block.children.length,
+        description: block.tool.nativeTitle ?? block.tool.description,
+        metadata: session?.metadata ?? null,
+      },
+      web,
+    )
     // HAPI renders plans and checklists inline; the desktop tool disclosure
     // otherwise hides the proposal even while its implementation actions are visible.
     const isPlan = [
@@ -913,9 +1091,12 @@ function MessageBlock({
       <div className="message-tool">
         {!isPlan && (
           <>
-            <button className="disclosure" onClick={toggle}>
-              <Terminal size={13} />
-              <span>{block.tool.name}</span>
+            <button className="disclosure" onClick={toggle} aria-expanded={expanded}>
+              {presentation.icon}
+              <span className="tool-operation" title={block.tool.name}>
+                <span>{presentation.title}</span>
+                {presentation.subtitle && <small>{presentation.subtitle}</small>}
+              </span>
               <span className="muted">
                 {t(
                   block.tool.state === 'running'
@@ -985,6 +1166,9 @@ function MessageBlock({
           />
         </div>
         <MarkdownRenderer content={block.text} />
+        {block.kind === 'user-text' && block.attachments && (
+          <MessageAttachments attachments={block.attachments} />
+        )}
       </article>
     )
   if (block.kind === 'cli-output')

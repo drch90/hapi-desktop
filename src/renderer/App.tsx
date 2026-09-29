@@ -60,6 +60,7 @@ import {
 } from './lib/workspace'
 import { Chat } from './components/Chat'
 import { FilePanel, type FileRequest } from './components/FilePanel'
+import { forgetAttachmentDraft } from './lib/useAttachments'
 import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
@@ -314,6 +315,7 @@ function Workbench({
   const sessionDeleted = useCallback(
     (id: string) => {
       forgetSession(id)
+      forgetAttachmentDraft(scope, id)
       for (const family of ['draft', 'outbox']) localStorage.removeItem(`desktop:${family}:${scope}:${id}`)
       dispatch({ type: 'close', id })
       setPreview((previous) => (previous?.sessionId === id ? null : previous))
@@ -449,6 +451,8 @@ function Workbench({
     if (!to || to.length > 256) throw new Error('INVALID_RESPONSE')
     migrateSessionLocalState(scope, from, to)
     dispatch({ type: 'replace', from, to })
+    // A resume can remove its source via SSE before returning the new ID.
+    dispatch({ type: 'open', id: to })
     refreshSessions()
   }
   return (
@@ -683,6 +687,7 @@ function Workbench({
                         scope={scope}
                         connected={connection.status === 'connected'}
                         enterBehavior={bootstrap.settings.enterBehavior}
+                        codexExplorationCollapsed={bootstrap.settings.codexExplorationCollapsed}
                         replaceSession={replaceSession}
                         sessionDeleted={sessionDeleted}
                         openSession={(id) => dispatch({ type: 'open', id })}
@@ -921,6 +926,14 @@ function SettingsDialog({
           <label className="check-label">
             <input
               type="checkbox"
+              checked={bootstrap.settings.codexExplorationCollapsed}
+              onChange={(e) => void update({ codexExplorationCollapsed: e.target.checked })}
+            />
+            {t('Collapse explored tool groups by default')}
+          </label>
+          <label className="check-label">
+            <input
+              type="checkbox"
               checked={bootstrap.settings.notifications}
               onChange={(e) => void update({ notifications: e.target.checked })}
             />
@@ -947,7 +960,7 @@ function SettingsDialog({
               try {
                 close()
                 await unwrap(window.desktop.disconnect())
-                resetCaches()
+                resetCaches(true)
                 localStorage.clear()
               } catch (error) {
                 setError(errorKey(error))

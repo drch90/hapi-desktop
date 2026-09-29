@@ -12,16 +12,20 @@ export async function unwrap<T>(promise: Promise<Result<T>>): Promise<T> {
   return result.value
 }
 
-export const api = new ApiClient('', {
-  transport: async <T>(path: string, init?: RequestInit): Promise<T> =>
-    unwrap(
-      window.desktop.request({
-        path,
-        method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'DELETE',
-        ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
-      }),
-    ) as Promise<T>,
-})
+export function createApi(scope?: string) {
+  return new ApiClient('', {
+    transport: async <T>(path: string, init?: RequestInit): Promise<T> =>
+      unwrap(
+        window.desktop.request({
+          path,
+          ...(scope ? { scope } : {}),
+          method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'DELETE',
+          ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
+        }),
+      ) as Promise<T>,
+  })
+}
+export const api = createApi()
 
 export function errorKey(error: unknown): string {
   const code = error instanceof ApiError ? error.code : error instanceof Error ? error.message : ''
@@ -41,6 +45,9 @@ export function errorKey(error: unknown): string {
       return 'Connection failed. Check the Hub address and network.'
     case 'DELIVERY_UNKNOWN':
       return 'Delivery is unconfirmed. Check before sending again.'
+    case 'UPLOAD_FAILED':
+    case 'ATTACHMENTS_NOT_READY':
+      return 'Upload failed. Retry or remove the attachment.'
     case 'HTTP_404':
       return 'This session is unavailable.'
     default:

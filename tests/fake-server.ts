@@ -50,6 +50,21 @@ export function fixtureMessage(id: string, seq: number, text: string, user = fal
   }
 }
 
+export function fixtureCodexEvent(
+  id: string,
+  seq: number,
+  data: Record<string, unknown>,
+  createdAt = Date.now(),
+): DecryptedMessage {
+  return {
+    id,
+    seq,
+    localId: null,
+    createdAt,
+    content: { role: 'agent', content: { type: 'codex', data } },
+  }
+}
+
 export class FixtureHub {
   sessions = new Map([
     ['design', fixtureSession('design', '桌面工作台 · 界面与交互', 'codex')],
@@ -89,6 +104,11 @@ export class FixtureHub {
     string,
     { name: string; type: 'file' | 'directory'; size?: number; modified?: number }[]
   >()
+  uploads = new Map<string, { sessionId: string; filename: string; mimeType: string; bytes: Buffer }>()
+  uploadDeletes: string[] = []
+  failUpload = false
+  uploadGate: Promise<void> | null = null
+  resumeRemovesSource = false
   failFileSearch = false
   failGitNumstat = false
   displayMedia(sessionId: string, imageId: string, fileName: string, mimeType: string, content?: Buffer) {
@@ -110,6 +130,7 @@ export class FixtureHub {
   streams = new Set<ServerResponse>()
   eventId = 0
   failSend: 'none' | 'absent' | 'accepted' = 'none'
+  sendGate: Promise<void> | null = null
   holdMessages = false
   messagePageSize: number | null = null
   historyGate: Promise<void> | null = null
@@ -380,11 +401,44 @@ export class FixtureHub {
       reply({ sessionId: next.id })
       return
     }
+    if (action === '/upload') {
+      await this.uploadGate
+      if (!session.active || this.failUpload) {
+        reply({ success: false })
+        return
+      }
+      const path = `/tmp/hapi-upload/${id}/${this.uploads.size + 1}/${body.filename}`
+      const bytes = Buffer.from(String(body.content), 'base64')
+      this.uploads.set(path, {
+        sessionId: id,
+        filename: String(body.filename),
+        mimeType: String(body.mimeType),
+        bytes,
+      })
+      this.fileContents.set(path, bytes)
+      reply({ success: true, path })
+      return
+    }
+    if (action === '/upload/delete') {
+      const path = String(body.path)
+      if (this.uploads.get(path)?.sessionId !== id) {
+        reply({ success: false }, 403)
+        return
+      }
+      this.uploadDeletes.push(path)
+      this.fileContents.delete(path)
+      reply({ success: true })
+      return
+    }
     if (action === '/resume') {
       const nextId = session.active ? id : 'resumed'
       const next = { ...session, id: nextId, active: true }
       this.sessions.set(nextId, next)
       this.messages.set(nextId, this.messages.get(id) ?? [])
+      if (this.resumeRemovesSource && nextId !== id) {
+        this.sessions.delete(id)
+        this.emit({ type: 'session-removed', sessionId: id })
+      }
       reply({ sessionId: nextId })
       return
     }
@@ -470,6 +524,15 @@ export class FixtureHub {
     }
     if (action === '/messages') {
       if (request.method === 'POST') {
+        const attachments = body.attachments as { path: string }[] | undefined
+        if (
+          attachments?.some(
+            (item) => this.uploads.get(item.path)?.sessionId !== id || this.uploadDeletes.includes(item.path),
+          )
+        ) {
+          reply({ error: 'Wrong attachment session' }, 400)
+          return
+        }
         const message = {
           ...fixtureMessage(
             `sent-${Date.now()}`,
@@ -477,6 +540,10 @@ export class FixtureHub {
             String(body.text),
             true,
           ),
+          content: {
+            role: 'user',
+            content: { type: 'text', text: String(body.text), ...(attachments ? { attachments } : {}) },
+          },
           localId: String(body.localId),
           invokedAt: this.holdMessages && body.deliveryMode !== 'steer' ? null : Date.now(),
         }
@@ -506,6 +573,7 @@ export class FixtureHub {
           this.messages.get(id)!.push(event)
           this.emit({ type: 'message-received', sessionId: id, message: event })
         }
+        await this.sendGate
         reply({ ok: true })
         return
       }
