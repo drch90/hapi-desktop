@@ -33,7 +33,17 @@ import { I18nContext } from '@/lib/i18n-context'
 import { api, errorKey } from '../lib/api'
 import { machinesKey, queries, sessionKey } from '../lib/sync'
 
-export function NewSessionDialog({ close, created }: { close: () => void; created: (id: string) => void }) {
+export function NewSessionDialog({
+  close,
+  created,
+  initialMachineId,
+  initialDirectory,
+}: {
+  close: () => void
+  created: (id: string) => void
+  initialMachineId?: string
+  initialDirectory?: string
+}) {
   const { t } = useTranslation()
   const upstream = useContext(I18nContext)
   const machines = useQuery({
@@ -41,10 +51,11 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
     queryFn: async () => (await api.getMachines()).machines,
   })
   const online = machines.data?.filter((machine) => machine.active) ?? []
-  const [chosenMachine, setMachine] = useState('')
+  const [chosenMachine, setMachine] = useState(initialMachineId ?? '')
   const machineId = chosenMachine || online[0]?.id || ''
+  const machineAvailable = online.some((machine) => machine.id === machineId)
   const [agent, setAgent] = useState<'claude' | 'codex' | 'opencode' | 'hermes'>('codex')
-  const [directory, setDirectory] = useState('')
+  const [directory, setDirectory] = useState(initialDirectory ?? '')
   const [permission, setPermission] = useState<PermissionMode>('default')
   const [yolo, setYolo] = useState(false)
   const [model, setModel] = useState('auto')
@@ -63,12 +74,18 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
   const availability = useQuery({
     queryKey: ['availability', machineId],
     queryFn: () => api.getMachineAgentAvailability(machineId),
-    enabled: Boolean(machineId),
+    enabled: machineAvailable,
   })
-  const available = availability.data?.agents.some((item) => item.agent === agent && item.available) ?? false
+  const available =
+    machineAvailable &&
+    (availability.data?.agents.some((item) => item.agent === agent && item.available) ?? false)
   const cwd = useDeferredValue(directory.trim())
   const paths = useMemo(() => (cwd ? [cwd] : []), [cwd])
-  const { pathExistence, outsideWorkspaceRoots } = useMachinePathsExists(api, machineId, paths)
+  const { pathExistence, outsideWorkspaceRoots } = useMachinePathsExists(
+    api,
+    machineAvailable ? machineId : null,
+    paths,
+  )
   const discoverOpencode = agent === 'opencode' && available && pathExistence[cwd] === true
   const hermes = useHermesModels({
     api,
@@ -181,7 +198,12 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
             <div className="new-session-location">
               <MachineSelector
                 machines={online}
-                machineId={machineId}
+                machineId={machineAvailable ? machineId : ''}
+                placeholder={
+                  !machines.isPending && !machineAvailable
+                    ? t('Machine unavailable. Select an online machine.')
+                    : undefined
+                }
                 isLoading={machines.isPending}
                 isDisabled={busy}
                 onChange={(value) => {
@@ -212,7 +234,13 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
               </label>
               {!available && (
                 <p className="small muted">
-                  {t(availability.isPending ? 'Loading…' : 'Agent unavailable on this machine')}
+                  {t(
+                    !machines.isPending && !machineAvailable
+                      ? 'Machine unavailable. Select an online machine.'
+                      : availability.isPending
+                        ? 'Loading…'
+                        : 'Agent unavailable on this machine',
+                  )}
                 </p>
               )}
               <div className="launch-directory">
@@ -233,7 +261,7 @@ export function NewSessionDialog({ close, created }: { close: () => void; create
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={busy || !machineId}
+                  disabled={busy || !machineAvailable}
                   onClick={() => setBrowsing(true)}
                 >
                   <Folder size={14} />

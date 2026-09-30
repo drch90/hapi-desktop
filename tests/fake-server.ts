@@ -151,6 +151,27 @@ export class FixtureHub {
   failModelDiscovery = false
   failDelete = false
   emitDeleteEvents = true
+  machines = [
+    {
+      id: 'linux-1',
+      namespace: 'test',
+      active: true,
+      activeAt: Date.now(),
+      seq: 1,
+      updatedAt: Date.now(),
+      createdAt: 1,
+      metadataVersion: 1,
+      runnerStateVersion: 1,
+      runnerState: {},
+      metadata: {
+        host: 'linux-dev-01',
+        platform: 'linux',
+        happyCliVersion: '0.30.7',
+        workspaceRoots: ['/home/dev'],
+        capabilities: [...CURRENT_MACHINE_CAPABILITIES],
+      },
+    },
+  ]
   spawnCount = 0
   readonly server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://fixture')
@@ -208,29 +229,7 @@ export class FixtureHub {
       return
     }
     if (path === '/api/machines') {
-      reply({
-        machines: [
-          {
-            id: 'linux-1',
-            namespace: 'test',
-            active: true,
-            activeAt: Date.now(),
-            seq: 1,
-            updatedAt: Date.now(),
-            createdAt: 1,
-            metadataVersion: 1,
-            runnerStateVersion: 1,
-            runnerState: {},
-            metadata: {
-              host: 'linux-dev-01',
-              platform: 'linux',
-              happyCliVersion: '0.30.7',
-              workspaceRoots: ['/home/dev'],
-              capabilities: [...CURRENT_MACHINE_CAPABILITIES],
-            },
-          },
-        ],
-      })
+      reply({ machines: this.machines })
       return
     }
     if (path.endsWith('/agent-availability')) {
@@ -286,10 +285,15 @@ export class FixtureHub {
       )
       return
     }
-    if (path === '/api/machines/linux-1/spawn') {
+    const spawnMachine = this.machines.find(
+      (machine) => path === `/api/machines/${machine.id}/spawn` && machine.active,
+    )
+    if (spawnMachine) {
       const id = ++this.spawnCount === 1 ? 'created' : `created-${this.spawnCount}`
       const s = fixtureSession(id, '新建远程会话', String(body.agent))
       s.metadata!.path = String(body.directory)
+      s.metadata!.machineId = spawnMachine.id
+      s.metadata!.host = spawnMachine.metadata.host
       if (body.agent === 'hermes') s.metadata!.hermesSessionId = `native-${id}`
       s.model = (body.model as string) ?? (body.agent === 'hermes' ? this.hermesModels[0].modelId : null)
       s.permissionMode = body.permissionMode as Session['permissionMode']
@@ -302,7 +306,7 @@ export class FixtureHub {
       this.emit({ type: 'session-added', sessionId: s.id, data: s })
       return
     }
-    if (path === '/api/machines/linux-1/paths/exists') {
+    if (/^\/api\/machines\/[^/]+\/paths\/exists$/.test(path)) {
       reply({ exists: Object.fromEntries((body.paths as string[]).map((p) => [p, !p.endsWith('/missing')])) })
       return
     }

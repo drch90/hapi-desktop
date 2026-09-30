@@ -2613,3 +2613,152 @@ test('Markdown tables preserve alignment and scroll within a narrow chat pane', 
   await expect(chat.getByRole('table').last().getByRole('cell').last()).toHaveText('z')
   expect(errors).toEqual([])
 })
+
+test('workspace headers copy full paths and create on the matching machine without toggling the group', async () => {
+  const path = '/home/dev/项目 A/目录[测试]/a-very-long-workspace-name/desktop'
+  server.machines.push({
+    ...server.machines[0],
+    id: 'linux-2',
+    metadata: { ...server.machines[0].metadata, host: 'linux-dev-02' },
+  })
+  for (const [id, machineId] of [
+    ['workspace-one', 'linux-1'],
+    ['workspace-two', 'linux-2'],
+  ]) {
+    const session = fixtureSession(id, id, 'codex', false)
+    session.metadata!.machineId = machineId
+    session.metadata!.path = path
+    server.sessions.set(id, session)
+    server.messages.set(id, [])
+  }
+  await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
+  await page.reload()
+  const group = page
+    .getByTestId('sessions-history')
+    .locator('.session-group')
+    .filter({ has: page.getByTestId('session-workspace-two') })
+  const toggle = group.getByRole('button', { name: /^展开工作区/ })
+  const plus = group.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await group.getByRole('button', { name: `复制路径: ${path}`, exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(path)
+  await expect(group.getByRole('button', { name: `已复制: ${path}`, exact: true })).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await plus.focus()
+  await page.keyboard.press('Enter')
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue(path)
+  await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-2')
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn'))).toEqual([])
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // The global button must not retain a canceled workspace's location.
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('')
+  await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-1')
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('workspace-two')
+  await expect(group.getByRole('button', { name: /^折叠工作区/ })).toBeDisabled()
+  await expect(plus).toBeEnabled()
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await expect(plus).toBeInViewport()
+  const bounds = await plus.boundingBox()
+  const sidebar = await page.locator('.sidebar').boundingBox()
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(sidebar!.x + sidebar!.width)
+  await plus.click()
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue(path)
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created')).toBeVisible()
+  const request = server.requests.find((r) => r.path.endsWith('/spawn'))!
+  expect(request.path).toBe('/api/machines/linux-2/spawn')
+  expect(request.body).toMatchObject({ directory: path, agent: 'codex', permissionMode: 'default' })
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn'))).toHaveLength(1)
+  expect(errors).toEqual([])
+})
+
+test('workspace actions handle copy failures, missing metadata and a runner going offline without redirecting creation', async () => {
+  const offline = { ...server.machines[0], id: 'offline-runner', active: false }
+  server.machines.push(offline)
+  const session = fixtureSession('offline-workspace', '离线工作区', 'claude', false)
+  session.metadata!.machineId = offline.id
+  session.metadata!.path = '/home/dev/offline'
+  server.sessions.set(session.id, session)
+  server.messages.set(session.id, [])
+  const unknown = fixtureSession('unknown-workspace', '未知工作区', 'claude', false)
+  unknown.metadata = null
+  server.sessions.set(unknown.id, unknown)
+  const missingMachine = fixtureSession('missing-machine', '未知机器', 'claude', false)
+  delete missingMachine.metadata!.machineId
+  server.sessions.set(missingMachine.id, missingMachine)
+  await page.reload()
+  const history = page.getByTestId('sessions-history')
+  const group = history
+    .locator('.session-group')
+    .filter({ has: page.getByTestId('session-offline-workspace') })
+  const plus = group.getByRole('button', { name: /在此目录新建会话/ })
+  const copy = group.getByRole('button', { name: /复制路径/ })
+  await expect(plus).toBeDisabled()
+  await expect(copy).toBeEnabled()
+  await expect(
+    history
+      .locator('.session-group')
+      .filter({ has: page.getByTestId('session-unknown-workspace') })
+      .locator('.workspace-group-actions'),
+  ).toHaveCount(0)
+  await expect(
+    history
+      .locator('.session-group')
+      .filter({ has: page.getByTestId('session-missing-machine') })
+      .getByRole('button', { name: /在此目录新建会话/ }),
+  ).toBeDisabled()
+  await page.evaluate(() => {
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard)
+    const exec = document.execCommand.bind(document)
+    ;(window as unknown as { restoreClipboard: () => void }).restoreClipboard = () => {
+      navigator.clipboard.writeText = write
+      document.execCommand = exec
+    }
+    navigator.clipboard.writeText = async () => {
+      throw new Error('Clipboard unavailable')
+    }
+    document.execCommand = () => false
+  })
+  await copy.click()
+  await expect(group.getByRole('alert')).toHaveText('复制失败')
+  await expect(group.getByRole('button', { name: /已复制/ })).toHaveCount(0)
+  await page.evaluate(() => (window as unknown as { restoreClipboard: () => void }).restoreClipboard())
+  await copy.click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('/home/dev/offline')
+  await expect(group.getByRole('alert')).toHaveCount(0)
+  offline.active = true
+  server.emit({ type: 'machine-updated', machineId: offline.id, data: offline })
+  await expect(plus).toBeEnabled()
+  await plus.click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  const machine = launch.locator('.new-session-location select').first()
+  await expect(machine).toHaveValue(offline.id)
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('/home/dev/offline')
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeEnabled()
+  offline.active = false
+  server.emit({ type: 'machine-updated', machineId: offline.id, data: offline })
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeDisabled()
+  await expect(machine).toHaveValue('')
+  await expect(launch).toContainText('机器不可用，请选择在线机器。')
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('/home/dev/offline')
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn'))).toEqual([])
+  await machine.selectOption('linux-1')
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('')
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  await page.evaluate(() => window.desktop.updateSettings({ groupSessionsByStatus: false }))
+  await expect(
+    page
+      .getByTestId('sessions-all')
+      .locator('.session-group')
+      .filter({ has: page.getByTestId('session-design') })
+      .getByRole('button', { name: /在此目录新建会话/ }),
+  ).toBeEnabled()
+  expect(errors).toEqual([])
+})

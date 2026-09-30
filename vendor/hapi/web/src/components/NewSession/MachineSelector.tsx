@@ -25,6 +25,7 @@ export function MachineSelector(props: {
     machines: Machine[]
     machineId: string | null
     isLoading?: boolean
+    placeholder?: string
     isDisabled: boolean
     onChange: (machineId: string) => void
 }) {
@@ -41,10 +42,11 @@ export function MachineSelector(props: {
                 disabled={props.isDisabled}
                 className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
             >
+                {props.placeholder && <option value="" disabled>{props.placeholder}</option>}
                 {props.isLoading && (
                     <option value="">{t('loading.machines')}</option>
                 )}
-                {!props.isLoading && props.machines.length === 0 && (
+                {!props.isLoading && !props.placeholder && props.machines.length === 0 && (
                     <option value="">{t('misc.noMachines')}</option>
                 )}
                 {props.machines.map((m) => (

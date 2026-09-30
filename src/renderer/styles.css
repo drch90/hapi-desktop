@@ -745,8 +745,32 @@ input[type='checkbox'] {
   margin-top: 20px;
   font-size: calc(12px * var(--desk-font-scale));
 }
+.workspace-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.workspace-group-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 1px;
+}
+.workspace-group-actions button {
+  background: transparent;
+  border: 0;
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  color: var(--desk-muted);
+}
+.workspace-group-actions button:hover {
+  color: var(--app-fg);
+}
 .workspace-group-toggle {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: auto;
   justify-content: flex-start;
   padding: 5px 4px;
@@ -778,6 +802,7 @@ input[type='checkbox'] {
   transform: rotate(-90deg);
 }
 .workspace-group-count {
+  flex-shrink: 0;
   color: var(--desk-muted);
   font-size: calc(10px * var(--desk-font-scale));
 }

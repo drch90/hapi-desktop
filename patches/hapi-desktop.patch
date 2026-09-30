@@ -444,6 +444,31 @@ index 0000000..e306ba9
 +        </div> : null}
 +    </div>
 +}
+diff --git a/vendor/hapi/web/src/components/NewSession/MachineSelector.tsx b/vendor/hapi/web/src/components/NewSession/MachineSelector.tsx
+index 553ddea..31af354 100644
+--- a/vendor/hapi/web/src/components/NewSession/MachineSelector.tsx
++++ b/vendor/hapi/web/src/components/NewSession/MachineSelector.tsx
+@@ -25,6 +25,7 @@ export function MachineSelector(props: {
+     machines: Machine[]
+     machineId: string | null
+     isLoading?: boolean
++    placeholder?: string
+     isDisabled: boolean
+     onChange: (machineId: string) => void
+ }) {
+@@ -41,10 +42,11 @@ export function MachineSelector(props: {
+                 disabled={props.isDisabled}
+                 className="rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] py-2 pl-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--app-link)] disabled:opacity-50"
+             >
++                {props.placeholder && <option value="" disabled>{props.placeholder}</option>}
+                 {props.isLoading && (
+                     <option value="">{t('loading.machines')}</option>
+                 )}
+-                {!props.isLoading && props.machines.length === 0 && (
++                {!props.isLoading && !props.placeholder && props.machines.length === 0 && (
+                     <option value="">{t('misc.noMachines')}</option>
+                 )}
+                 {props.machines.map((m) => (
 diff --git a/vendor/hapi/web/src/components/NewSession/types.ts b/vendor/hapi/web/src/components/NewSession/types.ts
 index 4bd5fac..c6b050d 100644
 --- a/vendor/hapi/web/src/components/NewSession/types.ts

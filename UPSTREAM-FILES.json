@@ -1449,7 +1449,7 @@
   },
   "web/src/components/NewSession/MachineSelector.tsx": {
     "upstream": "de318edf113563c4aa27b8bd61b4ef31d490b19b03a463a82d4929201a51dc85",
-    "vendored": "de318edf113563c4aa27b8bd61b4ef31d490b19b03a463a82d4929201a51dc85"
+    "vendored": "3c5f3799ca8c96cddbd72fb113df4d254040afac455fad28331aba758b0c0e39"
   },
   "web/src/components/NewSession/ModelSelector.test.tsx": {
     "upstream": "3641dc6c70db450b8b245afeb8e84aa3a13fe77197bfafbe582024783a242fa3",

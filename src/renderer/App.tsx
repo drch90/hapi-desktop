@@ -288,7 +288,7 @@ function Workbench({
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   const [showSettings, setShowSettings] = useState(false)
-  const [showNew, setShowNew] = useState(false)
+  const [newSession, setNewSession] = useState<{ machineId?: string; directory?: string } | null>(null)
   const [preview, setPreview] = useState<FileRequest | null>(null)
   const [sessionMenu, setSessionMenu] = useState<{ id: string; point: { x: number; y: number } } | null>(null)
   const composerActions = useRef(new Map<string, (path: string) => void>())
@@ -388,7 +388,16 @@ function Workbench({
     }
   }, [visibleIds.join('|')])
   const groups = useMemo(() => {
-    const groups = new Map<string, { machine: string; path: string; sessions: SessionSummary[] }>()
+    const groups = new Map<
+      string,
+      {
+        machine: string
+        machineId: string | null
+        path: string
+        hasDirectory: boolean
+        sessions: SessionSummary[]
+      }
+    >()
     for (const row of [...(sessions.data ?? [])].sort((a, b) => b.updatedAt - a.updatedAt)) {
       if (
         (filter === 'Active' && !row.active) ||
@@ -402,7 +411,7 @@ function Workbench({
         machine?.metadata?.host ||
         row.metadata?.machineId?.slice(0, 8) ||
         'HAPI'
-      const path = row.metadata?.path ?? '/'
+      const path = row.metadata?.path?.trim() ? row.metadata.path : '—'
       if (
         !`${sessionTitle(row)} ${machineName} ${path} ${row.metadata?.flavor ?? ''}`
           .toLowerCase()
@@ -410,7 +419,14 @@ function Workbench({
       )
         continue
       const key = `${row.metadata?.machineId}:${path}`
-      if (!groups.has(key)) groups.set(key, { machine: machineName, path, sessions: [] })
+      if (!groups.has(key))
+        groups.set(key, {
+          machine: machineName,
+          machineId: row.metadata?.machineId ?? null,
+          path,
+          hasDirectory: Boolean(row.metadata?.path?.trim()),
+          sessions: [],
+        })
       groups.get(key)!.sessions.push(row)
     }
     return [...groups.entries()]
@@ -448,7 +464,9 @@ function Workbench({
                     key,
                     {
                       machine: '',
+                      machineId: null,
                       path: '',
+                      hasDirectory: false,
                       sessions: sectionGroups
                         .flatMap(([, group]) => group.sessions)
                         .sort((a, b) => b.updatedAt - a.updatedAt),
@@ -482,7 +500,7 @@ function Workbench({
         <Button
           className="new-session"
           variant="outline"
-          onClick={() => setShowNew(true)}
+          onClick={() => setNewSession({})}
           disabled={connection.status !== 'connected'}
         >
           <Plus size={16} />
@@ -532,6 +550,17 @@ function Workbench({
                   key={key}
                   machine={group.machine}
                   path={group.path}
+                  hasDirectory={group.hasDirectory}
+                  canCreate={
+                    connection.status === 'connected' &&
+                    Boolean(
+                      machines.data?.some((machine) => machine.id === group.machineId && machine.active),
+                    )
+                  }
+                  onNewSession={() => {
+                    if (group.machineId && group.hasDirectory)
+                      setNewSession({ machineId: group.machineId, directory: group.path })
+                  }}
                   count={group.sessions.length}
                   filtering={Boolean(search.trim())}
                   historyOnly={group.sessions.every((row) => !row.active)}
@@ -719,7 +748,7 @@ function Workbench({
                         <MessageSquare size={36} strokeWidth={1} />
                         <h2>{t('Open a session to begin')}</h2>
                         <p>{t('Choose a session from the sidebar, or create a new one.')}</p>
-                        <Button variant="outline" onClick={() => setShowNew(true)}>
+                        <Button variant="outline" onClick={() => setNewSession({})}>
                           <Plus size={15} />
                           {t('New session')}
                         </Button>
@@ -767,12 +796,14 @@ function Workbench({
         />
       )}
       <SettingsDialog open={showSettings} close={() => setShowSettings(false)} bootstrap={bootstrap} />
-      {showNew && (
+      {newSession && (
         <NewSessionDialog
-          close={() => setShowNew(false)}
+          initialMachineId={newSession.machineId}
+          initialDirectory={newSession.directory}
+          close={() => setNewSession(null)}
           created={(id) => {
             dispatch({ type: 'open', id })
-            setShowNew(false)
+            setNewSession(null)
             refreshSessions()
           }}
         />

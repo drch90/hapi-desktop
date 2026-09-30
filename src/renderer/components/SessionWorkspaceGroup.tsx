@@ -1,7 +1,8 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Folder, Server } from 'lucide-react'
+import { Check, ChevronDown, Copy, Folder, Plus, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 
 export function SessionWorkspaceGroup(props: {
   machine: string
@@ -12,11 +13,16 @@ export function SessionWorkspaceGroup(props: {
   showHeading: boolean
   filtering: boolean
   historyOnly: boolean
+  hasDirectory: boolean
+  canCreate: boolean
+  onNewSession: () => void
   onToggle: () => void
   children: ReactNode
 }) {
   const { t } = useTranslation()
   const id = useId()
+  const { copied, copy } = useCopyToClipboard()
+  const [copyFailed, setCopyFailed] = useState(false)
   const heading = (
     <span className="workspace-group-label">
       {!props.historyOnly && (
@@ -33,24 +39,61 @@ export function SessionWorkspaceGroup(props: {
   )
   return (
     <section className="session-group">
-      {props.showHeading &&
-        (props.collapsible ? (
-          <Button
-            variant="secondary"
-            className="workspace-group-toggle"
-            aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.historyOnly ? '' : props.machine + ' '}${props.path}`}
-            aria-expanded={!props.collapsed}
-            aria-controls={id}
-            disabled={props.filtering}
-            onClick={props.onToggle}
-          >
-            <ChevronDown size={13} className={props.collapsed ? 'collapsed' : ''} />
-            {heading}
-            <span className="workspace-group-count">{props.count}</span>
-          </Button>
-        ) : (
-          heading
-        ))}
+      {props.showHeading && (
+        <div className="workspace-group-heading">
+          {props.collapsible ? (
+            <Button
+              variant="secondary"
+              className="workspace-group-toggle"
+              aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.historyOnly ? '' : props.machine + ' '}${props.path}`}
+              aria-expanded={!props.collapsed}
+              aria-controls={id}
+              disabled={props.filtering}
+              onClick={props.onToggle}
+            >
+              <ChevronDown size={13} className={props.collapsed ? 'collapsed' : ''} />
+              {heading}
+            </Button>
+          ) : (
+            heading
+          )}
+          {props.hasDirectory && (
+            <div className="workspace-group-actions">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                aria-label={`${t(copied && !copyFailed ? 'Copied' : 'Copy path')}: ${props.path}`}
+                title={`${t(copyFailed ? 'Copy failed' : copied ? 'Copied' : 'Copy path')}: ${props.path}`}
+                onClick={async () => setCopyFailed(!(await copy(props.path)))}
+              >
+                {copied && !copyFailed ? <Check size={13} /> : <Copy size={13} />}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                aria-label={`${t('New session in this directory')}: ${props.path}`}
+                title={t(
+                  props.canCreate
+                    ? 'New session in this directory'
+                    : 'Machine unavailable. Select an online machine.',
+                )}
+                disabled={!props.canCreate}
+                onClick={props.onNewSession}
+              >
+                <Plus size={14} />
+              </Button>
+            </div>
+          )}
+          <span className="workspace-group-count">{props.count}</span>
+        </div>
+      )}
+      {copyFailed && (
+        <p role="alert" className="error small">
+          {t('Copy failed')}
+        </p>
+      )}
       <div id={id} hidden={props.collapsed}>
         {props.children}
       </div>

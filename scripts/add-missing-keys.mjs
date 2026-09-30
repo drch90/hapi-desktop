@@ -5,6 +5,24 @@ import path from 'node:path'
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
   [
+    'New session in this directory',
+    '在此目录新建会话',
+    '在此目錄新增工作階段',
+    'Nouvelle session dans ce dossier',
+    'このディレクトリで新しいセッション',
+    'Новый сеанс в этом каталоге',
+    'Tạo phiên trong thư mục này',
+  ],
+  [
+    'Machine unavailable. Select an online machine.',
+    '机器不可用，请选择在线机器。',
+    '機器無法使用，請選擇線上機器。',
+    'Machine indisponible. Sélectionnez une machine en ligne.',
+    'マシンが利用できません。オンラインのマシンを選択してください。',
+    'Машина недоступна. Выберите машину в сети.',
+    'Máy không khả dụng. Chọn máy đang trực tuyến.',
+  ],
+  [
     'Leave empty to use Hermes configuration',
     '留空以使用 Hermes 配置',
     '留空以使用 Hermes 設定',
