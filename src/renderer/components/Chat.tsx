@@ -14,6 +14,7 @@ import {
   ListTree,
   ArrowDownToLine,
   Paperclip,
+  NotebookPen,
 } from 'lucide-react'
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
@@ -49,7 +50,8 @@ import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
 import { getEventPresentation } from '@/chat/presentation'
 import type { ChatBlock, ToolCallBlock } from '@/chat/types'
-import { api, createApi, errorKey } from '../lib/api'
+import { useQueueEdit, saveQueueEdit, queueEditEpoch } from '../lib/queueEdit'
+import { api, createApi, errorKey, unwrap } from '../lib/api'
 import { useAttachments } from '../lib/useAttachments'
 import { AttachmentTray } from './AttachmentTray'
 import { queries, refreshSessions, sessionKey, watchSession } from '../lib/sync'
@@ -58,6 +60,8 @@ import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery, type SendA
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { MessageActions } from './MessageActions'
 import { ToolExecutionTimes } from './ToolExecutionTimes'
+import { Scratchlist } from './Scratchlist'
+import { ContextUsage } from './Usage'
 import { QueuedMessages } from './QueuedMessages'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
@@ -72,6 +76,7 @@ type ChatProps = {
   id: string
   scope: string
   connected: boolean
+  attentionToken?: number
   enterBehavior: Settings['enterBehavior']
   codexExplorationCollapsed: boolean
   replaceSession: (from: string, to: string) => void
@@ -85,6 +90,7 @@ export function Chat({
   id,
   scope,
   connected,
+  attentionToken,
   enterBehavior,
   codexExplorationCollapsed,
   replaceSession,
@@ -117,6 +123,8 @@ export function Chat({
     commandQuery,
     slashCommands.getSuggestions,
   )
+  const queueEdit = useQueueEdit(scope, id)
+  const [editWorking, setEditWorking] = useState(false)
   const [attempt, setAttempt] = useState(() => loadAttempt(scope, id))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -126,6 +134,7 @@ export function Chat({
   const [configuration, setConfiguration] = useState(false)
   const [questionsExpanded, setQuestionsExpanded] = useState(true)
   const [dismissedPlan, setDismissedPlan] = useState('')
+  const [scratchlistOpen, setScratchlistOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const outlineButton = useRef<HTMLButtonElement>(null)
   const outlineContainer = useRef<HTMLDivElement>(null)
@@ -164,7 +173,7 @@ export function Chat({
     const timer = setTimeout(() => saveDraft(scope, id, latestDraft.current), 200)
     return () => clearTimeout(timer)
   }, [draft, id, scope])
-  const blocks = useMemo(
+  const reduced = useMemo(
     () =>
       reduceChatBlocks(
         messages.messages
@@ -172,9 +181,10 @@ export function Chat({
           .map(normalizeDecryptedMessage)
           .filter((item) => item !== null),
         session?.agentState,
-      ).blocks,
+      ),
     [messages.messages, session?.agentState],
   )
+  const blocks = reduced.blocks
   const pending = useMemo(
     () =>
       reduceChatBlocks([], session?.agentState).blocks.filter(
@@ -209,6 +219,20 @@ export function Chat({
     if (outlineOpen)
       outlineContainer.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
   }, [outlineOpen])
+  useEffect(() => {
+    if (!attentionToken || !session) return
+    setQuestionsExpanded(true)
+    const frame = requestAnimationFrame(() => {
+      const area = document.querySelector<HTMLElement>(
+        `[data-testid="chat-${CSS.escape(id)}"] .approval-area`,
+      )
+      if (area?.childElementCount) {
+        area.focus()
+        area.scrollIntoView({ block: 'nearest' })
+      } else composer.current?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [attentionToken, Boolean(session), id])
   const pendingIds = new Set(pending.map((block) => block.tool.id))
   const hasQuestions = pending.some(
     (block) => isRequestUserInputToolName(block.tool.name) || isAskUserQuestionToolName(block.tool.name),
@@ -297,7 +321,8 @@ export function Chat({
         if (typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId.length > 256)
           throw new Error('INVALID_RESPONSE')
         target = result.sessionId
-        if (latestDraft.current.text === commandText) updateDraft({ text: '', scrollTop: -1 })
+        if (latestDraft.current.text === commandText)
+          updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
         return
       }
       const uploaded = await attachments.prepare(target)
@@ -322,6 +347,9 @@ export function Chat({
               status: 'unconfirmed',
               ...(uploaded.length ? { attachments: uploaded } : {}),
               deliveryMode,
+              ...(latestDraft.current.scheduledAt && latestDraft.current.scheduledAt > Date.now()
+                ? { scheduledAt: latestDraft.current.scheduledAt }
+                : {}),
             }
       // Persist before the network request; a crash or window reload cannot
       // turn an uncertain send into a fresh attempt with another localId.
@@ -332,13 +360,14 @@ export function Chat({
         outgoing.text,
         outgoing.localId,
         outgoing.attachments,
-        undefined,
+        outgoing.scheduledAt,
         outgoing.deliveryMode ?? deliveryMode,
       )
       storeAttempt(scope, id, null)
       setAttempt(null)
       attachments.clearSent(outgoing.attachments?.map((item) => item.id) ?? [])
-      if (latestDraft.current.text.trim() === outgoing.text) updateDraft({ text: '', scrollTop: -1 })
+      if (latestDraft.current.text.trim() === outgoing.text)
+        updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
       navigation.followLatest()
       if (target === id) await messages.refetch()
     } catch (error) {
@@ -389,6 +418,77 @@ export function Chat({
       setBusy(false)
     }
   }
+  async function restoreQueueEdit() {
+    if (!queueEdit || busy || editWorking || attempt || attachments.loading || !connected) return
+    const generation = queueEditEpoch()
+    setEditWorking(true)
+    setError('')
+    try {
+      if (queueEdit.state === 'checking') {
+        const state = await scopedApi.getQueuedState(id, [queueEdit.localId])
+        if (generation !== queueEditEpoch()) return
+        if (state.invokedLocalMessages.some((message) => message.localId === queueEdit.localId)) {
+          saveQueueEdit(scope, id, null)
+          throw new Error('QUEUE_ALREADY_INVOKED')
+        }
+        if (
+          state.queuedLocalIds.includes(queueEdit.localId) ||
+          state.indeterminateLocalIds?.includes(queueEdit.localId)
+        ) {
+          saveQueueEdit(scope, id, null)
+          throw new Error('QUEUE_STILL_PENDING')
+        }
+        saveQueueEdit(scope, id, { ...queueEdit, state: 'ready' })
+        return
+      }
+      if (attachments.error) throw new Error('ATTACHMENTS_NOT_READY')
+      const files: File[] = []
+      for (const attachment of queueEdit.attachments) {
+        const file = await unwrap(
+          window.desktop.readFile({ kind: 'file', sessionId: id, path: attachment.path, scope }),
+        )
+        files.push(new File([file.bytes as BlobPart], attachment.filename, { type: attachment.mimeType }))
+      }
+      if (!alive.current || generation !== queueEditEpoch()) return
+      await attachments.add(files)
+      const existing = latestDraft.current.text
+      updateDraft({
+        text:
+          !existing || existing === queueEdit.draftText ? queueEdit.text : `${existing}\n${queueEdit.text}`,
+        scheduledAt:
+          queueEdit.scheduledAt && queueEdit.scheduledAt > Date.now() ? queueEdit.scheduledAt : null,
+      })
+      saveDraft(scope, id, latestDraft.current)
+      saveQueueEdit(scope, id, null)
+      composer.current?.focus()
+    } catch (error) {
+      if (alive.current)
+        setError(
+          error instanceof Error && error.message === 'QUEUE_ALREADY_INVOKED'
+            ? 'This message was already received by the agent.'
+            : error instanceof Error && error.message === 'QUEUE_STILL_PENDING'
+              ? 'This message is still queued. Try editing it again.'
+              : errorKey(error),
+        )
+    } finally {
+      if (alive.current) setEditWorking(false)
+    }
+  }
+  const autoRestoredEdit = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      queueEdit?.state !== 'ready' ||
+      autoRestoredEdit.current === queueEdit.messageId ||
+      attachments.loading ||
+      !connected ||
+      busy ||
+      attempt ||
+      editWorking
+    )
+      return
+    autoRestoredEdit.current = queueEdit.messageId
+    if (latestDraft.current.text === queueEdit.draftText) void restoreQueueEdit()
+  }, [queueEdit, attachments.loading, connected, busy, attempt, editWorking])
   const links = useMemo(() => ({ openSession, openFile }), [openSession, openFile])
   async function attachFiles(files: File[]) {
     if (!files.length || busy || !connected || attempt || !session || attachments.loading) return
@@ -699,7 +799,7 @@ export function Chat({
             </div>
           )}
         </div>
-        <div className="approval-area">
+        <div className="approval-area" tabIndex={-1} aria-label={t('Pending')}>
           {pending.map((block) => {
             const QuestionFooter = isRequestUserInputToolName(block.tool.name)
               ? RequestUserInputFooter
@@ -759,11 +859,59 @@ export function Chat({
               </Button>
             </div>
           )}
+        {scratchlistOpen && (
+          <Scratchlist
+            scope={scope}
+            sessionId={id}
+            connected={connected}
+            active={Boolean(session?.active && !controlledByUser)}
+            onCompose={async (text, files) => {
+              if (busy || attempt || attachments.loading || attachments.error)
+                throw new Error('COMPOSER_BUSY')
+              await attachments.add(files)
+              updateDraft({ text: latestDraft.current.text ? `${latestDraft.current.text}\n${text}` : text })
+              saveDraft(scope, id, latestDraft.current)
+              setScratchlistOpen(false)
+              requestAnimationFrame(() => composer.current?.focus())
+            }}
+          />
+        )}
+        {queueEdit && (
+          <div className="queue-edit-recovery" role="status">
+            <p>
+              {t(
+                queueEdit.state === 'checking'
+                  ? 'Check cancellation before restoring this message.'
+                  : 'Queued message cancelled. Restore it to edit and send again.',
+              )}
+            </p>
+            <p className="queue-text">{queueEdit.text}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={editWorking || busy || Boolean(attempt) || !connected || attachments.loading}
+              onClick={() => void restoreQueueEdit()}
+            >
+              {t(queueEdit.state === 'checking' ? 'Check status' : 'Restore to composer')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={editWorking}
+              onClick={() => saveQueueEdit(scope, id, null)}
+            >
+              {t('Cancel')}
+            </Button>
+          </div>
+        )}
         <QueuedMessages
+          scope={scope}
+          draftText={draft.text}
+          editPending={Boolean(queueEdit)}
           sessionId={id}
           messages={messages.messages}
           canSteer={canSteer}
-          disabled={!connected || busy}
+          disabled={!connected || busy || editWorking || Boolean(attempt)}
         />
         <div className="composer-wrap">
           {(error || attempt) && (
@@ -899,6 +1047,33 @@ export function Chat({
                 }
               }}
             />
+            {draft.scheduledAt && (
+              <div className="small muted">
+                {t('Scheduled for {{time}}', { time: new Date(draft.scheduledAt).toLocaleString() })}
+                <button type="button" onClick={() => updateDraft({ scheduledAt: null })}>
+                  {t('Clear schedule')}
+                </button>
+              </div>
+            )}
+            <div className="composer-context">
+              <ContextUsage
+                size={reduced.latestUsage?.contextSize}
+                window={reduced.latestUsage?.contextWindow}
+                cacheRead={reduced.latestUsage?.cacheRead}
+                model={reduced.latestUsage?.model ?? session?.model}
+                flavor={session?.metadata?.flavor}
+              />
+              <button
+                type="button"
+                className={`icon-button ${scratchlistOpen ? 'selected' : ''}`}
+                aria-label={t('Scratchlist')}
+                title={t('Scratchlist')}
+                aria-expanded={scratchlistOpen}
+                onClick={() => setScratchlistOpen(!scratchlistOpen)}
+              >
+                <NotebookPen size={17} />
+              </button>
+            </div>
             <div className="composer-toolbar">
               <span className="small muted">
                 {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}

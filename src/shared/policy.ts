@@ -1,4 +1,8 @@
 import { z } from 'zod'
+import {
+  ScratchlistEntryCreateRequestSchema,
+  ScratchlistEntryUpdateRequestSchema,
+} from '@hapi/protocol/apiTypes'
 
 const resourceId = z
   .string()
@@ -6,11 +10,27 @@ const resourceId = z
   .max(512)
   .regex(/^[A-Za-z0-9_-]+$/)
 export const remoteFileSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('generated'), sessionId: resourceId, imageId: resourceId }).strict(),
+  z
+    .object({
+      kind: z.literal('generated'),
+      sessionId: resourceId,
+      imageId: resourceId,
+      scope: z.string().min(1).max(4096).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('scratchlist'),
+      sessionId: resourceId,
+      attachmentId: resourceId,
+      scope: z.string().min(1).max(4096).optional(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('file'),
       sessionId: resourceId,
+      scope: z.string().min(1).max(4096).optional(),
       path: z
         .string()
         .min(1)
@@ -83,8 +103,10 @@ const uploadBodySchema = z
 const allowed: Record<string, RegExp[]> = {
   GET: [
     /^\/health$/,
+    /^\/api\/usage\/summary$/,
     /^\/api\/(sessions|machines)$/,
     new RegExp(`^${session}$`),
+    new RegExp(`^${session}/scratchlist$`),
     new RegExp(
       `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options)$`,
     ),
@@ -96,6 +118,7 @@ const allowed: Record<string, RegExp[]> = {
     new RegExp(
       `^${session}/(messages|resume|reopen|abort|archive|clear|model|permission-mode|model-reasoning-effort|effort|collaboration-mode|upload)$`,
     ),
+    new RegExp(`^${session}/scratchlist(/upload)?$`),
     new RegExp(`^${session}/messages/queued-state$`),
     new RegExp(`^${session}/upload/delete$`),
     new RegExp(`^${session}/messages/[^/?#]+/(retry|steer)$`),
@@ -103,14 +126,20 @@ const allowed: Record<string, RegExp[]> = {
     new RegExp(`^${session}/codex/plan/implement$`),
     new RegExp(`^${machine}/(spawn|list-directory|paths/exists)$`),
   ],
+  PUT: [new RegExp(`^${session}/pin$`), new RegExp(`^${session}/scratchlist/[^/?#]+$`)],
   PATCH: [new RegExp(`^${session}$`)],
-  DELETE: [new RegExp(`^${session}$`), new RegExp(`^${session}/messages/[^/?#]+$`)],
+  DELETE: [
+    new RegExp(`^${session}/scratchlist/[^/?#]+$`),
+    new RegExp(`^${session}/scratchlist/attachments/[^/?#]+$`),
+    new RegExp(`^${session}$`),
+    new RegExp(`^${session}/messages/[^/?#]+$`),
+  ],
 }
 
 export const hubRequestSchema = z
   .object({
     path: z.string().max(12_000),
-    method: z.enum(['GET', 'POST', 'PATCH', 'DELETE']),
+    method: z.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
     body: z.unknown().optional(),
     scope: z.string().min(1).max(4096).optional(),
   })
@@ -133,8 +162,16 @@ export const hubRequestSchema = z
         url.searchParams.has('accessToken')
       )
         throw new Error()
+      if (request.method === 'PUT' && new RegExp(`^${session}/pin$`).test(url.pathname))
+        z.object({ mode: z.enum(['none', 'project', 'global']) })
+          .strict()
+          .parse(request.body)
+      if (request.method === 'POST' && new RegExp(`^${session}/scratchlist$`).test(url.pathname))
+        ScratchlistEntryCreateRequestSchema.parse(request.body)
+      if (request.method === 'PUT' && new RegExp(`^${session}/scratchlist/[^/?#]+$`).test(url.pathname))
+        ScratchlistEntryUpdateRequestSchema.parse(request.body)
       if (request.method === 'GET' && request.body !== undefined) throw new Error()
-      if (request.method === 'POST' && new RegExp(`^${session}/upload$`).test(url.pathname)) {
+      if (request.method === 'POST' && new RegExp(`^${session}/(scratchlist/)?upload$`).test(url.pathname)) {
         const body = uploadBodySchema.parse(request.body)
         const base64 = body.content
         if (

@@ -13,17 +13,24 @@ export async function unwrap<T>(promise: Promise<Result<T>>): Promise<T> {
 }
 
 export function createApi(scope?: string) {
-  return new ApiClient('', {
+  const client = new ApiClient('', {
     transport: async <T>(path: string, init?: RequestInit): Promise<T> =>
       unwrap(
         window.desktop.request({
           path,
           ...(scope ? { scope } : {}),
-          method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'DELETE',
+          method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
           ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
         }),
       ) as Promise<T>,
   })
+  client.fetchScratchlistAttachmentBlob = async (sessionId, attachmentId) => {
+    const result = await unwrap(
+      window.desktop.readFile({ kind: 'scratchlist', sessionId, attachmentId, ...(scope ? { scope } : {}) }),
+    )
+    return new Blob([result.bytes as BlobPart], { type: result.mimeType })
+  }
+  return client
 }
 export const api = createApi()
 

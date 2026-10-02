@@ -13,7 +13,8 @@ import { useSteerQueuedMessage } from '@/hooks/mutations/useSteerQueuedMessage'
 import { useRetryIndeterminateMessage } from '@/hooks/mutations/useRetryIndeterminateMessage'
 import { isQueuedForInvocation } from '@/lib/messages'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
-import { api } from '../lib/api'
+import { createApi, errorKey } from '../lib/api'
+import { beginQueueEdit, saveQueueEdit, queueEditEpoch } from '../lib/queueEdit'
 
 // Reuse HAPI's previews, ordering and mutation contracts without binding the
 // desktop composer to assistant-ui's draft/schedule runtime.
@@ -22,13 +23,21 @@ export function QueuedMessages({
   messages,
   canSteer,
   disabled,
+  scope,
+  draftText,
+  editPending,
 }: {
   sessionId: string
   messages: DecryptedMessage[]
   canSteer: boolean
   disabled: boolean
+  scope: string
+  draftText: string
+  editPending: boolean
 }) {
   const { t } = useTranslation()
+  const api = useMemo(() => createApi(scope), [scope])
+  const [error, setError] = useState('')
   const cancel = useCancelQueuedMessage(api)
   const steer = useSteerQueuedMessage(api)
   const retry = useRetryIndeterminateMessage(api)
@@ -47,10 +56,11 @@ export function QueuedMessages({
     if (disabled || locked.current) return
     locked.current = true
     setWorking(true)
+    setError('')
     try {
       await work()
-    } catch {
-      // The shared mutation restores state and reports the failure via Toast.
+    } catch (error) {
+      setError(errorKey(error))
     } finally {
       // Also recover a missed consumed/cancelled SSE acknowledgement. This
       // only reads state; an uncertain steer is never automatically repeated.
@@ -62,6 +72,11 @@ export function QueuedMessages({
 
   return (
     <>
+      {error && (
+        <p role="alert" className="error small">
+          {t(error)}
+        </p>
+      )}
       {queued.length > 0 && (
         <section className="queue-area" aria-label={t('Queued messages')}>
           <div className="queue-heading">{t('Queued messages ({{count}})', { count: queued.length })}</div>
@@ -101,6 +116,35 @@ export function QueuedMessages({
                     )}
                   </div>
                   <div className="queue-actions">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!canOperate || editPending}
+                      onClick={() =>
+                        void runQueueOperation(async () => {
+                          const generation = queueEditEpoch()
+                          const recovery = beginQueueEdit(scope, sessionId, message, draftText)
+                          const result = await cancel.mutateAsync({
+                            sessionId,
+                            messageId: message.id,
+                            localId: message.localId ?? message.id,
+                            snapshot: message,
+                          })
+                          if (result.status === 'cancelled')
+                            saveQueueEdit(scope, sessionId, { ...recovery, state: 'ready' }, generation)
+                          else {
+                            saveQueueEdit(scope, sessionId, null, generation)
+                            setError(
+                              result.status === 'invoked'
+                                ? 'This message was already received by the agent.'
+                                : 'This message is still being delivered. Check its status before editing.',
+                            )
+                          }
+                        })
+                      }
+                    >
+                      {t('Edit queued message')}
+                    </Button>
                     {canSteer && !uncertain && message.scheduledAt == null && (
                       <Button
                         size="sm"

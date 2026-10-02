@@ -1741,3 +1741,206 @@ input[type='checkbox'] {
     justify-content: flex-end;
   }
 }
+
+/* Session navigation keeps its stored width; narrow windows only clamp its display. */
+.sidebar {
+  position: relative;
+  min-width: 0;
+}
+.sidebar-rail {
+  position: absolute;
+  right: 7px;
+  top: 4px;
+  z-index: 2;
+}
+.sidebar .brand {
+  padding-top: 32px;
+}
+.sidebar.collapsed > :not(.sidebar-rail) {
+  display: none;
+}
+.sidebar.collapsed .sidebar-rail {
+  position: static;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.rail-spacer {
+  flex: 1;
+}
+.pending-shortcut {
+  position: relative;
+}
+.pending-shortcut span {
+  font-size: 10px;
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  background: var(--desk-accent-soft);
+  border-radius: 8px;
+  padding: 0 3px;
+}
+.sidebar-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+.session-list-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 10px;
+  font-size: calc(11px * var(--desk-font-scale));
+}
+.session-list-tools select {
+  min-width: 0;
+  width: 100%;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  border: 1px solid var(--desk-border);
+  border-radius: 5px;
+  padding: 4px;
+}
+.session-list-tools .icon-button {
+  margin-left: auto;
+}
+.session-list-tools .check-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.session-pin {
+  display: inline;
+  margin-right: 4px;
+}
+.tab-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 200px;
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 5px;
+  background: var(--app-bg);
+  border: 1px solid var(--desk-border);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px #0003;
+}
+.tab-menu button {
+  display: block;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--app-fg);
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.tab-menu button:hover:not(:disabled),
+.tab-menu button:focus-visible {
+  background: var(--desk-accent-soft);
+  outline: none;
+}
+.tab-menu button:disabled {
+  opacity: 0.4;
+}
+.tab.drop-before:after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--app-link);
+}
+.tab-drop-end {
+  height: 100%;
+  width: 3px;
+  flex-shrink: 0;
+  background: var(--app-link);
+}
+.tabs-dragging {
+  min-height: 38px;
+}
+.desktop-toasts {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.desktop-toasts [role='status']:focus-visible {
+  outline: 2px solid var(--app-link);
+}
+.composer-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 10px 4px 15px;
+  font-size: calc(11px * var(--desk-font-scale));
+  line-height: 1.4;
+}
+.composer-context .icon-button {
+  padding: 4px;
+  flex-shrink: 0;
+}
+.context-usage {
+  font-size: calc(11px * var(--desk-font-scale));
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.context-popover {
+  z-index: 80;
+  max-width: min(350px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--desk-border);
+  border-radius: 6px;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  box-shadow: 0 5px 20px #0003;
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.usage-dialog {
+  width: min(800px, calc(100vw - 32px));
+}
+.usage-content {
+  min-height: 0;
+  overflow: auto;
+  max-height: 65vh;
+}
+.scratchlist-panel {
+  max-height: min(340px, 35vh);
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.scratchlist-add {
+  padding: 8px;
+}
+.scratchlist-add textarea,
+.desktop-dialog textarea {
+  width: 100%;
+  resize: vertical;
+  color: var(--app-fg);
+  background: var(--app-bg);
+  border: 1px solid var(--desk-border);
+  border-radius: 5px;
+  padding: 8px;
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.scratchlist-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0;
+}
+.queue-edit-recovery {
+  padding: 8px;
+  border: 1px solid var(--desk-border);
+  border-radius: 5px;
+  font-size: calc(12px * var(--desk-font-scale));
+  max-height: 160px;
+  overflow: auto;
+}

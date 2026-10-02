@@ -2762,3 +2762,380 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   ).toBeEnabled()
   expect(errors).toEqual([])
 })
+
+test('tab context operations, keyboard restore, dragging and sidebar preferences', async () => {
+  for (const id of ['design', 'review', 'history']) await page.getByTestId(`session-${id}`).click()
+  const firstPane = page.locator('.chat-pane').first()
+  const reviewTab = firstPane.getByRole('tab', { name: '审查连接与恢复流程' })
+  await reviewTab.click({ button: 'right' })
+  await expect(page.getByTestId('chat-history')).toBeVisible()
+  await page.getByRole('menuitem', { name: '关闭右侧标签' }).click()
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await page.keyboard.press('Control+Shift+T')
+  await expect(page.getByTestId('chat-history')).toBeVisible()
+  await reviewTab.focus()
+  await page.keyboard.press('Shift+F10')
+  await page.getByRole('menuitem', { name: '标签左移' }).click()
+  await expect(firstPane.getByRole('tab').first()).toHaveText('审查连接与恢复流程')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const secondPane = page.locator('.chat-pane').nth(1)
+  await reviewTab.locator('..').dragTo(secondPane.getByRole('tablist'))
+  await expect(secondPane.getByRole('tab')).toHaveText('审查连接与恢复流程')
+  await firstPane.getByRole('tab').first().click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '关闭本栏全部标签' }).click()
+  await expect(firstPane.getByRole('tab')).toHaveCount(0)
+  await expect(secondPane.getByRole('tab')).toHaveCount(1)
+  const divider = page.getByRole('separator', { name: '调整会话列表宽度' })
+  await divider.focus()
+  await page.keyboard.press('End')
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '480px')
+  await page.keyboard.press('Control+b')
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '48px')
+  await page.reload()
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '48px')
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '480px')
+  expect(server.requests.filter((request) => /\/(abort|archive)$/.test(request.path))).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('session pins, manual unread and combined search filters', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('session-design').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /标记为未读|标为未读/ }).click()
+  await expect(page.getByTestId('session-design').locator('.session-unread-badge')).toBeVisible()
+  await page.getByLabel('仅看未读', { exact: true }).check()
+  await expect(page.getByTestId('session-review')).toHaveCount(0)
+  await page.getByTestId('session-design').click()
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await page.getByLabel('仅看未读', { exact: true }).uncheck()
+  await page.getByTestId('session-review').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /全局置顶/ }).click()
+  await expect(page.locator('.session-section').first()).toContainText('全局置顶')
+  await expect.poll(() => server.sessions.get('review')?.globalPinned).toBe(true)
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('review linux')
+  await expect(page.getByTestId('session-review')).toBeVisible()
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('')
+  const design = server.sessions.get('design')!
+  design.globalPinned = true
+  design.updatedAt = Date.now() + 1
+  server.emit({ type: 'session-updated', sessionId: 'design', data: design })
+  await expect(page.locator('.session-section').first().getByTestId('session-design')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('foreground attention toasts open unopened sessions without changing sidebar filters', async () => {
+  await electron.evaluate(({ Notification }) => {
+    Notification.isSupported = () => false
+  })
+  await page.getByTestId('session-design').click()
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('design')
+  await page.getByRole('button', { name: '折叠会话列表' }).click()
+  const review = server.sessions.get('review')!
+  review.agentState = {
+    requests: {
+      needsAnswer: {
+        tool: 'request_user_input',
+        arguments: {
+          questions: [
+            {
+              id: 'q',
+              header: 'Choice',
+              question: 'Choose a path',
+              options: [
+                { label: 'A', description: 'First' },
+                { label: 'B', description: 'Second' },
+              ],
+            },
+          ],
+        },
+        createdAt: Date.now() + 10,
+      },
+    },
+  }
+  review.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  const toast = page.locator('.desktop-toasts [role="status"]')
+  await expect(toast).toContainText('审查连接与恢复流程')
+  await toast.click()
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await expect(page.getByTestId('chat-review').locator('.approval-area')).toBeFocused()
+  await expect(page.locator('.sidebar')).toHaveCSS('width', '48px')
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  await expect(page.locator('.desktop-toasts [role="status"]')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('queue edit restores only after cancellation and preserves scheduled delivery', async () => {
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const input = chat.locator('textarea').last()
+  await input.fill('original queued request')
+  await input.press('Control+Enter')
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  const queued = server.messages.get('design')!.at(-1)!
+  queued.scheduledAt = Date.now() + 3_600_000
+  await page.reload()
+  await chat.getByRole('button', { name: '编辑排队消息' }).click()
+  await expect(input).toHaveValue('original queued request')
+  await expect(chat.locator('.queue-item')).toHaveCount(0)
+  await input.fill('edited queued request')
+  await input.press('Control+Enter')
+  await expect
+    .poll(
+      () =>
+        server.requests
+          .filter((request) => request.path === '/api/sessions/design/messages' && request.method === 'POST')
+          .at(-1)?.body,
+    )
+    .toMatchObject({ text: 'edited queued request', scheduledAt: queued.scheduledAt })
+  expect(errors).toEqual([])
+})
+
+test('queue edit keeps a draft changed during cancellation and survives tab switches', async () => {
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const input = chat.locator('textarea').last()
+  await input.fill('request to revise')
+  await input.press('Control+Enter')
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  let release!: () => void
+  server.cancelGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await chat.getByRole('button', { name: '编辑排队消息' }).click()
+  await input.fill('newer draft')
+  await page.getByTestId('session-review').click()
+  release()
+  await page.getByTestId('session-design').click()
+  await expect(input).toHaveValue('newer draft')
+  await chat.getByRole('button', { name: '恢复到输入框' }).click()
+  await expect(input).toHaveValue('newer draft\nrequest to revise')
+  expect(errors).toEqual([])
+})
+
+test('scratchlist stores and edits Hub entries, retries idempotently, and sends without overwriting drafts', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.locator('.composer textarea').fill('keep this draft')
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  const panel = chat.getByRole('region', { name: '暂存消息', exact: true })
+  server.failScratchSaveAfterCommit = true
+  await panel.getByRole('textbox', { name: '新增暂存消息' }).fill('idea for later')
+  await panel.getByRole('button', { name: '保存到暂存列表' }).click()
+  await expect(panel.getByRole('button', { name: '重试保存' })).toBeEnabled()
+  server.failScratchSaveAfterCommit = false
+  await panel.getByRole('button', { name: '重试保存' }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(1)
+  await panel.getByRole('button', { name: '复制到输入框', exact: true }).click()
+  await page.getByRole('textbox', { name: '编辑暂存消息' }).fill('revised stored idea')
+  await page.getByRole('button', { name: '保存修改' }).click()
+  await expect(panel).toContainText('revised stored idea')
+  await page.reload()
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await expect(panel).toContainText('revised stored idea')
+  server.failScratchDelete = true
+  await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
+  await expect
+    .poll(() =>
+      server.requests.filter(
+        (request) => request.path === '/api/sessions/design/messages' && request.method === 'POST',
+      ),
+    )
+    .toHaveLength(1)
+  await expect(panel.locator('[role="alert"]')).toBeVisible()
+  server.failScratchDelete = false
+  await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(0)
+  expect(
+    server.requests.filter(
+      (request) => request.path === '/api/sessions/design/messages' && request.method === 'POST',
+    ),
+  ).toHaveLength(1)
+  await expect(chat.locator('.composer textarea')).toHaveValue('keep this draft')
+  expect(errors).toEqual([])
+})
+
+test('scratchlist attachments cross the authenticated bridge and stay independent in both panes', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  const panel = chat.locator('.scratchlist-panel')
+  const payload = Buffer.from('stored attachment bytes')
+  await panel
+    .locator('input[type="file"]')
+    .setInputFiles({ name: 'note.txt', mimeType: 'text/plain', buffer: payload })
+  await panel.getByRole('button', { name: '保存到暂存列表' }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(1)
+  await panel.getByRole('button', { name: '加入发送队列' }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(0)
+  const upload = [...server.uploads.values()].find((file) => file.bytes.equals(payload))
+  expect(upload?.sessionId).toBe('design')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  await page.getByTestId('chat-review').getByRole('button', { name: '暂存消息', exact: true }).click()
+  await expect(page.getByTestId('chat-review').locator('.scratchlist-panel')).not.toContainText('note.txt')
+  expect(errors).toEqual([])
+})
+
+test('context usage and Hub usage statistics provide range changes and retry', async () => {
+  const message = fixtureCodexEvent('usage', 3, {
+    type: 'token_count',
+    info: {
+      total_token_usage: {
+        input_tokens: 12000,
+        output_tokens: 1000,
+        cached_input_tokens: 8000,
+        total_tokens: 13000,
+      },
+      last_token_usage: {
+        input_tokens: 12000,
+        output_tokens: 1000,
+        cached_input_tokens: 8000,
+        total_tokens: 13000,
+      },
+      model_context_window: 200000,
+    },
+  })
+  server.messages.get('design')!.push(message)
+  await page.getByTestId('session-design').click()
+  await expect(page.getByTestId('chat-design').locator('.context-usage')).toContainText('200k')
+  await page.getByTestId('chat-design').locator('.context-usage').click()
+  await expect(page.locator('.context-popover')).toContainText('8k')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('button', { name: '用量统计', exact: true }).click()
+  const usage = page.locator('.usage-dialog')
+  await expect(usage).toContainText('codex')
+  await usage.getByRole('radio').nth(1).click()
+  await expect(usage).toContainText('gpt-5')
+  server.failUsage = true
+  await usage.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect
+    .poll(() => server.requests.filter((request) => request.path === '/api/usage/summary').length)
+    .toBeGreaterThan(2)
+  server.failUsage = false
+  await usage.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(usage).toContainText('codex')
+  expect(errors).toEqual([])
+})
+
+test('pin failures preserve state and keep retry available after another failure', async () => {
+  server.failPin = true
+  await page.getByTestId('session-review').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /全局置顶/ }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: '重试', exact: true })).toBeEnabled()
+  expect(server.sessions.get('review')?.globalPinned).not.toBe(true)
+  await dialog.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: '重试', exact: true })).toBeEnabled()
+  server.failPin = false
+  await dialog.getByRole('button', { name: '重试', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => server.sessions.get('review')?.globalPinned).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('queue editing never prefills a message consumed during cancellation', async () => {
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const input = chat.locator('.composer textarea')
+  await input.fill('already consumed request')
+  await input.press('Control+Enter')
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  let release!: () => void
+  server.cancelGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await chat.getByRole('button', { name: '编辑排队消息' }).click()
+  const message = server.messages.get('design')!.at(-1)!
+  message.invokedAt = Date.now()
+  release()
+  await expect(chat).toContainText('Agent 已收到此消息')
+  await expect(chat.locator('.queue-edit-recovery')).toHaveCount(0)
+  await expect(input).toHaveValue('')
+  expect(
+    server.requests.filter(
+      (request) => request.path === '/api/sessions/design/messages' && request.method === 'POST',
+    ),
+  ).toHaveLength(1)
+  expect(errors).toEqual([])
+})
+
+test('queue editing restores actual attachment bytes and survives reloading the draft', async () => {
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const bytes = Buffer.from('attachment survives queue edit')
+  await chat
+    .locator('.composer input[type="file"]')
+    .setInputFiles({ name: 'queued.txt', mimeType: 'text/plain', buffer: bytes })
+  await expect(chat.locator('.attachment-draft')).toHaveCount(1)
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  await chat.getByRole('button', { name: '编辑排队消息' }).click()
+  await expect(chat.locator('.attachment-draft')).toContainText('queued.txt')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  await page.reload()
+  await expect(chat.locator('.attachment-draft')).toContainText('queued.txt')
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  const sends = server.requests.filter(
+    (request) => request.path === '/api/sessions/design/messages' && request.method === 'POST',
+  )
+  const attachment = (sends.at(-1)!.body.attachments as { path: string }[])[0]
+  expect(server.uploads.get(attachment.path)?.bytes).toEqual(bytes)
+  expect(errors).toEqual([])
+})
+
+test('uncertain scratchlist sends check their receipt after reload instead of sending twice', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  const panel = chat.locator('.scratchlist-panel')
+  await panel.getByRole('textbox', { name: '新增暂存消息' }).fill('send exactly once')
+  await panel.getByRole('button', { name: '保存到暂存列表' }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(1)
+  server.failSend = 'accepted'
+  await panel.getByRole('button', { name: '加入发送队列' }).click()
+  await expect(panel.locator('[role="alert"]')).toBeVisible()
+  await page.reload()
+  server.failSend = 'none'
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await panel.getByRole('button', { name: '加入发送队列' }).click()
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(0)
+  expect(
+    server.requests.filter(
+      (request) => request.path === '/api/sessions/design/messages' && request.method === 'POST',
+    ),
+  ).toHaveLength(1)
+  expect(errors).toEqual([])
+})
+
+test('notification clicks handle a deleted session and disabled notifications stay quiet', async () => {
+  await page.getByTestId('session-design').click()
+  const review = server.sessions.get('review')!
+  review.agentState = { requests: { approve: { tool: 'Bash', arguments: {}, createdAt: Date.now() + 10 } } }
+  review.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  const toasts = page.locator('.desktop-toasts')
+  await expect(toasts).toContainText('审查连接与恢复流程')
+  server.sessions.delete('review')
+  await toasts.getByRole('status').click()
+  await expect(toasts).toContainText('会话不可用')
+  await expect(page.getByTestId('chat-design')).toBeVisible()
+  await page.evaluate(() => window.desktop.updateSettings({ notifications: false }))
+  const history = server.sessions.get('history')!
+  history.agentState = { requests: { approve: { tool: 'Bash', arguments: {}, createdAt: Date.now() + 10 } } }
+  history.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: 'history', data: history })
+  await expect(toasts).not.toContainText('OpenCode · 历史会话')
+  expect(errors).toEqual([])
+})

@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Session, DecryptedMessage, SyncEvent } from '@hapi/protocol/schemas'
-import { CURRENT_MACHINE_CAPABILITIES } from '@hapi/protocol'
+import { CURRENT_MACHINE_CAPABILITIES, type ScratchlistAttachmentMetadata } from '@hapi/protocol'
 
 export function fixtureSession(id: string, name: string, flavor: string, active = true): Session {
   return {
@@ -139,6 +139,28 @@ export class FixtureHub {
   steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' = 'steered'
   emitQueueEvents = true
   commandEvents = false
+  failPin = false
+  failUsage = false
+  failScratchSaveAfterCommit = false
+  failScratchDelete = false
+  cancelGate: Promise<void> | null = null
+  scratchlists = new Map<
+    string,
+    Map<
+      string,
+      {
+        entryId: string
+        text: string
+        createdAt: number
+        updatedAt: number
+        attachments: ScratchlistAttachmentMetadata[]
+      }
+    >
+  >()
+  scratchFiles = new Map<
+    string,
+    { sessionId: string; bytes: Buffer; metadata: ScratchlistAttachmentMetadata }
+  >()
   failSetting = false
   hermesAvailable = true
   failHermesModels = false
@@ -339,6 +361,30 @@ export class FixtureHub {
       reply({ success: true, variants: { 'fixture/opencode': ['balanced', 'deep'], 'fixture/other': [] } })
       return
     }
+    if (path === '/api/usage/summary') {
+      if (this.failUsage) {
+        reply({}, 503)
+        return
+      }
+      const bucket = {
+        inputTokens: 1000,
+        outputTokens: 200,
+        cacheReadTokens: 400,
+        cacheCreationTokens: 50,
+        totalTokens: 1200,
+        uncachedTokens: 800,
+        requests: 3,
+      }
+      reply({
+        range: { from: null, to: null },
+        totals: { ...bucket, sessions: 2 },
+        daily: [{ key: '2026-10-02', ...bucket }],
+        byAgent: [{ key: 'codex', ...bucket }],
+        byModel: [{ key: 'gpt-5', ...bucket }],
+        updatedAt: Date.now(),
+      })
+      return
+    }
     const match = /^\/api\/sessions\/([^/]+)(.*)$/.exec(path)
     if (!match) {
       reply({}, 404)
@@ -369,6 +415,102 @@ export class FixtureHub {
       }
       reply({ session })
       return
+    }
+    if (action === '/pin' && request.method === 'PUT') {
+      if (this.failPin) {
+        reply({}, 503)
+        return
+      }
+      session.pinned = body.mode === 'project'
+      session.globalPinned = body.mode === 'global'
+      session.updatedAt = Math.max(Date.now(), session.updatedAt + 1)
+      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      reply({ ok: true })
+      return
+    }
+    if (action.startsWith('/scratchlist')) {
+      let entries = this.scratchlists.get(id)
+      if (!entries) {
+        entries = new Map()
+        this.scratchlists.set(id, entries)
+      }
+      const changed = () =>
+        this.emit({ type: 'session-updated', sessionId: id, data: { scratchlistUpdatedAt: Date.now() } })
+      if (action === '/scratchlist/upload') {
+        const attachmentId = `scratch-file-${this.scratchFiles.size + 1}`
+        const bytes = Buffer.from(String(body.content), 'base64')
+        const metadata = {
+          id: attachmentId,
+          filename: String(body.filename),
+          mimeType: String(body.mimeType),
+          size: bytes.length,
+          path: `hapi-hub:scratchlist/${attachmentId}`,
+        }
+        this.scratchFiles.set(attachmentId, { sessionId: id, bytes, metadata })
+        reply({ success: true, attachment: metadata })
+        return
+      }
+      if (action.startsWith('/scratchlist/attachments/')) {
+        const attachmentId = action.split('/').at(-1)!
+        const file = this.scratchFiles.get(attachmentId)
+        if (!file || file.sessionId !== id) {
+          reply({}, 404)
+          return
+        }
+        if (request.method === 'DELETE') {
+          this.scratchFiles.delete(attachmentId)
+          reply({ ok: true })
+          return
+        }
+        response.writeHead(200, { 'content-type': file.metadata.mimeType })
+        response.end(file.bytes)
+        return
+      }
+      if (action === '/scratchlist') {
+        if (request.method === 'GET') {
+          reply({ entries: [...entries.values()] })
+          return
+        }
+        const entryId = String(body.entryId ?? `note-${entries.size + 1}`)
+        const entry = entries.get(entryId) ?? {
+          entryId,
+          text: String(body.text ?? ''),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          attachments: (body.attachments ?? []) as ScratchlistAttachmentMetadata[],
+        }
+        entries.set(entryId, entry)
+        changed()
+        if (this.failScratchSaveAfterCommit) {
+          response.destroy()
+          return
+        }
+        reply({ entry })
+        return
+      }
+      const entryId = decodeURIComponent(action.split('/').at(-1)!)
+      const entry = entries.get(entryId)
+      if (!entry) {
+        reply({}, 404)
+        return
+      }
+      if (request.method === 'DELETE') {
+        if (this.failScratchDelete) {
+          reply({}, 503)
+          return
+        }
+        entries.delete(entryId)
+        changed()
+        reply({ ok: true })
+        return
+      }
+      if (request.method === 'PUT') {
+        entry.text = String(body.text)
+        entry.updatedAt = Date.now()
+        changed()
+        reply({ entry })
+        return
+      }
     }
     if (action === '/opencode-models') {
       reply({
@@ -537,6 +679,7 @@ export class FixtureHub {
         return
       }
       if (request.method === 'DELETE') {
+        await this.cancelGate
         if (message.invokedAt != null) {
           reply({ status: 'invoked', message })
           return
@@ -699,7 +842,8 @@ export class FixtureHub {
       this.fileReadPaths.push(filePath)
       const bytes = this.fileContents.has(filePath)
         ? this.fileContents.get(filePath)
-        : Buffer.from('# HAPI Desktop\n\nA workspace for remote agents.\n')
+        : (this.uploads.get(filePath)?.bytes ??
+          Buffer.from('# HAPI Desktop\n\nA workspace for remote agents.\n'))
       if (!bytes) {
         reply({ success: false, error: 'File unavailable' })
         return

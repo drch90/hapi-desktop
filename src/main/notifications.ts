@@ -124,14 +124,19 @@ export class NotificationTracker {
         full.success ? full.data.updatedAt : patch.success ? (patch.data.updatedAt ?? 0) : 0,
       )
       if (version !== undefined && version > session.version && agentState !== undefined) {
+        const firstSnapshot = session.version < 0
+        const hadBaseline = session.version >= 0 && session.requests.size >= session.count
         session.version = version
         const requests = agentState?.requests ?? {}
         session.requests = new Set(Object.keys(requests))
         session.count = session.requests.size
         for (const [id, request] of Object.entries(requests)) {
-          const createdAt = request.createdAt ?? 0
+          const fresh =
+            request.createdAt == null
+              ? hadBaseline || (firstSnapshot && session.updatedAt >= this.startedAt)
+              : request.createdAt >= this.startedAt
           const key = `${sessionId}:request:${id}`
-          if (!replay && createdAt >= this.startedAt && !this.seen.has(key)) {
+          if (!replay && fresh && !this.seen.has(key)) {
             notices.push({
               sessionId,
               title: session.title,

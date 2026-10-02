@@ -16,6 +16,10 @@ import {
   Search,
   Settings as SettingsIcon,
   PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Bell,
+  Pin,
   X,
   ArrowRightLeft,
   MessageSquare,
@@ -27,18 +31,23 @@ import { I18nContext } from '@/lib/i18n-context'
 import { en, zhCN } from '@/lib/locales'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { forgetQueueEdit } from './lib/queueEdit'
+import { selectSessionList } from './lib/sessionList'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import {
   initializeSessionLastSeen,
   getSessionLastSeenSnapshot,
   markAllSessionsSeen,
+  markSessionSeen,
+  getSessionManualUnreadAt,
   useSessionLastSeenVersion,
 } from '@/lib/sessionLastSeen'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ToastProvider, useToast } from '@/lib/toast-context'
 import { Toast } from '@/components/ui/Toast'
 import type { Bootstrap, ConnectionState, Settings } from '../shared/bridge'
-import { api, errorKey, unwrap } from './lib/api'
+import { api, createApi, errorKey, unwrap } from './lib/api'
 import {
   applyDesktopEvent,
   machinesKey,
@@ -64,6 +73,8 @@ import { forgetAttachmentDraft } from './lib/useAttachments'
 import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
+import { UsageDialog } from './components/Usage'
+import { Tabs } from './components/Tabs'
 import { NewSessionDialog } from './components/NewSessionDialog'
 
 // New upstream picker labels share the desktop's seven-language catalog.
@@ -81,14 +92,14 @@ export function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null)
   const [connection, setConnection] = useState<ConnectionState>({ status: 'disconnected', hubUrl: '' })
   const [fatal, setFatal] = useState('')
-  const openSession = useRef<(id: string) => void>(() => {})
+  const openSession = useRef<(id: string, attention?: boolean, scope?: string) => void>(() => {})
   useEffect(() => {
     const unsubscribe = window.desktop.onEvent((event) => {
       applyDesktopEvent(event)
       if (event.type === 'connection') setConnection(event.state)
       if (event.type === 'settings')
         setBootstrap((previous) => (previous ? { ...previous, settings: event.settings } : previous))
-      if (event.type === 'open-session') openSession.current(event.sessionId)
+      if (event.type === 'open-session') openSession.current(event.sessionId, event.attention, event.scope)
     })
     void unwrap(window.desktop.bootstrap())
       .then((value) => {
@@ -149,14 +160,38 @@ export function App() {
         ) : (
           <ConnectScreen bootstrap={bootstrap} connection={connection} />
         )}
-        <DesktopToasts openSession={(id) => openSession.current(id)} />
+        <DesktopToasts
+          scope={`${connection.hubUrl}:${connection.profile ?? ''}`}
+          openSession={(id, attention) =>
+            openSession.current(id, attention, `${connection.hubUrl}:${connection.profile ?? ''}`)
+          }
+        />
       </ToastProvider>
     </I18nContext.Provider>
   )
 }
 
-function DesktopToasts({ openSession }: { openSession: (id: string) => void }) {
-  const { toasts, removeToast } = useToast()
+function DesktopToasts({
+  openSession,
+  scope,
+}: {
+  openSession: (id: string, attention?: boolean) => void
+  scope: string
+}) {
+  const { toasts, removeToast, addToast } = useToast()
+  useEffect(
+    () =>
+      window.desktop.onEvent((event) => {
+        if (event.type === 'notification' && event.scope === scope)
+          addToast({
+            title: event.title,
+            body: event.body,
+            sessionId: event.sessionId,
+            url: event.attention ? 'desktop:attention' : '',
+          })
+      }),
+    [scope, addToast],
+  )
   return (
     <div className="desktop-toasts" aria-live="polite">
       {toasts.map((toast) => (
@@ -164,10 +199,18 @@ function DesktopToasts({ openSession }: { openSession: (id: string) => void }) {
           key={toast.id}
           title={toast.title}
           body={toast.body}
+          tabIndex={toast.sessionId ? 0 : undefined}
+          onKeyDown={(event) => {
+            if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) {
+              event.preventDefault()
+              removeToast(toast.id)
+              if (toast.sessionId) openSession(toast.sessionId, toast.url === 'desktop:attention')
+            }
+          }}
           onClose={() => removeToast(toast.id)}
           onClick={() => {
             removeToast(toast.id)
-            if (toast.sessionId) openSession(toast.sessionId)
+            if (toast.sessionId) openSession(toast.sessionId, toast.url === 'desktop:attention')
           }}
         />
       ))}
@@ -280,13 +323,22 @@ function Workbench({
 }: {
   bootstrap: Bootstrap
   connection: ConnectionState
-  openSession: React.MutableRefObject<(id: string) => void>
+  openSession: React.MutableRefObject<(id: string, attention?: boolean, scope?: string) => void>
 }) {
   const { t } = useTranslation()
   const scope = `${connection.hubUrl}:${connection.profile ?? ''}`
-  const [workspace, dispatch] = useReducer(reduceWorkspace, scope, loadWorkspace)
+  const [workspace, rawDispatch] = useReducer(reduceWorkspace, scope, loadWorkspace)
+  const { addToast } = useToast()
+  const [attentionTarget, setAttentionTarget] = useState<{ id: string; token: number } | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
+  const [machineFilter, setMachineFilter] = useState('')
+  const [unreadOnly, setUnreadOnly] = useState(false)
+  const [markAllRead, setMarkAllRead] = useState(false)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const workbench = useRef<HTMLElement>(null)
+  const [workbenchWidth, setWorkbenchWidth] = useState(window.innerWidth)
   const [showSettings, setShowSettings] = useState(false)
   const [newSession, setNewSession] = useState<{ machineId?: string; directory?: string } | null>(null)
   const [preview, setPreview] = useState<FileRequest | null>(null)
@@ -306,8 +358,12 @@ function Workbench({
   useEffect(() => {
     const area = contentArea.current
     if (!area) return
-    const observer = new ResizeObserver(() => setContentWidth(area.clientWidth))
+    const observer = new ResizeObserver(() => {
+      setContentWidth(area.clientWidth)
+      setWorkbenchWidth(workbench.current?.clientWidth ?? window.innerWidth)
+    })
     observer.observe(area)
+    if (workbench.current) observer.observe(workbench.current)
     setContentWidth(area.clientWidth)
     return () => observer.disconnect()
   }, [])
@@ -323,13 +379,75 @@ function Workbench({
   })
   const rows = sessions.data ?? []
   const byId = new Map(rows.map((row) => [row.id, row]))
+  const dispatch = useCallback(
+    (action: WorkspaceAction) => {
+      const id =
+        action.type === 'open'
+          ? action.id
+          : action.type === 'focus' && workspace.focused !== action.pane
+            ? workspace.panes[action.pane].active
+            : null
+      if (id) {
+        const row = sessions.data?.find((row) => row.id === id)
+        if (row) markSessionSeen(`${scope}:${id}`, row.updatedAt)
+      }
+      rawDispatch(action)
+    },
+    [scope, sessions.data, workspace.focused, workspace.panes],
+  )
+  const sidebarMax = Math.max(
+    220,
+    Math.min(480, workbenchWidth - (workspace.split ? 440 : 320) - (workspace.sidePanel ? 240 : 0)),
+  )
+  const sidebarWidth = workspace.sidebarCollapsed ? 48 : Math.min(workspace.sidebarWidth, sidebarMax)
+  const pendingCount = rows.reduce((count, row) => count + row.pendingRequestsCount, 0)
+  const unreadCount = rows.filter((row) => row.updatedAt > (lastSeen[`${scope}:${row.id}`] ?? 0)).length
+  const focusSearch = useCallback(() => {
+    rawDispatch({ type: 'sidebar', collapsed: false })
+    requestAnimationFrame(() => searchInput.current?.focus())
+  }, [])
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (
+        event.isComposing ||
+        event.altKey ||
+        document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') ||
+        !(event.ctrlKey || event.metaKey)
+      )
+        return
+      const key = event.key.toLowerCase()
+      const pane = workspace.panes[workspace.focused]
+      if (key === 'w' && !event.shiftKey) {
+        if (pane.active) dispatch({ type: 'close', id: pane.active })
+      } else if (key === 'tab') {
+        if (pane.tabs.length) {
+          const next =
+            (pane.tabs.indexOf(pane.active ?? '') + (event.shiftKey ? -1 : 1) + pane.tabs.length) %
+            pane.tabs.length
+          dispatch({ type: 'open', id: pane.tabs[next] })
+        }
+      } else if (key === 't' && event.shiftKey)
+        dispatch({ type: 'restore', available: rows.map((row) => row.id) })
+      else if (key === 'b' && !event.shiftKey) dispatch({ type: 'sidebar' })
+      else if (key === 'k' && !event.shiftKey) focusSearch()
+      else return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    document.addEventListener('keydown', keydown)
+    return () => document.removeEventListener('keydown', keydown)
+  }, [workspace, rows, dispatch, focusSearch])
   const activeId = workspace.panes[workspace.focused].active
   const sessionDeleted = useCallback(
     (id: string) => {
       forgetSession(id)
       forgetAttachmentDraft(scope, id)
-      for (const family of ['draft', 'outbox']) localStorage.removeItem(`desktop:${family}:${scope}:${id}`)
-      dispatch({ type: 'close', id })
+      forgetQueueEdit(scope, id)
+      for (const family of ['draft', 'outbox', 'queue-edit', 'scratch-draft', 'scratch-save'])
+        localStorage.removeItem(`desktop:${family}:${scope}:${id}`)
+      for (const key of Object.keys(localStorage))
+        if (key.startsWith(`desktop:scratch-send:${scope}:${id}:`)) localStorage.removeItem(key)
+      dispatch({ type: 'remove', id })
       setPreview((previous) => (previous?.sessionId === id ? null : previous))
     },
     [scope],
@@ -346,11 +464,32 @@ function Workbench({
     localStorage.setItem(`desktop:workspace:${scope}`, JSON.stringify(workspace))
   }, [workspace, scope])
   useEffect(() => {
-    openSession.current = (id) => dispatch({ type: 'open', id })
+    let disposed = false
+    openSession.current = (id, attention, noticeScope) => {
+      if (noticeScope && noticeScope !== scope) return
+      if (!attention && !noticeScope) {
+        rawDispatch({ type: 'open', id })
+        return
+      }
+      void createApi(scope)
+        .getSession(id)
+        .then(() => {
+          if (disposed) return
+          const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
+          if (row) markSessionSeen(`${scope}:${id}`, row.updatedAt)
+          rawDispatch({ type: 'open', id })
+          if (attention) setAttentionTarget({ id, token: Date.now() })
+          refreshSessions()
+        })
+        .catch((error) => {
+          if (!disposed) addToast({ title: t(errorKey(error)), body: '', sessionId: '', url: '' })
+        })
+    }
     return () => {
+      disposed = true
       openSession.current = () => {}
     }
-  }, [openSession])
+  }, [openSession, scope, addToast, t])
   const visibleIds = workspace.panes
     .filter((_, index) => index === 0 || workspace.split)
     .map((pane) => pane.active)
@@ -376,7 +515,9 @@ function Workbench({
     if (windowFocused) {
       markAllSessionsSeen(
         sessions.data
-          .filter((row) => visibleIds.includes(row.id))
+          .filter(
+            (row) => visibleIds.includes(row.id) && getSessionManualUnreadAt(`${scope}:${row.id}`) === null,
+          )
           .map((row) => ({ id: `${scope}:${row.id}`, updatedAt: row.updatedAt })),
       )
     }
@@ -387,96 +528,32 @@ function Workbench({
       void window.desktop.setVisibleSessions([])
     }
   }, [visibleIds.join('|')])
-  const groups = useMemo(() => {
-    const groups = new Map<
-      string,
-      {
-        machine: string
-        machineId: string | null
-        path: string
-        hasDirectory: boolean
-        sessions: SessionSummary[]
-      }
-    >()
-    for (const row of [...(sessions.data ?? [])].sort((a, b) => b.updatedAt - a.updatedAt)) {
-      if (
-        (filter === 'Active' && !row.active) ||
-        (filter === 'Pending' && !row.pendingRequestsCount) ||
-        (filter === 'History' && row.active)
-      )
-        continue
-      const machine = machines.data?.find((m) => m.id === row.metadata?.machineId)
-      const machineName =
-        machine?.metadata?.displayName ||
-        machine?.metadata?.host ||
-        row.metadata?.machineId?.slice(0, 8) ||
-        'HAPI'
-      const path = row.metadata?.path?.trim() ? row.metadata.path : '—'
-      if (
-        !`${sessionTitle(row)} ${machineName} ${path} ${row.metadata?.flavor ?? ''}`
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      )
-        continue
-      const key = `${row.metadata?.machineId}:${path}`
-      if (!groups.has(key))
-        groups.set(key, {
-          machine: machineName,
-          machineId: row.metadata?.machineId ?? null,
-          path,
-          hasDirectory: Boolean(row.metadata?.path?.trim()),
-          sessions: [],
-        })
-      groups.get(key)!.sessions.push(row)
-    }
-    return [...groups.entries()]
-  }, [sessions.data, machines.data, filter, search])
-  const sections = useMemo(() => {
-    if (!bootstrap.settings.groupSessionsByStatus) return [{ key: 'all', title: null, groups }]
-    return [
-      { key: 'thinking', title: 'In progress' },
-      { key: 'active', title: 'Active sessions' },
-      { key: 'history', title: 'History sessions' },
-    ]
-      .map(({ key, title }) => {
-        const sectionGroups = groups
-          .map(
-            ([groupKey, group]) =>
-              [
-                groupKey,
-                {
-                  ...group,
-                  sessions: group.sessions.filter(
-                    (row) => (!row.active ? 'history' : row.thinking ? 'thinking' : 'active') === key,
-                  ),
-                },
-              ] as const,
-          )
-          .filter(([, group]) => group.sessions.length > 0)
-        return {
-          key,
-          title,
-          groups:
-            key === 'history' || !sectionGroups.length
-              ? sectionGroups
-              : ([
-                  [
-                    key,
-                    {
-                      machine: '',
-                      machineId: null,
-                      path: '',
-                      hasDirectory: false,
-                      sessions: sectionGroups
-                        .flatMap(([, group]) => group.sessions)
-                        .sort((a, b) => b.updatedAt - a.updatedAt),
-                    },
-                  ],
-                ] as typeof groups),
-        }
-      })
-      .filter((section) => section.groups.length > 0)
-  }, [groups, bootstrap.settings.groupSessionsByStatus])
+  const sections = useMemo(
+    () =>
+      selectSessionList({
+        sessions: sessions.data ?? [],
+        machines: machines.data ?? [],
+        search,
+        status: filter,
+        machine: machineFilter,
+        unreadOnly: readStateReady && unreadOnly,
+        lastSeen,
+        scope,
+        byStatus: bootstrap.settings.groupSessionsByStatus,
+      }),
+    [
+      sessions.data,
+      machines.data,
+      search,
+      filter,
+      machineFilter,
+      unreadOnly,
+      lastSeen,
+      readStateReady,
+      scope,
+      bootstrap.settings.groupSessionsByStatus,
+    ],
+  )
   function replaceSession(from: string, to: string) {
     if (!to || to.length > 256) throw new Error('INVALID_RESPONSE')
     migrateSessionLocalState(scope, from, to)
@@ -486,8 +563,70 @@ function Workbench({
     refreshSessions()
   }
   return (
-    <main className="workbench">
-      <aside className="sidebar">
+    <main className="workbench" ref={workbench}>
+      <aside
+        className={`sidebar ${workspace.sidebarCollapsed ? 'collapsed' : ''}`}
+        style={{ width: sidebarWidth }}
+      >
+        <div className="sidebar-rail">
+          <button
+            className="icon-button"
+            title={`${t(workspace.sidebarCollapsed ? 'Expand session list' : 'Collapse session list')} (Ctrl+B)`}
+            aria-label={t(workspace.sidebarCollapsed ? 'Expand session list' : 'Collapse session list')}
+            onClick={() => dispatch({ type: 'sidebar' })}
+          >
+            {workspace.sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+          {workspace.sidebarCollapsed && (
+            <>
+              <button
+                className="icon-button"
+                title={t('New session')}
+                aria-label={t('New session')}
+                disabled={connection.status !== 'connected'}
+                onClick={() => setNewSession({})}
+              >
+                <Plus size={18} />
+              </button>
+              <button
+                className="icon-button"
+                title={`${t('Search sessions')} (Ctrl+K)`}
+                aria-label={t('Search sessions')}
+                onClick={focusSearch}
+              >
+                <Search size={18} />
+              </button>
+              <button
+                className="icon-button pending-shortcut"
+                title={`${t('Pending')}: ${pendingCount}`}
+                aria-label={`${t('Pending')}: ${pendingCount}`}
+                onClick={() => {
+                  dispatch({ type: 'sidebar', collapsed: false })
+                  setFilter('Pending')
+                  setSearch('')
+                  setUnreadOnly(false)
+                  setMachineFilter('')
+                }}
+              >
+                <Bell size={18} />
+                <span>{pendingCount}</span>
+              </button>
+              <span className="rail-spacer" />
+              <span
+                className={`status-dot ${connection.status === 'connected' ? 'online' : 'pending'}`}
+                title={t(connection.status)}
+              />
+              <button
+                className="icon-button"
+                title={t('Settings')}
+                aria-label={t('Settings')}
+                onClick={() => setShowSettings(true)}
+              >
+                <SettingsIcon size={18} />
+              </button>
+            </>
+          )}
+        </div>
         <div className="brand">
           <div className="brand-mark small-mark">
             <Radio size={20} />
@@ -509,6 +648,7 @@ function Workbench({
         <div className="search-field">
           <Search size={15} />
           <input
+            ref={searchInput}
             aria-label={t('Search sessions')}
             placeholder={t('Search sessions')}
             value={search}
@@ -527,6 +667,41 @@ function Workbench({
             </button>
           ))}
         </div>
+        <div className="session-list-tools">
+          <select
+            aria-label={t('Filter by machine')}
+            value={machineFilter}
+            onChange={(event) => setMachineFilter(event.target.value)}
+          >
+            <option value="">{t('All machines')}</option>
+            {[...new Set(rows.map((row) => row.metadata?.machineId ?? '__unknown__'))].map((id) => (
+              <option key={id} value={id}>
+                {id === '__unknown__'
+                  ? t('Unknown machine')
+                  : machines.data?.find((machine) => machine.id === id)?.metadata?.displayName ||
+                    machines.data?.find((machine) => machine.id === id)?.metadata?.host ||
+                    id.slice(0, 8)}
+              </option>
+            ))}
+          </select>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={unreadOnly}
+              onChange={(event) => setUnreadOnly(event.target.checked)}
+            />
+            {t('Unread only')}
+          </label>
+          <button
+            className="icon-button"
+            title={t('Mark all as read')}
+            aria-label={t('Mark all as read')}
+            disabled={!unreadCount}
+            onClick={() => setMarkAllRead(true)}
+          >
+            <CheckCircle2 size={16} />
+          </button>
+        </div>
         <div className="session-tree">
           {sessions.isPending && <p className="muted padded">{t('Loading…')}</p>}
           {sessions.isError && (
@@ -534,7 +709,7 @@ function Workbench({
               {t('Refresh')}
             </button>
           )}
-          {!sessions.isPending && groups.length === 0 && (
+          {!sessions.isPending && sections.length === 0 && (
             <p className="muted padded">{t(search ? 'No matching sessions' : 'No sessions yet')}</p>
           )}
           {sections.map((section) => (
@@ -564,9 +739,17 @@ function Workbench({
                   count={group.sessions.length}
                   filtering={Boolean(search.trim())}
                   historyOnly={group.sessions.every((row) => !row.active)}
-                  showHeading={section.key === 'history' || section.key === 'all'}
-                  collapsible={group.sessions.every((row) => !row.active)}
+                  showHeading={
+                    section.key === 'history' || section.key === 'all' || section.key === 'project-pinned'
+                  }
+                  collapsible={
+                    section.key !== 'global-pinned' &&
+                    section.key !== 'project-pinned' &&
+                    group.sessions.every((row) => !row.active)
+                  }
                   collapsed={
+                    section.key !== 'global-pinned' &&
+                    section.key !== 'project-pinned' &&
                     !search.trim() &&
                     group.sessions.every((row) => !row.active) &&
                     isHistoryGroupCollapsed(workspace, key, bootstrap.settings.collapseHistoryByDefault)
@@ -583,7 +766,8 @@ function Workbench({
                     const unread =
                       readStateReady &&
                       classifySessionAttention(row, {
-                        selected: false,
+                        selected: visibleIds.includes(row.id),
+                        manualUnreadAt: getSessionManualUnreadAt(`${scope}:${row.id}`),
                         lastSeenAt: lastSeen[`${scope}:${row.id}`] ?? 0,
                       })?.kind === 'unread'
                     const status = !row.active
@@ -622,7 +806,16 @@ function Workbench({
                           />
                         )}
                         <span className="session-copy">
-                          <span>{sessionTitle(row)}</span>
+                          <span>
+                            {(row.pinned || row.globalPinned) && (
+                              <Pin
+                                size={12}
+                                className="session-pin"
+                                aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
+                              />
+                            )}
+                            {sessionTitle(row)}
+                          </span>
                           <small>
                             {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
                             <strong className="session-status">
@@ -659,6 +852,20 @@ function Workbench({
             <SettingsIcon size={17} />
           </button>
         </footer>
+        {!workspace.sidebarCollapsed && (
+          <div className="sidebar-resizer">
+            <ResizeHandle
+              label={t('Resize session list')}
+              value={sidebarWidth}
+              min={220}
+              max={sidebarMax}
+              step={20}
+              pointerValue={(x) => x - workbench.current!.getBoundingClientRect().left}
+              onChange={(width) => dispatch({ type: 'sidebar-width', width: Math.round(width) })}
+              onReset={() => dispatch({ type: 'sidebar-width', width: 272 })}
+            />
+          </div>
+        )}
       </aside>
       <section className="main-area">
         <header className="workspace-header">
@@ -720,12 +927,24 @@ function Workbench({
                       if (workspace.focused !== pane) dispatch({ type: 'focus', pane })
                     }}
                   >
-                    <Tabs pane={pane} workspace={workspace} dispatch={dispatch} byId={byId} />
+                    <Tabs
+                      pane={pane}
+                      workspace={workspace}
+                      dispatch={dispatch}
+                      byId={byId}
+                      dragging={dragging}
+                      onDrag={setDragging}
+                    />
                     {workspace.panes[pane].active ? (
                       <Chat
                         key={workspace.panes[pane].active}
                         id={workspace.panes[pane].active!}
                         scope={scope}
+                        attentionToken={
+                          attentionTarget?.id === workspace.panes[pane].active
+                            ? attentionTarget.token
+                            : undefined
+                        }
                         connected={connection.status === 'connected'}
                         enterBehavior={bootstrap.settings.enterBehavior}
                         codexExplorationCollapsed={bootstrap.settings.codexExplorationCollapsed}
@@ -791,11 +1010,30 @@ function Workbench({
           session={byId.get(sessionMenu.id)!}
           point={sessionMenu.point}
           connected={connection.status === 'connected'}
+          scope={scope}
           onDismiss={() => setSessionMenu(null)}
           onDeleted={sessionDeleted}
         />
       )}
-      <SettingsDialog open={showSettings} close={() => setShowSettings(false)} bootstrap={bootstrap} />
+      <ConfirmDialog
+        isOpen={markAllRead}
+        onClose={() => setMarkAllRead(false)}
+        title={t('Mark all as read')}
+        description={t('Mark {{count}} unread sessions in this account as read?', { count: unreadCount })}
+        confirmLabel={t('Mark all as read')}
+        confirmingLabel={t('Working…')}
+        isPending={false}
+        onConfirm={async () => {
+          markAllSessionsSeen(rows.map((row) => ({ id: `${scope}:${row.id}`, updatedAt: row.updatedAt })))
+          setMarkAllRead(false)
+        }}
+      />
+      <SettingsDialog
+        open={showSettings}
+        close={() => setShowSettings(false)}
+        bootstrap={bootstrap}
+        scope={scope}
+      />
       {newSession && (
         <NewSessionDialog
           initialMachineId={newSession.machineId}
@@ -812,63 +1050,19 @@ function Workbench({
   )
 }
 
-function Tabs({
-  pane,
-  workspace,
-  dispatch,
-  byId,
-}: {
-  pane: PaneId
-  workspace: Workspace
-  dispatch: Dispatch<WorkspaceAction>
-  byId: Map<string, SessionSummary>
-}) {
-  const { t } = useTranslation()
-  const { tabs, active } = workspace.panes[pane]
-  return (
-    <div className="tabs" role="tablist">
-      {tabs.map((id) => (
-        <div className={`tab ${active === id ? 'active' : ''}`} key={id}>
-          <button
-            role="tab"
-            aria-selected={active === id}
-            onClick={() => dispatch({ type: 'open', id, pane })}
-          >
-            {sessionTitle(byId.get(id)) || id.slice(0, 8)}
-          </button>
-          <button
-            className="tab-close"
-            aria-label={t('Close tab')}
-            onClick={() => dispatch({ type: 'close', id })}
-          >
-            <X size={12} />
-          </button>
-        </div>
-      ))}
-      {active && (
-        <button
-          className="icon-button move-tab"
-          aria-label={t('Move to other pane')}
-          title={t('Move to other pane')}
-          onClick={() => dispatch({ type: 'move', id: active, pane: pane === 0 ? 1 : 0 })}
-        >
-          <ArrowRightLeft size={14} />
-        </button>
-      )}
-    </div>
-  )
-}
-
 function SettingsDialog({
   open,
   close,
   bootstrap,
+  scope,
 }: {
   open: boolean
   close: () => void
   bootstrap: Bootstrap
+  scope: string
 }) {
   const { t } = useTranslation()
+  const [usageOpen, setUsageOpen] = useState(false)
   const [error, setError] = useState('')
   async function update(value: Partial<Settings>) {
     try {
@@ -991,6 +1185,10 @@ function SettingsDialog({
             />
             {t('Launch at login')}
           </label>
+          <Button variant="outline" onClick={() => setUsageOpen(true)}>
+            {t('Usage statistics')}
+          </Button>
+          {usageOpen && <UsageDialog scope={scope} close={() => setUsageOpen(false)} />}
           <p className="small muted">{t('Closing the window keeps notifications running in the tray.')}</p>
           {error && (
             <p className="error" role="alert">

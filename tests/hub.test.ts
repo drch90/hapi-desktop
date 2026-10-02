@@ -371,3 +371,22 @@ describe('global SSE recovery', () => {
     await vi.waitFor(() => expect(events.filter((e) => e.type === 'resync')).toHaveLength(before + 2))
   })
 })
+
+describe('scratchlist binary bridge scope', () => {
+  it('reads authenticated scratchlist files and rejects an old account before network access', async () => {
+    const { fake, hub } = await connected()
+    const scope = `${hub.state.hubUrl}:${hub.state.profile ?? ''}`
+    fake.route = async () =>
+      new Response(new Uint8Array([1, 2, 255]), { headers: { 'content-type': 'text/plain' } })
+    await expect(
+      hub.readFile({ kind: 'scratchlist', sessionId: 's', attachmentId: 'note-file', scope }),
+    ).resolves.toMatchObject({ bytes: new Uint8Array([1, 2, 255]), mimeType: 'text/plain' })
+    expect(fake.requests.at(-1)?.path).toBe('/api/sessions/s/scratchlist/attachments/note-file')
+    expect(fake.requests.at(-1)?.init?.headers).toHaveProperty('authorization')
+    const count = fake.requests.length
+    await expect(
+      hub.readFile({ kind: 'scratchlist', sessionId: 's', attachmentId: 'note-file', scope: 'old:account' }),
+    ).rejects.toThrow('CONNECTION_CHANGED')
+    expect(fake.requests).toHaveLength(count)
+  })
+})

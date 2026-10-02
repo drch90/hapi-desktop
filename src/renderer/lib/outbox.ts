@@ -3,12 +3,13 @@ import type { ApiClient } from '@/api/client'
 import { ApiError } from '@/api/client'
 import { AttachmentMetadataSchema } from '@hapi/protocol/schemas'
 
-const attemptSchema = z.object({
+export const attemptSchema = z.object({
   localId: z.string(),
   text: z.string(),
   createdAt: z.number(),
   status: z.enum(['unconfirmed', 'absent', 'indeterminate']),
   attachments: z.array(AttachmentMetadataSchema).optional(),
+  scheduledAt: z.number().optional(),
   deliveryMode: z.enum(['queue', 'steer']).optional(),
 })
 export type SendAttempt = z.infer<typeof attemptSchema>

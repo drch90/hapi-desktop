@@ -88,3 +88,32 @@ describe('notification state', () => {
     expect(tracker.handle({ type: 'session-ended', sessionId: 's', reason: 'error' }, true)).toEqual([])
   })
 })
+
+describe('attention notifications without request timestamps', () => {
+  it('establishes a silent baseline then detects new requests once and ignores replay', () => {
+    const tracker = new NotificationTracker()
+    const update = (version: number, ids: string[]): SyncEvent => ({
+      type: 'session-updated',
+      sessionId: 's',
+      data: {
+        agentState: {
+          version,
+          value: {
+            requests: Object.fromEntries(
+              ids.map((id) => [id, { tool: 'request_user_input', arguments: {} }]),
+            ),
+          },
+        },
+      },
+    })
+    expect(tracker.handle(update(1, ['old']), false)).toEqual([])
+    expect(tracker.handle(update(2, ['old', 'new']), false)).toEqual([
+      { sessionId: 's', title: 's', kind: 'Reply needed' },
+    ])
+    expect(tracker.handle(update(3, ['old', 'new']), false)).toEqual([])
+    expect(tracker.handle(update(4, ['old', 'new', 'replay']), true)).toEqual([])
+    expect(tracker.pendingCount).toBe(3)
+    tracker.handle({ type: 'session-removed', sessionId: 's' }, false)
+    expect(tracker.pendingCount).toBe(0)
+  })
+})

@@ -16,10 +16,16 @@ export type Settings = {
 export type ConnectionStatus =
   'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'authentication-required'
 export type ConnectionState = { status: ConnectionStatus; hubUrl: string; profile?: string; error?: string }
-export type HubRequest = { path: string; method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; scope?: string }
+export type HubRequest = {
+  path: string
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+  body?: unknown
+  scope?: string
+}
 export type RemoteFile =
-  | { kind: 'generated'; sessionId: string; imageId: string }
-  | { kind: 'file'; sessionId: string; path: string }
+  | { kind: 'generated'; sessionId: string; imageId: string; scope?: string }
+  | { kind: 'scratchlist'; sessionId: string; attachmentId: string; scope?: string }
+  | { kind: 'file'; sessionId: string; path: string; scope?: string }
 export type RemoteFileData = { bytes: Uint8Array; mimeType: string }
 export type Result<T> =
   { ok: true; value: T } | { ok: false; error: { message: string; status?: number; code?: string } }
@@ -27,7 +33,16 @@ export type DesktopEvent =
   | { type: 'connection'; state: ConnectionState }
   | { type: 'sync'; event: SyncEvent; replay: boolean }
   | { type: 'resync' }
-  | { type: 'open-session'; sessionId: string }
+  | { type: 'open-session'; sessionId: string; scope?: string; attention?: boolean }
+  | {
+      type: 'notification'
+      id: string
+      scope: string
+      sessionId: string
+      title: string
+      body: string
+      attention: boolean
+    }
   | { type: 'settings'; settings: Settings }
 export type Bootstrap = {
   settings: Settings

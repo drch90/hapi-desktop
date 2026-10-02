@@ -159,7 +159,16 @@ export class HubConnection {
 
   async readFile(input: RemoteFile): Promise<RemoteFileData> {
     const source = remoteFileSchema.parse(input)
+    if (source.scope !== undefined && source.scope !== `${this.state.hubUrl}:${this.state.profile ?? ''}`)
+      throw new HubError('CONNECTION_CHANGED')
     const path = `/api/sessions/${encodeURIComponent(source.sessionId)}`
+    if (source.kind === 'scratchlist')
+      return (await this.authorizedRequest(
+        `${path}/scratchlist/attachments/${encodeURIComponent(source.attachmentId)}`,
+        'GET',
+        undefined,
+        'binary',
+      )) as RemoteFileData
     if (source.kind === 'generated') {
       return (await this.authorizedRequest(
         `${path}/generated-images/${encodeURIComponent(source.imageId)}`,

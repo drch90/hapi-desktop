@@ -58,9 +58,11 @@ let priming = false
 function handleEvent(event: DesktopEvent) {
   if (event.type === 'resync' && !priming) {
     priming = true
+    const lifetime = hub.signal
     void hub
       .request({ path: '/api/sessions', method: 'GET' })
       .then((value) => {
+        if (lifetime.aborted) return
         tracker.prime(value)
         updateTray()
       })
@@ -69,20 +71,45 @@ function handleEvent(event: DesktopEvent) {
         priming = false
       })
   }
+  if (
+    event.type === 'connection' &&
+    ['connecting', 'disconnected', 'authentication-required'].includes(event.state.status)
+  ) {
+    for (const notification of notifications) notification.close()
+    notifications.clear()
+    visibleSessions.clear()
+    tracker.reset()
+  }
   if (window && !window.isDestroyed()) window.webContents.send('desktop:event', event)
   if (event.type === 'sync') {
     for (const notice of tracker.handle(event.event, event.replay)) {
-      if (!storage?.settings.notifications || !Notification.isSupported()) continue
-      if (window?.isFocused() && window.isVisible() && visibleSessions.has(notice.sessionId)) continue
-      const notification = new Notification({
-        title: translate(storage.settings.locale, notice.kind),
-        body: notice.title.slice(0, 150),
-        icon: iconPath(),
-      })
+      if (!storage?.settings.notifications) continue
+      const foreground = Boolean(window?.isFocused() && window.isVisible() && !window.isMinimized())
+      if (foreground && visibleSessions.has(notice.sessionId)) continue
+      const scope = `${hub.state.hubUrl}:${hub.state.profile ?? ''}`
+      const attention = notice.kind === 'Approval needed' || notice.kind === 'Reply needed'
+      const title = translate(storage.settings.locale, notice.kind)
+      const body = notice.title.slice(0, 150)
+      if (foreground) {
+        handleEvent({
+          type: 'notification',
+          id: randomUUID(),
+          scope,
+          sessionId: notice.sessionId,
+          title,
+          body,
+          attention,
+        })
+        continue
+      }
+      if (!Notification.isSupported()) continue
+      const lifetime = hub.signal
+      const notification = new Notification({ title, body, icon: iconPath() })
       notifications.add(notification)
       notification.once('click', () => {
+        if (lifetime.aborted || scope !== `${hub.state.hubUrl}:${hub.state.profile ?? ''}`) return
         showWindow()
-        handleEvent({ type: 'open-session', sessionId: notice.sessionId })
+        handleEvent({ type: 'open-session', sessionId: notice.sessionId, scope, attention })
       })
       notification.once('close', () => notifications.delete(notification))
       notification.once('failed', () => notifications.delete(notification))

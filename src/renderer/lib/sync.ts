@@ -21,6 +21,7 @@ import {
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import type { DesktopEvent } from '../../shared/bridge'
 import { api } from './api'
+import { resetQueueEdits } from './queueEdit'
 import { resetAttachmentRuntime } from './useAttachments'
 
 export const queries = new QueryClient({
@@ -54,6 +55,7 @@ export function refreshSessions() {
 
 export function resetCaches(eraseDrafts = false) {
   resetAttachmentRuntime(eraseDrafts)
+  resetQueueEdits()
   clearTimeout(refreshTimer)
   refreshTimer = undefined
   for (const query of queries.getQueryCache().findAll({ queryKey: ['session'] }))
@@ -74,6 +76,8 @@ export function forgetSession(id: string) {
 export function applyDesktopEvent(event: DesktopEvent) {
   if (event.type === 'resync' || (event.type === 'connection' && event.state.status === 'connected')) {
     refreshSessions()
+    void queries.invalidateQueries({ queryKey: ['desktop-scratchlist'] })
+    void queries.invalidateQueries({ queryKey: ['usage-summary'] })
     void queries.invalidateQueries({ queryKey: machinesKey })
     for (const id of opened.keys()) {
       void queries.invalidateQueries({ queryKey: sessionKey(id) })
@@ -113,6 +117,9 @@ export function applyDesktopEvent(event: DesktopEvent) {
       refreshSessions()
       break
     case 'session-updated': {
+      void queries.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === 'desktop-scratchlist' && query.queryKey[2] === id,
+      })
       const full = SessionSchema.safeParse(data.data)
       const patch = SessionPatchSchema.safeParse(data.data)
       if (full.success) {
@@ -142,6 +149,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
           ),
         )
       } else if (patch.success) {
+        refreshSessions()
         const p = patch.data
         queries.setQueryData<Session>(sessionKey(id), (previous) =>
           previous ? (applySessionDetailPatch(previous, p) ?? previous) : previous,
