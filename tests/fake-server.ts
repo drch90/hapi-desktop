@@ -238,6 +238,7 @@ export class FixtureHub {
       reply({
         sessions: [...this.sessions.values()].map((s) => ({
           ...s,
+          hasConversationContent: (this.messages.get(s.id)?.length ?? 0) > 0,
           todosUpdatedAt: 0,
           todoProgress: null,
           pendingRequestsCount: Object.keys(s.agentState?.requests ?? {}).length,

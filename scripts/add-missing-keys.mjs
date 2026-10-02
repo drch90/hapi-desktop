@@ -1086,6 +1086,15 @@ const rows = [
     'Lệnh gốc',
   ],
   [
+    'Session references',
+    '会话引用',
+    '工作階段引用',
+    'Références de session',
+    'セッション参照',
+    'Ссылки на сеансы',
+    'Tham chiếu phiên',
+  ],
+  [
     'Enter key behavior',
     '回车键行为',
     'Enter 鍵行為',

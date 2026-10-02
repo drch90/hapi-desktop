@@ -4,12 +4,101 @@ import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { FixtureHub, fixtureSession, fixtureMessage, fixtureCodexEvent } from './fake-server'
 import { version as appVersion } from '../package.json'
+import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
 
 let electron: ElectronApplication
 let page: Page
 let server: FixtureHub
 let dataDirectory: string
 let errors: string[]
+
+test('session mentions search by ID and title, insert at the cursor, persist and send Web references', async () => {
+  await page.getByTestId('session-design').click()
+  const input = page.getByTestId('chat-design').locator('.composer textarea')
+  const menu = page.getByRole('region', { name: '会话引用', exact: true })
+  await input.fill('参考 @rev 后面保留')
+  await input.press('Home')
+  for (let i = 0; i < 7; i++) await input.press('ArrowRight')
+  await expect(menu.getByRole('button', { name: /@审查连接与恢复流程/ })).toBeVisible()
+  await input.press('Tab')
+  const reference = `See session "审查连接与恢复流程" (/sessions/review) for context.${SESSION_REFERENCE_STEER_SUFFIX}`
+  await expect(input).toHaveValue(`参考 ${reference} 后面保留`)
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  await input.press('Control+End')
+  await input.press('Shift+Enter')
+  await input.pressSequentially('@OpenCode')
+  await expect(menu.getByRole('button', { name: /@OpenCode/ })).toBeVisible()
+  await menu.getByRole('button', { name: /@OpenCode/ }).click()
+  const text = await input.inputValue()
+  expect(text).toContain('/sessions/history')
+  await page.reload()
+  const restored = page.getByTestId('chat-design').locator('.composer textarea')
+  await expect(restored).toHaveValue(text)
+  await restored.press('Control+Enter')
+  await expect
+    .poll(() => server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages')).length)
+    .toBe(1)
+  expect(server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.text).toBe(
+    text.trim(),
+  )
+  expect(errors).toEqual([])
+})
+
+test('session mention suggestions exclude self and empty sessions, dismiss safely and stay pane-local', async () => {
+  server.sessions.set('empty', fixtureSession('empty', '空白会话', 'codex'))
+  server.sessions.set('archived-peer', {
+    ...fixtureSession('archived-peer', '归档参考', 'codex', false),
+    metadata: { ...fixtureSession('x', '', 'codex').metadata!, lifecycleState: 'archived', name: '归档参考' },
+  })
+  server.messages.set('archived-peer', [fixtureMessage('archive-message', 1, 'Archived context')])
+  await page.reload()
+  await page.getByTestId('session-design').click()
+  const input = page.getByTestId('chat-design').locator('.composer textarea')
+  const menu = page.getByRole('region', { name: '会话引用', exact: true })
+  await input.fill('@')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('button', { name: /桌面工作台|空白会话|归档参考/ })).toHaveCount(0)
+  await input.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue('@')
+  await input.fill('user@review.example')
+  await expect(menu).toHaveCount(0)
+  await input.fill('@不存在')
+  await expect(menu).toHaveCount(0)
+  await input.fill('@archived-peer')
+  await expect(menu.getByRole('button', { name: /归档参考/ })).toBeVisible()
+  await input.press('ArrowDown')
+  await input.press('Enter')
+  await expect(input).toHaveValue(/\/sessions\/archived-peer/)
+  const firstDraft = await input.inputValue()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  const other = page.getByTestId('chat-review').locator('.composer textarea')
+  await other.fill('@design')
+  await expect(menu.getByRole('button', { name: /桌面工作台/ })).toBeVisible()
+  await other.press('Tab')
+  await expect(other).toHaveValue(/\/sessions\/design/)
+  await expect(input).toHaveValue(firstDraft)
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('session mentions refresh when a target disappears and ignore IME confirmation', async () => {
+  await page.getByTestId('session-design').click()
+  const input = page.getByTestId('chat-design').locator('.composer textarea')
+  const menu = page.getByRole('region', { name: '会话引用', exact: true })
+  await input.fill('@review')
+  await expect(menu.getByRole('button', { name: /审查连接与恢复流程/ })).toBeVisible()
+  await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true })
+  await expect(input).toHaveValue('@review')
+  server.sessions.delete('review')
+  server.emit({ type: 'session-removed', sessionId: 'review' })
+  await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue('@review')
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  expect(errors).toEqual([])
+})
 
 test.beforeEach(async () => {
   server = new FixtureHub()

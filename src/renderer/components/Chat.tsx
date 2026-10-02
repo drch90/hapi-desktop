@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -37,6 +37,10 @@ import { useSlashCommands } from '@/hooks/queries/useSlashCommands'
 import { useActiveSuggestions } from '@/hooks/useActiveSuggestions'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { applySuggestion } from '@/utils/applySuggestion'
+import { findActiveWord } from '@/utils/findActiveWord'
+import { buildSessionReferenceText, matchSessionsForMention } from '@/lib/sessionReference'
+import { getSessionTitle } from '@/lib/sessionTitle'
+import type { SessionSummary, Machine } from '@/types/api'
 import { isQueuedForInvocation } from '@/lib/messages'
 import {
   isSteeringSupportedForSession,
@@ -76,6 +80,8 @@ type ChatProps = {
   id: string
   scope: string
   connected: boolean
+  sessions: SessionSummary[]
+  machines: Machine[]
   attentionToken?: number
   enterBehavior: Settings['enterBehavior']
   codexExplorationCollapsed: boolean
@@ -90,6 +96,8 @@ export function Chat({
   id,
   scope,
   connected,
+  sessions,
+  machines,
   attentionToken,
   enterBehavior,
   codexExplorationCollapsed,
@@ -113,15 +121,45 @@ export function Chat({
   const [draft, setDraft] = useState(() => loadDraft(scope, id))
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
   const [dismissedCommandQuery, setDismissedCommandQuery] = useState<string | null>(null)
+  const [selection, setSelection] = useState({ start: 0, end: 0 })
+  const [composerFocused, setComposerFocused] = useState(false)
+  const [dismissedMention, setDismissedMention] = useState<string | null>(null)
+  const mention =
+    composerFocused && !commandMenuOpen ? findActiveWord(draft.text, selection, ['@']) : undefined
+  const mentionKey = `${draft.text}:${selection.start}:${selection.end}`
+  const mentionQuery = mention && mentionKey !== dismissedMention ? mention.activeWord : null
   const slashCommands = useSlashCommands(api, id, session?.metadata?.flavor ?? 'codex')
   const commandQuery = commandMenuOpen
     ? '/'
     : /^\/[^\s]*$/.test(draft.text) && draft.text !== dismissedCommandQuery
       ? draft.text
       : null
+  const suggestionQuery = commandQuery ?? mentionQuery
+  const getSuggestions = useCallback(
+    async (query: string) => {
+      if (!query.startsWith('@')) return slashCommands.getSuggestions(query)
+      const machineLabel = (id: string | null) => {
+        const machine = machines.find((item) => item.id === id)
+        return machine?.metadata?.displayName || machine?.metadata?.host || id?.slice(0, 8) || ''
+      }
+      return matchSessionsForMention(sessions, query.slice(1), {
+        excludeId: id,
+        limit: 20,
+        resolveMachineLabel: machineLabel,
+      }).map((row) => ({
+        key: `session:${row.id}`,
+        text: buildSessionReferenceText(getSessionTitle(row), row.id, '/'),
+        label: `@${getSessionTitle(row) || row.id.slice(0, 8)}`,
+        description: [row.id, machineLabel(row.metadata?.machineId ?? null), row.metadata?.path]
+          .filter(Boolean)
+          .join(' · '),
+      }))
+    },
+    [id, sessions, machines, slashCommands.getSuggestions],
+  )
   const [suggestions, selectedCommand, previousCommand, nextCommand, clearCommands] = useActiveSuggestions(
-    commandQuery,
-    slashCommands.getSuggestions,
+    suggestionQuery,
+    getSuggestions,
   )
   const queueEdit = useQueueEdit(scope, id)
   const [editWorking, setEditWorking] = useState(false)
@@ -255,15 +293,19 @@ export function Chat({
     const suggestion = suggestions[index]
     if (!suggestion) return
     const text = latestDraft.current.text
+    const isMention = suggestionQuery?.startsWith('@')
+    if (isMention && (!composer.current || !findActiveWord(text, selection, ['@']))) return
     const prefix = /^\/\S*/.exec(text)?.[0]
     const result = applySuggestion(
       text,
-      { start: prefix?.length ?? 0, end: prefix?.length ?? 0 },
+      isMention ? selection : { start: prefix?.length ?? 0, end: prefix?.length ?? 0 },
       suggestion.text,
-      ['/'],
+      isMention ? ['@'] : ['/'],
     )
     updateDraft({ text: result.text })
+    saveDraft(scope, id, latestDraft.current)
     setCommandMenuOpen(false)
+    setSelection({ start: result.cursorPosition, end: result.cursorPosition })
     clearCommands()
     requestAnimationFrame(() => {
       composer.current?.focus()
@@ -984,7 +1026,11 @@ export function Chat({
               </p>
             )}
             {suggestions.length > 0 && !attempt && (
-              <div className="command-menu" role="region" aria-label={t('Native commands')}>
+              <div
+                className="command-menu"
+                role="region"
+                aria-label={t(suggestionQuery?.startsWith('@') ? 'Session references' : 'Native commands')}
+              >
                 <Autocomplete
                   suggestions={suggestions}
                   selectedIndex={selectedCommand}
@@ -998,6 +1044,14 @@ export function Chat({
               placeholder={t('Send a message…')}
               value={draft.text}
               readOnly={Boolean(attempt)}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setComposerFocused(false)}
+              onSelect={(event) =>
+                setSelection({
+                  start: event.currentTarget.selectionStart,
+                  end: event.currentTarget.selectionEnd,
+                })
+              }
               onPaste={(event) => {
                 const files = Array.from(event.clipboardData.files).filter((file) =>
                   file.type.startsWith('image/'),
@@ -1006,7 +1060,11 @@ export function Chat({
                 event.preventDefault()
                 void attachFiles(files)
               }}
-              onChange={(e) => updateDraft({ text: e.target.value })}
+              onChange={(e) => {
+                updateDraft({ text: e.target.value })
+                setSelection({ start: e.target.selectionStart, end: e.target.selectionEnd })
+                setDismissedMention(null)
+              }}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
                 if (suggestions.length > 0 && !attempt) {
@@ -1019,6 +1077,7 @@ export function Chat({
                   if (e.key === 'Escape') {
                     e.preventDefault()
                     setDismissedCommandQuery(draft.text)
+                    setDismissedMention(mentionKey)
                     setCommandMenuOpen(false)
                     clearCommands()
                     return

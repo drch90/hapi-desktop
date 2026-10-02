@@ -940,6 +940,8 @@ function Workbench({
                         key={workspace.panes[pane].active}
                         id={workspace.panes[pane].active!}
                         scope={scope}
+                        sessions={rows}
+                        machines={machines.data ?? []}
                         attentionToken={
                           attentionTarget?.id === workspace.panes[pane].active
                             ? attentionTarget.token
