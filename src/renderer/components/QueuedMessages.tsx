@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Pencil, RotateCcw, X, Zap } from 'lucide-react'
 import type { DecryptedMessage } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -116,10 +117,46 @@ export function QueuedMessages({
                     )}
                   </div>
                   <div className="queue-actions">
+                    {canSteer && !uncertain && message.scheduledAt == null && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-label={t('Insert into current turn')}
+                        title={t('Insert into current turn')}
+                        disabled={!canOperate}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() =>
+                          void runQueueOperation(() =>
+                            steer.mutateAsync({ sessionId, messageId: message.id }),
+                          )
+                        }
+                      >
+                        <Zap size={14} aria-hidden="true" />
+                      </Button>
+                    )}
+                    {uncertain && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-label={t('Retry sending')}
+                        title={t('Retry sending')}
+                        disabled={!canOperate}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => setRetryId(message.id)}
+                      >
+                        <RotateCcw size={14} aria-hidden="true" />
+                      </Button>
+                    )}
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
+                      aria-label={t('Edit queued message')}
+                      title={t('Edit queued message')}
                       disabled={!canOperate || editPending}
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={() =>
                         void runQueueOperation(async () => {
                           const generation = queueEditEpoch()
@@ -143,36 +180,16 @@ export function QueuedMessages({
                         })
                       }
                     >
-                      {t('Edit queued message')}
+                      <Pencil size={14} aria-hidden="true" />
                     </Button>
-                    {canSteer && !uncertain && message.scheduledAt == null && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canOperate}
-                        onClick={() =>
-                          void runQueueOperation(() =>
-                            steer.mutateAsync({ sessionId, messageId: message.id }),
-                          )
-                        }
-                      >
-                        {t('Insert into current turn')}
-                      </Button>
-                    )}
-                    {uncertain && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canOperate}
-                        onClick={() => setRetryId(message.id)}
-                      >
-                        {t('Retry sending')}
-                      </Button>
-                    )}
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
+                      aria-label={t('Cancel queued message')}
+                      title={t('Cancel queued message')}
                       disabled={!canOperate}
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={() =>
                         void runQueueOperation(() =>
                           cancel.mutateAsync({
@@ -184,7 +201,7 @@ export function QueuedMessages({
                         )
                       }
                     >
-                      {t('Cancel queued message')}
+                      <X size={14} aria-hidden="true" />
                     </Button>
                   </div>
                 </li>

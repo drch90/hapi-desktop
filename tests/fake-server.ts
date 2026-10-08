@@ -128,6 +128,7 @@ export class FixtureHub {
     this.emit({ type: 'message-received', sessionId, message })
   }
   streams = new Set<ServerResponse>()
+  eventStreamGate: Promise<void> | null = null
   eventId = 0
   failSend: 'none' | 'absent' | 'accepted' = 'none'
   sendGate: Promise<void> | null = null
@@ -222,6 +223,7 @@ export class FixtureHub {
       return
     }
     if (path === '/api/events') {
+      if (this.eventStreamGate) await this.eventStreamGate
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       response.write(
         `data: ${JSON.stringify({ type: 'connection-changed', data: { status: 'connected', subscriptionId: 'fixture', resume: 'gap' } })}\n\n`,

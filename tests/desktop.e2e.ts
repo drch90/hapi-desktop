@@ -799,6 +799,99 @@ test('outline navigation and live message following stay independent between pan
   expect(errors).toEqual([])
 })
 
+test('manual scrolling back to the bottom resumes following streamed replies while reading history stays put', async () => {
+  server.messages.set(
+    'design',
+    Array.from({ length: 45 }, (_, index) =>
+      fixtureMessage(
+        `manual-${index}`,
+        index + 1,
+        `消息 ${index + 1}\n\n${'详细说明。'.repeat(30)}`,
+        index % 2 === 0,
+      ),
+    ),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const transcript = chat.locator('.transcript')
+  const gap = () =>
+    transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+  await expect(transcript).toContainText('消息 45')
+  await expect.poll(gap).toBeLessThan(3)
+  await transcript.hover()
+  await page.mouse.wheel(0, -500)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toBeVisible()
+  await expect.poll(gap).toBeGreaterThan(400)
+  const readingTop = await transcript.evaluate((element) => element.scrollTop)
+  const next = fixtureMessage('manual-live', 46, '新回复开始。')
+  server.messages.get('design')!.push(next)
+  server.emit({ type: 'message-received', sessionId: 'design', message: next })
+  await expect(chat.getByText('新回复开始。', { exact: true })).toHaveCount(1)
+  expect(await transcript.evaluate((element) => element.scrollTop)).toBeCloseTo(readingTop, 0)
+  await page.mouse.wheel(0, 100000)
+  await expect.poll(gap).toBeLessThan(3)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  const expanded = {
+    ...fixtureMessage(next.id, next.seq!, `${'流式内容\n\n'.repeat(70)}回复结束。`),
+    createdAt: next.createdAt,
+  }
+  server.messages.get('design')!.splice(-1, 1, expanded)
+  server.emit({ type: 'message-received', sessionId: 'design', message: expanded })
+  await expect(chat.getByText('回复结束。', { exact: true })).toBeInViewport()
+  await expect.poll(gap).toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
+test('layout changes and late image sizing do not detach a conversation that is following the latest message', async () => {
+  server.messages.set(
+    'design',
+    Array.from({ length: 35 }, (_, index) =>
+      fixtureMessage(`resize-${index}`, index + 1, `历史内容 ${index + 1}`, true),
+    ),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const transcript = chat.locator('.transcript')
+  const gap = () =>
+    transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+  await expect(transcript).toContainText('历史内容 35')
+  await expect.poll(gap).toBeLessThan(3)
+  await transcript.evaluate((element) => {
+    const temporary = document.createElement('div')
+    temporary.dataset.testLayout = 'transient'
+    temporary.style.height = '600px'
+    element.firstElementChild!.append(temporary)
+  })
+  await expect.poll(gap).toBeLessThan(3)
+  await transcript.evaluate((element) => {
+    element.querySelector('[data-test-layout]')!.remove()
+    // Collapsing a tool clamps scrollTop before another streamed block expands.
+    void element.scrollTop
+    const replacement = document.createElement('div')
+    replacement.style.height = '240px'
+    element.firstElementChild!.append(replacement)
+    element.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(gap).toBeLessThan(3)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  server.displayMedia(
+    'design',
+    'late-layout-image',
+    'late.png',
+    'image/png',
+    await readFile('resources/icon.png'),
+  )
+  await expect
+    .poll(() =>
+      chat
+        .getByRole('img', { name: 'late.png' })
+        .evaluate((element) => (element as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await expect.poll(gap).toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
 test('HAPI display tools preview images, play media and save exact file bytes', async () => {
   await page.getByTestId('session-design').click()
   const png = await readFile('resources/icon.png')
@@ -1683,6 +1776,14 @@ test('queued messages show content, survive reload, steer without SSE and cancel
   const queue = chat.getByRole('region', { name: '排队消息', exact: true })
   await expect(queue).toContainText('排队消息（2）')
   await expect(queue.locator('.queue-text')).toHaveText(['先检查状态', '优先处理这一条'])
+  const controls = queue.getByRole('listitem').first().locator('.queue-actions button')
+  await expect(controls).toHaveCount(3)
+  for (const [index, name] of ['优先插入', '编辑排队消息', '取消排队消息'].entries()) {
+    await expect(controls.nth(index)).toHaveAttribute('aria-label', name)
+    await expect(controls.nth(index)).toHaveAttribute('title', name)
+    await expect(controls.nth(index)).toHaveText('')
+    await expect(controls.nth(index).locator('svg')).toBeVisible()
+  }
   await expect(chat.locator('.transcript')).not.toContainText('先检查状态')
   await page.reload()
   await expect(queue.locator('.queue-text')).toHaveText(['先检查状态', '优先处理这一条'])
@@ -1703,6 +1804,128 @@ test('queued messages show content, survive reload, steer without SSE and cancel
   await expect(queue).toHaveCount(0)
   expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(2)
   expect(server.requests.filter((r) => r.path.endsWith('/abort'))).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('composer activity stays visible with an empty draft and follows work, requests, background tasks and idle', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const status = chat.getByRole('status', { name: '会话状态', exact: true })
+  const input = chat.locator('.composer textarea')
+  const send = chat.getByRole('button', { name: '发送', exact: true })
+  const session = server.sessions.get('design')!
+  const publish = () => {
+    session.updatedAt += 10
+    session.agentStateVersion++
+    server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  }
+  await expect(input).toHaveValue('')
+  await expect(send).toBeDisabled()
+  await expect(status).toHaveText('空闲')
+  session.thinking = true
+  session.backgroundTaskCount = 2
+  publish()
+  await expect(status).toHaveText('处理中…')
+  await expect(status).toBeInViewport({ ratio: 1 })
+  await expect(send).toBeDisabled()
+  await input.fill('尚未发送的草稿')
+  await expect(send).toBeEnabled()
+  await expect(status).toHaveText('处理中…')
+  await input.fill('')
+  await expect(status).toHaveText('处理中…')
+  session.agentState!.requests = {
+    approval: { tool: 'Bash', arguments: { command: 'bun test' }, createdAt: Date.now() },
+  }
+  publish()
+  await expect(status).toHaveText('待处理')
+  session.agentState!.requests = {
+    question: {
+      tool: 'request_user_input',
+      arguments: { questions: [{ id: 'choice', question: '下一步做什么？', options: [] }] },
+      createdAt: Date.now(),
+    },
+  }
+  publish()
+  await expect(input).toBeHidden()
+  await expect(status).toHaveText('待处理')
+  await expect(status).toBeInViewport({ ratio: 1 })
+  session.agentState!.requests = {}
+  session.thinking = false
+  publish()
+  await expect(status).toHaveText('后台任务：2')
+  session.backgroundTaskCount = 0
+  session.updatedAt += 10
+  server.emit({
+    type: 'session-updated',
+    sessionId: session.id,
+    data: { backgroundTaskCount: 0, updatedAt: session.updatedAt },
+  })
+  await expect(status).toHaveText('空闲')
+  await expect(send).toBeDisabled()
+  await page.reload()
+  await expect(status).toHaveText('空闲')
+  await page.getByTestId('session-history').click()
+  await expect(
+    page.getByTestId('chat-history').getByRole('status', { name: '会话状态', exact: true }),
+  ).toHaveText('离线')
+  expect(errors).toEqual([])
+})
+
+test('composer status and queue icons fit narrow panes and reflect disconnection instead of cached work', async () => {
+  const session = server.sessions.get('design')!
+  session.thinking = true
+  session.agentState!.steeringActive = true
+  session.agentStateVersion++
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  const chat = page.getByTestId('chat-design')
+  const status = chat.getByRole('status', { name: '会话状态', exact: true })
+  const otherStatus = page.getByTestId('chat-review').getByRole('status', { name: '会话状态', exact: true })
+  await chat.locator('.composer textarea').fill('下一条消息等当前任务处理')
+  await chat.locator('.composer textarea').press('Control+Enter')
+  await expect(chat.locator('.composer textarea')).toHaveValue('')
+  await expect(status).toHaveText('处理中…')
+  await expect(otherStatus).toHaveText('空闲')
+  const controls = chat.locator('.queue-actions button')
+  await expect(controls).toHaveCount(3)
+  await expect(status).toBeInViewport({ ratio: 1 })
+  await expect(otherStatus).toBeInViewport({ ratio: 1 })
+  for (let i = 0; i < 3; i++) await expect(controls.nth(i)).toBeInViewport({ ratio: 1 })
+  const rects = await controls.evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const { x, y, width, height } = button.getBoundingClientRect()
+      return { x, y, width, height }
+    }),
+  )
+  expect(rects[0].y).toBeCloseTo(rects[1].y, 0)
+  expect(rects[1].y).toBeCloseTo(rects[2].y, 0)
+  expect(rects[0].x + rects[0].width).toBeLessThanOrEqual(rects[1].x)
+  expect(rects[1].x + rects[1].width).toBeLessThanOrEqual(rects[2].x)
+  expect(await chat.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: 'build/composer-status-preview.png', animations: 'disabled' })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(status.locator('.composer-status-dot')).toHaveCSS('animation-name', 'none')
+  let release!: () => void
+  server.eventStreamGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    for (const stream of server.streams) stream.end()
+    await expect(status).toHaveText('未连接')
+    await expect(otherStatus).toHaveText('未连接')
+    session.thinking = false
+    session.updatedAt += 10
+  } finally {
+    server.eventStreamGate = null
+    release()
+  }
+  await expect(status).toHaveText('空闲')
+  await expect(otherStatus).toHaveText('空闲')
   expect(errors).toEqual([])
 })
 
@@ -2963,6 +3186,7 @@ test('queue edit restores only after cancellation and preserves scheduled delive
   const chat = page.getByTestId('chat-design')
   const input = chat.locator('textarea').last()
   await input.fill('original queued request')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   await input.press('Control+Enter')
   await expect(chat.locator('.queue-item')).toHaveCount(1)
   const queued = server.messages.get('design')!.at(-1)!
@@ -2972,6 +3196,7 @@ test('queue edit restores only after cancellation and preserves scheduled delive
   await expect(input).toHaveValue('original queued request')
   await expect(chat.locator('.queue-item')).toHaveCount(0)
   await input.fill('edited queued request')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   await input.press('Control+Enter')
   await expect
     .poll(
@@ -2990,6 +3215,7 @@ test('queue edit keeps a draft changed during cancellation and survives tab swit
   const chat = page.getByTestId('chat-design')
   const input = chat.locator('textarea').last()
   await input.fill('request to revise')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   await input.press('Control+Enter')
   await expect(chat.locator('.queue-item')).toHaveCount(1)
   let release!: () => void
@@ -3136,6 +3362,7 @@ test('queue editing never prefills a message consumed during cancellation', asyn
   const chat = page.getByTestId('chat-design')
   const input = chat.locator('.composer textarea')
   await input.fill('already consumed request')
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   await input.press('Control+Enter')
   await expect(chat.locator('.queue-item')).toHaveCount(1)
   let release!: () => void
@@ -3162,6 +3389,7 @@ test('queue editing restores actual attachment bytes and survives reloading the 
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
   const bytes = Buffer.from('attachment survives queue edit')
+  await expect(chat.locator('.composer input[type="file"]')).toBeEnabled()
   await chat
     .locator('.composer input[type="file"]')
     .setInputFiles({ name: 'queued.txt', mimeType: 'text/plain', buffer: bytes })

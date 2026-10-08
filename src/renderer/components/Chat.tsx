@@ -66,6 +66,7 @@ import { MessageActions } from './MessageActions'
 import { ToolExecutionTimes } from './ToolExecutionTimes'
 import { Scratchlist } from './Scratchlist'
 import { ContextUsage } from './Usage'
+import { ComposerStatus } from './ComposerStatus'
 import { QueuedMessages } from './QueuedMessages'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
@@ -333,6 +334,7 @@ export function Chat({
   async function send(retry = false, deliveryMode: MessageDeliveryMode = 'queue') {
     if (
       busy ||
+      editWorking ||
       (deliveryMode === 'steer' && !canSteer) ||
       !session ||
       !connected ||
@@ -492,7 +494,7 @@ export function Chat({
         files.push(new File([file.bytes as BlobPart], attachment.filename, { type: attachment.mimeType }))
       }
       if (!alive.current || generation !== queueEditEpoch()) return
-      await attachments.add(files)
+      await attachments.restore(files.map((file, index) => ({ id: queueEdit.attachments[index].id, file })))
       const existing = latestDraft.current.text
       updateDraft({
         text:
@@ -702,6 +704,7 @@ export function Chat({
         )}
         {hasQuestions && (
           <div className="question-toolbar">
+            {questionsExpanded && <ComposerStatus session={session} connected={connected} />}
             <Button
               size="sm"
               variant="outline"
@@ -1115,13 +1118,16 @@ export function Chat({
               </div>
             )}
             <div className="composer-context">
-              <ContextUsage
-                size={reduced.latestUsage?.contextSize}
-                window={reduced.latestUsage?.contextWindow}
-                cacheRead={reduced.latestUsage?.cacheRead}
-                model={reduced.latestUsage?.model ?? session?.model}
-                flavor={session?.metadata?.flavor}
-              />
+              <div className="composer-context-details">
+                <ComposerStatus session={session} connected={connected} />
+                <ContextUsage
+                  size={reduced.latestUsage?.contextSize}
+                  window={reduced.latestUsage?.contextWindow}
+                  cacheRead={reduced.latestUsage?.cacheRead}
+                  model={reduced.latestUsage?.model ?? session?.model}
+                  flavor={session?.metadata?.flavor}
+                />
+              </div>
               <button
                 type="button"
                 className={`icon-button ${scratchlistOpen ? 'selected' : ''}`}
@@ -1174,6 +1180,7 @@ export function Chat({
                     disabled={
                       !connected ||
                       busy ||
+                      editWorking ||
                       (!draft.text.trim() && !attachments.items.length) ||
                       !attachments.ready ||
                       Boolean(attempt)
@@ -1220,6 +1227,7 @@ export function Chat({
                   disabled={
                     !connected ||
                     busy ||
+                    editWorking ||
                     (!draft.text.trim() && !attachments.items.length) ||
                     Boolean(attempt) ||
                     !session ||

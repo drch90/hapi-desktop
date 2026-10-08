@@ -5,6 +5,27 @@ import path from 'node:path'
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
   [
+    'Session activity',
+    '会话状态',
+    '工作階段狀態',
+    'État de la session',
+    'セッションの状態',
+    'Состояние сеанса',
+    'Trạng thái phiên',
+  ],
+  ['Offline', '离线', '離線', 'Hors ligne', 'オフライン', 'Не в сети', 'Ngoại tuyến'],
+  ['Idle', '空闲', '閒置', 'En attente', '待機中', 'Ожидание', 'Rảnh'],
+  ['Processing…', '处理中…', '處理中…', 'Traitement en cours…', '処理中…', 'Выполняется…', 'Đang xử lý…'],
+  [
+    'Background tasks: {{count}}',
+    '后台任务：{{count}}',
+    '背景任務：{{count}}',
+    'Tâches en arrière-plan : {{count}}',
+    'バックグラウンドタスク: {{count}}',
+    'Фоновые задачи: {{count}}',
+    'Tác vụ nền: {{count}}',
+  ],
+  [
     'Scratchlist',
     '暂存消息',
     '暫存訊息',

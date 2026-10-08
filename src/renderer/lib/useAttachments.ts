@@ -22,6 +22,7 @@ export type UploadItem = {
   removed?: boolean
   job?: Promise<void>
   sending?: boolean
+  restoring?: boolean
   adapter?: ReturnType<typeof createAttachmentAdapter>
 }
 type UploadLifetime = { alive: boolean; epoch: number; items: UploadItem[]; reload?: () => Promise<void> }
@@ -54,19 +55,18 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
   const [error, setError] = useState('')
   const client = useMemo(() => createApi(scope), [scope])
 
+  const draftFiles = () =>
+    state.items.map((item) => ({
+      id: item.value?.id ?? item.id,
+      file: item.file,
+      path: item.value?.path,
+      previewUrl: item.value?.previewUrl,
+      uploadSessionId: item.value?.uploadSessionId,
+    }))
   function publish(persistWhenDetached = false) {
     if (state.epoch !== runtimeEpoch || (!state.alive && !persistWhenDetached)) return
     if (state.alive) setItems([...state.items])
-    saveDraftAttachments(
-      key,
-      state.items.map((item) => ({
-        id: item.value?.id ?? item.id,
-        file: item.file,
-        path: item.value?.path,
-        previewUrl: item.value?.previewUrl,
-        uploadSessionId: item.value?.uploadSessionId,
-      })),
-    )
+    saveDraftAttachments(key, draftFiles())
   }
 
   async function upload(item: UploadItem, target = sessionId, sending = false): Promise<void> {
@@ -204,7 +204,7 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     void (async () => {
       for (const item of state.items) {
         if (!state.alive || state.epoch !== runtimeEpoch) return
-        if (item.status === 'waiting') await upload(item)
+        if (item.status === 'waiting' && !item.restoring) await upload(item)
       }
     })()
   }, [loading, active, items])
@@ -213,6 +213,32 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     if (loading || error || !state.alive) return
     state.items.push(...files.map((file) => ({ id: crypto.randomUUID(), file, status: 'waiting' as const })))
     publish()
+  }
+
+  async function restore(files: { id: string; file: File }[]) {
+    if (!files.length) return
+    if (loading || error || !state.alive || state.epoch !== runtimeEpoch)
+      throw new Error('ATTACHMENTS_NOT_READY')
+    const added: UploadItem[] = files
+      .filter(({ id }) => !state.items.some((item) => item.id === id || item.value?.id === id))
+      .map(({ id, file }) => ({ id, file, status: 'waiting', restoring: true }))
+    state.items.push(...added)
+    publish()
+    try {
+      // The same-target move drains queued IndexedDB writes and propagates
+      // failures. Keep the queue recovery receipt until these bytes are durable.
+      await moveDraftAttachments(key, key, () => {
+        if (!state.alive || state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
+        return draftFiles()
+      })
+      if (!state.alive || state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
+      for (const item of added) item.restoring = false
+      publish()
+    } catch (error) {
+      state.items = state.items.filter((item) => !added.includes(item))
+      publish()
+      throw error
+    }
   }
 
   async function prepare(target: string): Promise<AttachmentMetadata[]> {
@@ -273,6 +299,7 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     loading,
     error,
     add,
+    restore,
     prepare,
     transfer,
     clearSent,

@@ -1169,9 +1169,14 @@ input[type='checkbox'] {
 }
 .question-toolbar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   padding: 6px 21px;
   flex-shrink: 0;
+}
+.question-toolbar .composer-status {
+  margin-right: auto;
 }
 .approval-area:has(.pending-question) {
   flex: 1;
@@ -1242,12 +1247,24 @@ input[type='checkbox'] {
 }
 .queue-actions {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
   margin-left: auto;
 }
 .queue-actions button {
-  font-size: calc(11px * var(--desk-font-scale));
+  width: calc(26px * var(--desk-font-scale));
+  height: calc(26px * var(--desk-font-scale));
+  padding: 0;
+  border: 0;
+  color: var(--desk-status-history);
+}
+.queue-actions button:hover:enabled {
+  background: var(--app-border);
+  color: var(--app-fg);
+}
+.queue-actions button svg {
+  width: calc(14px * var(--desk-font-scale));
+  height: calc(14px * var(--desk-font-scale));
 }
 .desktop-toasts {
   position: fixed;
@@ -1885,6 +1902,48 @@ input[type='checkbox'] {
 .composer-context .icon-button {
   padding: 4px;
   flex-shrink: 0;
+}
+.composer-context-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.composer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: calc(11px * var(--desk-font-scale));
+  color: var(--desk-status-history);
+}
+.composer-status.idle {
+  color: var(--desk-status-active);
+}
+.composer-status.processing,
+.composer-status.background {
+  color: var(--desk-unread);
+}
+.composer-status.attention {
+  color: var(--desk-status-pending);
+}
+.composer-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.composer-status.processing .composer-status-dot,
+.composer-status.background .composer-status-dot,
+.composer-status.attention .composer-status-dot {
+  animation: breathe 1.4s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-status-dot {
+    animation: none !important;
+  }
 }
 .context-usage {
   font-size: calc(11px * var(--desk-font-scale));
