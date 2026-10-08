@@ -1,14 +1,50 @@
+# Dependencies and generated output
 node_modules/
 out/
 build/
+dist/
+release/
+releases/
+
+# Test output, recordings, diagnostics, and audit reports
 playwright-report/
 test-results/
+blob-report/
 coverage/
 .cache/
 tmp/
+temp/
+/reports/
+/audit-reports/
+/screenshots/
+/recordings/
+/gitleaks-report.*
+/gitleaks.json
+/gitleaks.sarif
 *.tsbuildinfo
 *.log
-.DS_Store
+*.log.*
+*.har
+*.sarif
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+*.pid
+*.pid.lock
+
+# Distributable binaries and archives belong outside source control
+*.exe
+*.msi
+*.dll
+*.asar
+*.blockmap
+*.zip
+*.7z
+*.tar
+*.gz
+*.tgz
+*.dmg
+*.AppImage
 
 # Local configuration, credentials, and runtime data
 .env
@@ -16,11 +52,20 @@ tmp/
 !.env.example
 !.env.*.example
 *.local
+.npmrc
+.netrc
 .ssh/
+.aws/
+.gnupg/
+.hapi/
+/auth.json
+/credentials.json
 *.pem
 *.key
 *.p12
 *.pfx
+*.jks
+*.keystore
 *.db
 *.db-*
 *.sqlite
@@ -32,3 +77,10 @@ tmp/
 /core
 /core.[0-9]*
 *.dmp
+*.stackdump
+
+# Local editor and operating-system files
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

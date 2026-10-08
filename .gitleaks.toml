@@ -1,0 +1,15 @@
+title = "HAPI Desktop source and history scanning"
+
+[extend]
+useDefault = true
+
+# The source manifest stores SHA-256 checksums, not API credentials. Keep this
+# exception limited to that exact JSON field; other files and keys stay scanned.
+# Scope it to one rule so the manifest is never skipped as a whole file.
+[[allowlists]]
+description = "Upstream API type source checksum"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)UPSTREAM\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"shared/src/apiTypes\.ts":\s*"[a-f0-9]{64}",?\s*$''']
