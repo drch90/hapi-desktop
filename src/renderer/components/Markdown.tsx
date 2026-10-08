@@ -2,6 +2,7 @@ import { memo, createContext, useContext, useState, type ComponentPropsWithoutRe
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import remarkRepairTables from '@/lib/remark-repair-tables'
 import { Table } from '@/components/assistant-ui/markdown-text'
 import { CodeBlock } from '@/components/CodeBlock'
@@ -78,15 +79,17 @@ function DesktopLink({ href, children }: ComponentPropsWithoutRef<'a'>) {
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className,
+  preserveSingleLineBreaks = false,
 }: {
   content: string
   className?: string
+  preserveSingleLineBreaks?: boolean
   [key: string]: unknown
 }) {
   return (
     <div className={`markdown ${className ?? ''}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkRepairTables]}
+        remarkPlugins={[remarkGfm, remarkRepairTables, ...(preserveSingleLineBreaks ? [remarkBreaks] : [])]}
         components={{
           table: DesktopTable,
           a: DesktopLink,

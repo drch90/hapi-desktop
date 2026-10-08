@@ -1409,7 +1409,7 @@ function MessageBlock({
             role={block.kind === 'user-text' ? 'user' : 'assistant'}
           />
         </div>
-        <MarkdownRenderer content={block.text} />
+        <MarkdownRenderer content={block.text} preserveSingleLineBreaks={block.kind === 'user-text'} />
         {block.kind === 'user-text' && block.attachments && (
           <MessageAttachments attachments={block.attachments} />
         )}

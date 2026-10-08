@@ -1439,12 +1439,19 @@ test('Enter preference persists and respects newline, Shift+Enter, shortcuts and
   expect(server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.text).toBe(
     '第一行\na',
   )
+  const sentText = chat.locator('.user-message .markdown > p').last()
+  // Check rendered text, since textContent still contains a newline when
+  // ordinary Markdown collapses it into a space on screen.
+  await expect.poll(() => sentText.innerText()).toBe('第一行\na')
+  await chat.locator('.user-message').last().getByRole('button', { name: '复制', exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('第一行\na')
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await setting.selectOption('send')
   await page.keyboard.press('Escape')
   await expect(chat.locator('.composer-toolbar')).toContainText('Shift+Enter 换行')
   await page.reload()
   await expect(chat.locator('.composer-toolbar')).toContainText('Shift+Enter 换行')
+  await expect.poll(() => sentText.innerText()).toBe('第一行\na')
   await input.fill('输入法候选')
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229 })
@@ -1456,6 +1463,7 @@ test('Enter preference persists and respects newline, Shift+Enter, shortcuts and
   await input.press('Enter')
   await expect(input).toHaveValue('')
   expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(2)
+  await expect.poll(() => sentText.innerText()).toBe('输入法候选\nb')
   expect(errors).toEqual([])
 })
 
