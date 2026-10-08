@@ -1,0 +1,133 @@
+name: Desktop CI and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  verify:
+    name: Verify and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.2'
+      - name: Check release version and tag
+        id: release
+        run: node scripts/release.mjs check
+      - name: Test release preparation
+        run: node --test scripts/release.test.mjs
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Check types
+        run: bun run typecheck
+      - name: Verify upstream sources
+        run: bun run verify:upstream
+      - name: Check translations
+        run: |
+          bun run i18n:sync
+          git diff --exit-code -- src/renderer/i18n/locales
+      - name: Run unit and protocol tests
+        run: bun run test
+      - name: Build application
+        run: bun run build
+      - name: Install Electron test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
+      - name: Run Electron interface tests
+        run: xvfb-run -a bun run test:e2e
+
+  windows:
+    name: Build Windows x64 installer
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.2'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Package Windows installer
+        run: bun run package:win
+      - name: Prepare installer, checksum and release notes
+        run: node scripts/release.mjs prepare
+      - name: Upload distribution files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hapi-desktop-${{ needs.verify.outputs.version }}-win-x64
+          path: |
+            release/HAPI-Desktop-${{ needs.verify.outputs.version }}-win-x64-setup.exe
+            release/SHA256SUMS.txt
+            release/RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verify, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified distribution files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: hapi-desktop-${{ needs.verify.outputs.version }}-win-x64
+          path: release
+      - name: Verify installer checksum
+        working-directory: release
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Upload and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.verify.outputs.tag }}
+          APP_VERSION: ${{ needs.verify.outputs.version }}
+          IS_PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/release-is-draft; then
+            if [ "$(cat /tmp/release-is-draft)" != true ]; then
+              echo "Release $RELEASE_TAG is already public; keeping its existing assets."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "HAPI Desktop $APP_VERSION" --notes-file release/RELEASE_NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" --clobber \
+            "release/HAPI-Desktop-$APP_VERSION-win-x64-setup.exe" release/SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$IS_PRERELEASE" \
+            --latest="$([ "$IS_PRERELEASE" = true ] && echo false || echo true)" \
+            --title "HAPI Desktop $APP_VERSION" --notes-file release/RELEASE_NOTES.md

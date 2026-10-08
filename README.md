@@ -4,11 +4,13 @@
 
 ## 开始使用
 
-1. 按下方说明从源码生成并运行 Windows 安装包。
+1. 从 [最新 Release](https://github.com/drch90/hapi-desktop/releases/latest) 下载并运行 `HAPI-Desktop-<版本>-win-x64-setup.exe`；也可按下方说明从源码构建。
 2. 输入 Hub 地址和访问令牌。地址只包含协议、主机和端口，例如 `https://hapi.example.com` 或 `http://127.0.0.1:3006`，不包含 `/api`、子路径或查询参数。
 3. 打开已有会话，或选择在线机器、工作目录和 CLI 创建会话。Hub、runner 和 CLI 需另行部署。
 
-关闭窗口后应用驻留托盘；从托盘退出会关闭客户端，远端任务继续运行。开机启动默认关闭。仓库提供源码和文档，安装包由本地构建生成。
+关闭窗口后应用驻留托盘；从托盘退出会关闭客户端，远端任务继续运行。开机启动默认关闭。安装包与 `SHA256SUMS.txt` 校验文件发布在 GitHub Releases，源码仓库不保存安装包。Windows 可用 `Get-FileHash .\HAPI-Desktop-<版本>-win-x64-setup.exe -Algorithm SHA256` 计算摘要，与校验文件中的值核对。
+
+当前安装包尚未配置代码签名，Windows 可能显示发布者未知。应用没有自动更新，更新时从 Releases 下载新版安装包安装。
 
 ## 会话工作台
 
@@ -120,6 +122,36 @@ bun run package:win
 ```
 
 当前产物路径为 `build/HAPI-Desktop-0.1.11-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+
+### 自动构建与公开发布
+
+[Desktop CI and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 在推送 `main`、提交 PR 或手动运行时，执行类型检查、上游来源校验、本地化检查、单元/协议测试、生产构建和 Electron 界面测试；通过后在 Windows runner 生成 x64 安装包。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
+
+维护者发布新版本的步骤：
+
+1. 更新 `package.json` 的版本、README 中的当前版本，并添加 `docs/release-notes/v<版本>.md` 更新说明。
+2. 提交并推送到 `main`，确认上述工作流通过。
+3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
+
+```sh
+git tag -a v0.1.11 -m "HAPI Desktop 0.1.11"
+git push origin v0.1.11
+```
+
+推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v0.1.12-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+
+标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
+
+可在本地检查发布信息和准备文件：
+
+```sh
+node --test scripts/release.test.mjs
+node scripts/release.mjs check
+bun run package:win
+node scripts/release.mjs prepare
+```
+
+准备后的安装包、校验文件和更新说明位于被 Git 忽略的 `release/` 目录。
 
 ## 仓库内容与敏感信息
 
