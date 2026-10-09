@@ -3373,7 +3373,7 @@
   },
   "web/src/lib/shiki.ts": {
     "upstream": "d01f62e3c58b2a3801fdcf6a3a299226b5ff9774e0e03f2ca2d08e26700460c1",
-    "vendored": "d01f62e3c58b2a3801fdcf6a3a299226b5ff9774e0e03f2ca2d08e26700460c1"
+    "vendored": "a3477fb5ef8da1cb6a2a2d52c72545280830890be47c0c5cbd5f32bdc8b5156c"
   },
   "web/src/lib/spaRedirect.test.ts": {
     "upstream": "5c4f5028d22d0ac1ca5bb69661523939d9dc1d596482645655bda326e2906f09",
@@ -3573,7 +3573,7 @@
   },
   "web/src/routes/sessions/file.tsx": {
     "upstream": "7d34fb1cd43536a88b462e640bbeea48b64ca1fcc25f81817133bfa942474759",
-    "vendored": "1cf95268e01da366f457e96c34b14c49740a9bfa6b0bf5a28ac9b163375f49bb"
+    "vendored": "fb8c92118f3874486e08aae1958e8118004fb7678a14f9ccd22c7d0ddfe8a073"
   },
   "web/src/routes/sessions/files.test.tsx": {
     "upstream": "40d7460d4860d840cdc00101d6d460046007a0b28c521ad193ed918a91c21eaa",

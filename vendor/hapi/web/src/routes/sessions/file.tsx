@@ -9,7 +9,7 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
 import { queryKeys } from '@/lib/query-keys'
-import { langAlias, useShikiHighlighter } from '@/lib/shiki'
+import { resolveFileLanguage, useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
 import { ImagePreview } from '@/components/ImagePreview'
@@ -197,11 +197,7 @@ function FileContentHeader(props: {
 }
 
 export function resolveLanguage(path: string): string | undefined {
-    const parts = path.split('.')
-    if (parts.length <= 1) return undefined
-    const ext = parts[parts.length - 1]?.toLowerCase()
-    if (!ext) return undefined
-    return langAlias[ext] ?? ext
+    return resolveFileLanguage(path)
 }
 
 export function resolveImageMimeType(path: string): string | null {

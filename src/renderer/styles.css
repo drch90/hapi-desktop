@@ -990,7 +990,10 @@ input[type='checkbox'] {
 }
 .markdown h1,
 .markdown h2,
-.markdown h3 {
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
   font-weight: 600;
   margin: 22px 0 10px;
   line-height: 1.5;
@@ -1004,6 +1007,19 @@ input[type='checkbox'] {
 .markdown h3 {
   font-size: calc(14px * var(--desk-font-scale));
 }
+.markdown h4 {
+  font-size: calc(13px * var(--desk-font-scale));
+}
+.markdown h5 {
+  font-size: calc(12px * var(--desk-font-scale));
+}
+.markdown h6 {
+  font-size: calc(11px * var(--desk-font-scale));
+  color: var(--desk-muted);
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
 .markdown ul,
 .markdown ol {
   margin: 10px 0;
@@ -1013,17 +1029,55 @@ input[type='checkbox'] {
 .markdown li {
   margin: 3px 0;
 }
+.markdown .task-list-item {
+  list-style: none;
+}
+.markdown .task-list-item > input[type='checkbox'],
+.markdown .task-list-item > .markdown-task-checkbox {
+  margin: 0 0.55em 0 -1.45em;
+  accent-color: var(--desk-accent);
+  vertical-align: middle;
+}
+.markdown-task-checkbox {
+  display: inline-block;
+  width: 1em;
+}
 .markdown a {
   color: var(--app-link);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.markdown code {
+.markdown :not(pre) > code {
   font-family: 'Cascadia Code', Consolas, monospace;
   font-size: 0.92em;
   background: var(--app-inline-code-bg);
   padding: 1px 5px;
   border-radius: 4px;
+}
+.markdown [data-hapi-code-block] {
+  margin: 12px 0;
+}
+.markdown .markdown-mermaid [data-hapi-code-body] {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.markdown .katex-display {
+  max-width: 100%;
+  margin: 14px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 3px;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--desk-border);
+  margin: 20px 0;
+}
+.markdown .footnotes {
+  border-top: 1px solid var(--desk-border);
+  margin-top: 20px;
+  color: var(--desk-muted);
+  font-size: 0.92em;
 }
 .markdown table {
   border-collapse: collapse;

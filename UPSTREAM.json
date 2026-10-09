@@ -22,7 +22,8 @@
     "SessionActionMenu optional reference base URL for root-relative desktop citations",
     "Backport Hermes flavor, native policies, model discovery/picker, commands, resume identity and approval semantics",
     "Export shared Markdown Table with keyboard scrolling; regenerate permission catalog for Hermes",
-    "MachineSelector optional placeholder when a preselected workspace runner becomes unavailable"
+    "MachineSelector optional placeholder when a preselected workspace runner becomes unavailable",
+    "Extend shared syntax highlighting with lazy common grammars, aliases and file-name detection"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [

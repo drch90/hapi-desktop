@@ -2,60 +2,76 @@ import { createHighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import type { HighlighterCore } from 'shiki/core'
 import type { Root, RootContent } from 'hast'
-import { useState, useEffect, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
 
-// Only 2 themes
-const THEMES = [
-    import('@shikijs/themes/github-light'),
-    import('@shikijs/themes/github-dark'),
-]
-
-// 30 common languages for LLM code output
-const LANGS = [
+// Load a grammar only when it appears in a message/file. Some grammars embed
+// many others (notably C++ and Ruby), so eagerly loading the whole catalog
+// makes opening an otherwise plain-text conversation unnecessarily expensive.
+const LANGS = {
     // Shell
-    import('@shikijs/langs/shellscript'),
-    import('@shikijs/langs/powershell'),
+    shellscript: () => import('@shikijs/langs/shellscript'),
+    shellsession: () => import('@shikijs/langs/shellsession'),
+    powershell: () => import('@shikijs/langs/powershell'),
+    bat: () => import('@shikijs/langs/bat'),
     // Data formats
-    import('@shikijs/langs/json'),
-    import('@shikijs/langs/yaml'),
-    import('@shikijs/langs/toml'),
-    import('@shikijs/langs/xml'),
-    import('@shikijs/langs/ini'),
+    json: () => import('@shikijs/langs/json'),
+    jsonc: () => import('@shikijs/langs/jsonc'),
+    json5: () => import('@shikijs/langs/json5'),
+    yaml: () => import('@shikijs/langs/yaml'),
+    toml: () => import('@shikijs/langs/toml'),
+    xml: () => import('@shikijs/langs/xml'),
+    ini: () => import('@shikijs/langs/ini'),
+    dotenv: () => import('@shikijs/langs/dotenv'),
     // Markup
-    import('@shikijs/langs/markdown'),
-    import('@shikijs/langs/html'),
-    import('@shikijs/langs/css'),
-    import('@shikijs/langs/scss'),
+    markdown: () => import('@shikijs/langs/markdown'),
+    html: () => import('@shikijs/langs/html'),
+    css: () => import('@shikijs/langs/css'),
+    scss: () => import('@shikijs/langs/scss'),
+    latex: () => import('@shikijs/langs/latex'),
+    mermaid: () => import('@shikijs/langs/mermaid'),
     // JavaScript ecosystem
-    import('@shikijs/langs/javascript'),
-    import('@shikijs/langs/typescript'),
-    import('@shikijs/langs/jsx'),
-    import('@shikijs/langs/tsx'),
+    javascript: () => import('@shikijs/langs/javascript'),
+    typescript: () => import('@shikijs/langs/typescript'),
+    jsx: () => import('@shikijs/langs/jsx'),
+    tsx: () => import('@shikijs/langs/tsx'),
+    vue: () => import('@shikijs/langs/vue'),
+    svelte: () => import('@shikijs/langs/svelte'),
     // Query languages
-    import('@shikijs/langs/sql'),
-    import('@shikijs/langs/graphql'),
+    sql: () => import('@shikijs/langs/sql'),
+    graphql: () => import('@shikijs/langs/graphql'),
     // Systems languages
-    import('@shikijs/langs/c'),
-    import('@shikijs/langs/rust'),
-    import('@shikijs/langs/go'),
+    c: () => import('@shikijs/langs/c'),
+    cpp: () => import('@shikijs/langs/cpp'),
+    rust: () => import('@shikijs/langs/rust'),
+    go: () => import('@shikijs/langs/go'),
     // JVM
-    import('@shikijs/langs/java'),
-    import('@shikijs/langs/kotlin'),
+    java: () => import('@shikijs/langs/java'),
+    kotlin: () => import('@shikijs/langs/kotlin'),
     // Scripting
-    import('@shikijs/langs/python'),
-    import('@shikijs/langs/php'),
+    python: () => import('@shikijs/langs/python'),
+    php: () => import('@shikijs/langs/php'),
+    ruby: () => import('@shikijs/langs/ruby'),
+    lua: () => import('@shikijs/langs/lua'),
+    r: () => import('@shikijs/langs/r'),
     // Apple
-    import('@shikijs/langs/swift'),
+    swift: () => import('@shikijs/langs/swift'),
+    'objective-c': () => import('@shikijs/langs/objective-c'),
     // .NET
-    import('@shikijs/langs/csharp'),
+    csharp: () => import('@shikijs/langs/csharp'),
+    // Flutter
+    dart: () => import('@shikijs/langs/dart'),
     // DevOps
-    import('@shikijs/langs/dockerfile'),
-    import('@shikijs/langs/make'),
+    dockerfile: () => import('@shikijs/langs/dockerfile'),
+    make: () => import('@shikijs/langs/make'),
+    cmake: () => import('@shikijs/langs/cmake'),
+    nginx: () => import('@shikijs/langs/nginx'),
     // Misc
-    import('@shikijs/langs/diff'),
-]
+    diff: () => import('@shikijs/langs/diff'),
+    http: () => import('@shikijs/langs/http'),
+    proto: () => import('@shikijs/langs/proto'),
+}
 
 export const SHIKI_THEMES = {
     light: 'github-light',
@@ -68,7 +84,16 @@ export const langAlias: Record<string, string> = {
     bash: 'shellscript',
     zsh: 'shellscript',
     shell: 'shellscript',
+    console: 'shellsession',
+    'shell-session': 'shellsession',
+    'bash-session': 'shellsession',
+    ps: 'powershell',
     ps1: 'powershell',
+    pwsh: 'powershell',
+    psm1: 'powershell',
+    psd1: 'powershell',
+    batch: 'bat',
+    cmd: 'bat',
     js: 'javascript',
     ts: 'typescript',
     mjs: 'javascript',
@@ -76,39 +101,94 @@ export const langAlias: Record<string, string> = {
     mts: 'typescript',
     cts: 'typescript',
     yml: 'yaml',
+    properties: 'ini',
+    env: 'dotenv',
     md: 'markdown',
+    tex: 'latex',
+    mmd: 'mermaid',
     htm: 'html',
     pgsql: 'sql',
     mysql: 'sql',
     postgres: 'sql',
     gql: 'graphql',
     py: 'python',
+    rb: 'ruby',
     rs: 'rust',
     kt: 'kotlin',
+    kts: 'kotlin',
     cs: 'csharp',
+    'c#': 'csharp',
+    'c++': 'cpp',
+    cc: 'cpp',
+    cxx: 'cpp',
+    hpp: 'cpp',
+    hxx: 'cpp',
+    hh: 'cpp',
+    h: 'c',
+    objc: 'objective-c',
+    m: 'objective-c',
+    docker: 'dockerfile',
     makefile: 'make',
+    mk: 'make',
+    patch: 'diff',
+    protobuf: 'proto',
 }
 
 // Singleton highlighter instance
 let highlighterPromise: Promise<HighlighterCore> | null = null
+const languagePromises = new Map<string, Promise<void>>()
 
 function getHighlighter(): Promise<HighlighterCore> {
     if (!highlighterPromise) {
         highlighterPromise = createHighlighterCore({
-            themes: THEMES,
-            langs: LANGS,
+            themes: [import('@shikijs/themes/github-light'), import('@shikijs/themes/github-dark')],
+            langs: [],
             engine: createJavaScriptRegexEngine({ forgiving: true }),
+        }).catch((error) => {
+            highlighterPromise = null
+            throw error
         })
     }
     return highlighterPromise
 }
 
-function resolveLanguage(lang: string | undefined): string {
+export function resolveCodeLanguage(lang: string | undefined): string {
     if (!lang) return 'text'
-    const cleaned = lang.startsWith('language-') ? lang.slice('language-'.length) : lang
-    const lower = cleaned.toLowerCase().trim()
-    if (lower === 'text' || lower === 'plaintext' || lower === 'txt') return 'text'
-    return langAlias[lower] ?? lower
+    const lower = lang.trim().toLowerCase().replace(/^language-/, '')
+    if (!lower || lower === 'text' || lower === 'plaintext' || lower === 'txt') return 'text'
+    return Object.hasOwn(langAlias, lower) ? langAlias[lower] : lower
+}
+
+/** File previews use the same aliases as fences, including extensionless config files. */
+export function resolveFileLanguage(path: string): string | undefined {
+    const name = path.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+    if (/^(dockerfile|containerfile)(\.|$)/.test(name)) return 'dockerfile'
+    if (/^(gnu)?makefile$/.test(name)) return 'make'
+    if (name === 'cmakelists.txt') return 'cmake'
+    if (name === 'nginx.conf') return 'nginx'
+    if (name === '.env' || name.startsWith('.env.')) return 'dotenv'
+    if (['.bashrc', '.zshrc', '.bash_profile', '.zprofile', '.profile'].includes(name)) return 'shellscript'
+    if (/^(tsconfig|jsconfig)(\.[^.]+)*\.json$/.test(name)) return 'jsonc'
+    const dot = name.lastIndexOf('.')
+    if (dot < 0 || dot === name.length - 1) return undefined
+    return resolveCodeLanguage(name.slice(dot + 1))
+}
+
+async function getLanguageHighlighter(lang: string): Promise<HighlighterCore | null> {
+    if (!Object.hasOwn(LANGS, lang)) return null
+    const highlighter = await getHighlighter()
+    if (!highlighter.getLoadedLanguages().includes(lang)) {
+        let pending = languagePromises.get(lang)
+        if (!pending) {
+            pending = (async () => {
+                const grammar = await LANGS[lang as keyof typeof LANGS]()
+                await highlighter.loadLanguage(grammar.default)
+            })().finally(() => languagePromises.delete(lang))
+            languagePromises.set(lang, pending)
+        }
+        await pending
+    }
+    return highlighter
 }
 
 /**
@@ -177,43 +257,29 @@ function highlightToLineNodes(highlighter: HighlighterCore, code: string, lang: 
  * Returns a single ReactNode of the highlighted code (inline structure),
  * or null while pending / for unsupported languages (plain-text fallback).
  */
-export function useShikiHighlighter(
+function useHighlightedCode<T>(
     code: string,
-    language: string | undefined
-): ReactNode | null {
-    const [highlighted, setHighlighted] = useState<ReactNode | null>(null)
-    const lang = useMemo(() => resolveLanguage(language), [language])
+    language: string | undefined,
+    render: (highlighter: HighlighterCore, code: string, lang: string) => T,
+): T | null {
+    const [result, setResult] = useState<{ code: string; lang: string; value: T | null } | null>(null)
+    const lang = resolveCodeLanguage(language)
 
     useEffect(() => {
+        if (!Object.hasOwn(LANGS, lang)) return
         let cancelled = false
 
         async function highlight() {
-            const highlighter = await getHighlighter()
-            if (cancelled) return
-
-            const loadedLangs = highlighter.getLoadedLanguages()
-
-            // Skip highlighting for unsupported languages (graceful fallback to plain text)
-            if (lang === 'text' || !loadedLangs.includes(lang)) {
-                setHighlighted(null)
-                return
+            try {
+                const highlighter = await getLanguageHighlighter(lang)
+                if (cancelled) return
+                const value = highlighter ? render(highlighter, code, lang) : null
+                setResult({ code, lang, value })
+            } catch {
+                // Missing chunks or a grammar failure must never hide the code
+                // or surface an unhandled rejection during a streaming reply.
+                if (!cancelled) setResult({ code, lang, value: null })
             }
-
-            const hast = highlighter.codeToHast(code, {
-                lang,
-                themes: SHIKI_THEMES,
-                defaultColor: false,
-                structure: 'inline',
-            })
-
-            if (cancelled) return
-
-            const rendered = toJsxRuntime(hast, {
-                jsx,
-                jsxs,
-                Fragment,
-            })
-            setHighlighted(rendered as ReactNode)
         }
 
         // Debounce highlighting — 150ms reduces CPU pressure on Windows during
@@ -223,9 +289,28 @@ export function useShikiHighlighter(
             cancelled = true
             clearTimeout(timer)
         }
-    }, [code, lang])
+    }, [code, lang, render])
 
-    return highlighted
+    // Show the latest source immediately while the debounce/import is pending.
+    // Otherwise streaming or reusing a block briefly displays the previous code.
+    return result?.code === code && result.lang === lang ? result.value : null
+}
+
+function highlightToNode(highlighter: HighlighterCore, code: string, lang: string): ReactNode {
+    const hast = highlighter.codeToHast(code, {
+        lang,
+        themes: SHIKI_THEMES,
+        defaultColor: false,
+        structure: 'inline',
+    })
+    return toJsxRuntime(hast, { jsx, jsxs, Fragment })
+}
+
+export function useShikiHighlighter(
+    code: string,
+    language: string | undefined
+): ReactNode | null {
+    return useHighlightedCode(code, language, highlightToNode)
 }
 
 /**
@@ -239,39 +324,5 @@ export function useShikiHighlightedLines(
     code: string,
     language: string | undefined
 ): ReactNode[] | null {
-    const [lines, setLines] = useState<ReactNode[] | null>(null)
-    const lang = useMemo(() => resolveLanguage(language), [language])
-
-    useEffect(() => {
-        let cancelled = false
-
-        async function highlight() {
-            const highlighter = await getHighlighter()
-            if (cancelled) return
-
-            const loadedLangs = highlighter.getLoadedLanguages()
-
-            // Skip highlighting for unsupported languages (graceful fallback to plain text)
-            if (lang === 'text' || !loadedLangs.includes(lang)) {
-                setLines(null)
-                return
-            }
-
-            const lineNodes = highlightToLineNodes(highlighter, code, lang)
-
-            if (cancelled) return
-
-            setLines(lineNodes)
-        }
-
-        // Debounce highlighting — 150ms reduces CPU pressure on Windows during
-        // streaming where code blocks update rapidly (see #310)
-        const timer = setTimeout(highlight, 150)
-        return () => {
-            cancelled = true
-            clearTimeout(timer)
-        }
-    }, [code, lang])
-
-    return lines
+    return useHighlightedCode(code, language, highlightToLineNodes)
 }

@@ -2934,6 +2934,282 @@ test('Markdown tables preserve alignment and scroll within a narrow chat pane', 
   expect(errors).toEqual([])
 })
 
+test('Markdown code blocks preserve source, highlight common aliases and stay within a narrow pane', async () => {
+  const cpp =
+    '#include <string>\nint main() {\n\tconst std::string text = "' +
+    'long value '.repeat(24) +
+    '";\n\n  return 0;\n}'
+  const markdown = [
+    'Inline `first\nsecond` stays inline.',
+    '    one indented line',
+    '```C++ title="main.cpp"\n' + cpp + '\n```',
+    '```C#\npublic class App { public int Count = 1; }\n```',
+    '```console\n$ echo "hello"\nhello\n```',
+    '```jsonc\n{\n  // comment\n  "strict": true,\n}\n```',
+    '```unknown-language\nplain <source>\n  keeps spacing\n```',
+    '[查看源码](src/main.hpp) · [构建配置](Dockerfile)',
+  ].join('\n\n')
+  server.messages.set('design', [fixtureMessage('code-formats', 1, markdown)])
+  server.fileContents.set('src/main.hpp', Buffer.from(cpp))
+  server.fileContents.set('Dockerfile', Buffer.from('FROM node:22\nWORKDIR /app'))
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const blocks = chat.locator('.markdown [data-hapi-code-block]')
+  await expect(chat.locator('.markdown p code')).toHaveText('first second')
+  await expect(chat.locator('.markdown p [data-hapi-code-block]')).toHaveCount(0)
+  await expect(blocks).toHaveCount(6)
+  await expect(blocks.first().locator('[data-code-cell]')).toHaveText('one indented line')
+  for (const index of [1, 2, 3, 4]) {
+    await expect(blocks.nth(index).locator('span[style*="--shiki-light"]').first()).toBeAttached()
+  }
+  const cppBlock = blocks.nth(1)
+  expect(await cppBlock.locator('[data-code-cell]').allTextContents()).toEqual(cpp.split('\n'))
+  expect(await blocks.last().locator('[data-code-cell]').allTextContents()).toEqual([
+    'plain <source>',
+    '  keeps spacing',
+  ])
+  await cppBlock.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(cpp)
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const body = cppBlock.locator('[data-hapi-code-body]')
+  expect(await body.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await cppBlock.locator('[data-hapi-code-wrap-toggle]').click()
+  await expect(cppBlock.locator('[data-code-cell]').first()).toHaveCSS('white-space', 'pre-wrap')
+  await expect(cppBlock.locator('[data-line-number]')).toHaveCount(cpp.split('\n').length)
+  expect(
+    await chat.locator('.transcript').evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1)
+  // File previews share language recognition, including extensionless files.
+  await chat.getByRole('link', { name: '查看源码', exact: true }).click()
+  const preview = page.locator('.file-preview')
+  await expect(preview.locator('[data-code-cell] span[style*="--shiki-light"]').first()).toBeAttached()
+  expect(await preview.locator('[data-code-cell]').allTextContents()).toEqual(cpp.split('\n'))
+  await chat.getByRole('link', { name: '构建配置', exact: true }).click()
+  await expect(preview.locator('.aui-code-surface-header')).toContainText('dockerfile')
+  await expect(preview.locator('[data-code-cell] span[style*="--shiki-light"]').first()).toBeAttached()
+  await page.reload()
+  await expect(chat.locator('.markdown p code')).toHaveText('first second')
+  expect(await cppBlock.locator('[data-code-cell]').allTextContents()).toEqual(cpp.split('\n'))
+  expect(errors).toEqual([])
+})
+
+test('Markdown math, tasks, headings and footnotes render in messages and file previews', async () => {
+  const formula = Array.from({ length: 30 }, (_, index) => `x_{${index}}`).join(' + ')
+  const markdown = [
+    '#### 四级标题',
+    '##### 五级标题',
+    '###### 六级标题',
+    '- [x] 已完成\n- [ ] 待处理\n- 普通列表项',
+    '---',
+    String.raw`行内公式 \(a^2+b^2=c^2\)，价格 $200/mo 和 $80；~home~，~~删除~~。`,
+    String.raw`\[\frac{1}{2}\]`,
+    '$$\n' + formula + '\n$$',
+    '```latex\n\\[source only\\]\n```',
+    '参考[^note]。',
+    '[公式文档](docs/math.md)',
+    '[^note]: 脚注内容。',
+  ].join('\n\n')
+  server.messages.set('design', [fixtureMessage('math-formats', 1, markdown)])
+  server.fileContents.set('docs/math.md', Buffer.from(markdown))
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.locator('.katex')).toHaveCount(3)
+  await expect(chat.locator('.katex-display')).toHaveCount(2)
+  await expect(chat.locator('.katex-error')).toHaveCount(0)
+  await expect(chat.locator('.markdown')).toContainText('价格 $200/mo 和 $80；~home~')
+  await expect(chat.getByRole('heading', { level: 4 })).toHaveCSS('font-weight', '600')
+  await expect(chat.getByRole('heading', { level: 6 })).toHaveCSS('font-weight', '600')
+  await expect(chat.getByRole('checkbox').first()).toBeChecked()
+  await expect(chat.getByRole('checkbox').last()).not.toBeChecked()
+  await expect(chat.getByRole('checkbox').first()).toBeDisabled()
+  await expect(chat.locator('.task-list-item').first()).toHaveCSS('list-style-type', 'none')
+  await expect(chat.locator('hr')).toHaveCSS('border-top-width', '1px')
+  await expect(chat.locator('[data-code-cell]')).toHaveText('\\[source only\\]')
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        await document.fonts.ready
+        return document.fonts.check('16px KaTeX_Main')
+      }),
+    )
+    .toBe(true)
+  const url = page.url()
+  await chat.locator('sup a[data-footnote-ref]').click()
+  await expect(chat.locator('.footnotes li')).toBeFocused()
+  await chat.locator('.footnotes a[data-footnote-backref]').click()
+  await expect(chat.locator('sup a')).toBeFocused()
+  expect(page.url()).toBe(url)
+  expect(server.fileReadPaths).toEqual([])
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const wideMath = chat.locator('.katex-display').last()
+  await expect(wideMath).toHaveCSS('overflow-x', 'auto')
+  expect(await wideMath.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  const formulaWidth = await wideMath.evaluate((element) => element.scrollWidth)
+  expect(
+    await chat.locator('.transcript').evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(1)
+  await chat.getByRole('link', { name: '公式文档', exact: true }).click()
+  await expect(page.locator('.file-preview .katex')).toHaveCount(3)
+  // Share renders the same math locally and retains the original Markdown for text copying.
+  await chat.locator('.message-actions').getByRole('button', { name: '复制', exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(markdown)
+  await chat.getByRole('button', { name: '分享', exact: true }).click()
+  await expect(page.getByRole('dialog').locator('.markdown-task-checkbox')).toHaveText(['☑', '☐'])
+  await page.getByRole('dialog').getByRole('button', { name: '复制', exact: true }).last().click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readImage().getSize().width), {
+      timeout: 20_000,
+    })
+    .toBeGreaterThanOrEqual(formulaWidth)
+  await writeFile(
+    test.info().outputPath('math-share.png'),
+    Buffer.from(
+      await electron.evaluate(({ clipboard }) => clipboard.readImage().toPNG().toString('base64')),
+      'base64',
+    ),
+  )
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('Markdown Mermaid diagrams support source, copy, fullscreen, themes and streaming recovery', async () => {
+  const flowchart =
+    'flowchart LR\n  A[收到请求] --> B{需要审批?}\n  B -->|是| C[等待确认]\n  B -->|否| D[执行任务]'
+  const sequence = 'sequenceDiagram\n  User->>Hub: Send\n  Hub-->>User: Done'
+  const invalid = 'flowchart LR\n  A[unfinished'
+  server.messages.set('design', [
+    fixtureMessage(
+      'diagrams',
+      1,
+      '```Mermaid\n' + flowchart + '\n```\n\n```mmd\n' + sequence + '\n```\n\n[图表文档](docs/diagrams.md)',
+    ),
+    fixtureMessage('diagram-stream', 2, '```mermaid\n' + invalid + '\n```'),
+  ])
+  server.fileContents.set('docs/diagrams.md', Buffer.from('```mermaid\n' + flowchart + '\n```'))
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const blocks = chat.locator('.markdown-mermaid')
+  await expect(blocks).toHaveCount(3)
+  await expect(chat.locator('[data-mermaid-diagram][data-rendered="true"]')).toHaveCount(2)
+  await expect(blocks.last().locator('.aui-mermaid-fallback-notice')).toBeVisible()
+  await expect(blocks.last().locator('.aui-mermaid-fallback code')).toHaveText(invalid)
+  const first = blocks.first()
+  await first.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(flowchart)
+  await first.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(first.locator('[data-mermaid-diagram]')).toHaveCount(0)
+  expect(await first.locator('[data-code-cell]').allTextContents()).toEqual(flowchart.split('\n'))
+  await expect(first.locator('[data-code-cell] span[style*="--shiki-light"]').first()).toBeAttached()
+  await first.getByRole('button', { name: '预览', exact: true }).click()
+  const diagram = first.locator('[data-mermaid-diagram][data-rendered="true"]')
+  await expect(diagram).toBeVisible()
+  const lightSvg = await diagram.locator('svg').innerHTML()
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark' }))
+  await expect.poll(() => diagram.locator('svg').innerHTML()).not.toBe(lightSvg)
+  await diagram.click()
+  const lightbox = page.getByRole('dialog')
+  await expect(lightbox.locator('[data-mermaid-lightbox] svg')).toBeVisible()
+  expect(
+    await lightbox
+      .locator('[data-mermaid-lightbox] svg')
+      .evaluate((element) => element.getBoundingClientRect().width),
+  ).toBeGreaterThan(100)
+  await lightbox.getByTitle('Zoom in', { exact: true }).click()
+  await lightbox.getByTitle('Fit to screen', { exact: true }).click()
+  await page.keyboard.press('Escape')
+  const completed = 'flowchart LR\n  A[Completed] --> B[Ready]'
+  server.emit({
+    type: 'message-received',
+    sessionId: 'design',
+    message: fixtureMessage('diagram-stream', 2, '```mermaid\n' + completed + '\n```'),
+  })
+  await expect(chat.locator('[data-mermaid-diagram][data-rendered="true"]')).toHaveCount(3)
+  await expect(blocks.last().locator('[data-mermaid-diagram] svg')).toContainText('Completed')
+  await chat.getByRole('link', { name: '图表文档', exact: true }).click()
+  await expect(page.locator('.file-preview [data-mermaid-diagram][data-rendered="true"]')).toBeVisible()
+  await chat.getByRole('button', { name: '分享', exact: true }).first().click()
+  await expect(page.getByRole('dialog').locator('[data-mermaid-diagram] svg')).toHaveCount(2)
+  await page.getByRole('dialog').getByRole('button', { name: '复制', exact: true }).last().click()
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readImage().getSize().width), {
+      timeout: 20_000,
+    })
+    .toBeGreaterThan(0)
+  await writeFile(
+    test.info().outputPath('mermaid-share.png'),
+    Buffer.from(
+      await electron.evaluate(({ clipboard }) => clipboard.readImage().toPNG().toString('base64')),
+      'base64',
+    ),
+  )
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('Markdown embedded code stays inert and external diagram images are blocked by CSP', async () => {
+  const externalRequests: string[] = []
+  const externalResponses: string[] = []
+  page.on('request', (request) => {
+    if (/^https?:/i.test(request.url())) externalRequests.push(request.url())
+  })
+  page.on('response', (response) => {
+    if (/^https?:/i.test(response.url())) externalResponses.push(response.url())
+  })
+  await page.evaluate(() => {
+    const state = window as unknown as { markdownPolicyViolations: { url: string; directive: string }[] }
+    state.markdownPolicyViolations = []
+    document.addEventListener('securitypolicyviolation', (event) => {
+      state.markdownPolicyViolations.push({ url: event.blockedURI, directive: event.effectiveDirective })
+    })
+  })
+  const markdown = [
+    '<script>window.markdownExecuted = true</script><iframe src="https://example.com/frame"></iframe>',
+    '![Remote image](https://example.com/image.png)',
+    '[Unsafe link](javascript:window.markdownExecuted=true)',
+    String.raw`\(\href{javascript:window.markdownExecuted=true}{unsafe}\)`,
+    '```mermaid',
+    '%%{init: {"securityLevel": "loose"}}%%',
+    'flowchart LR',
+    "  A[\"<img src='https://example.com/pixel.png' onerror='window.markdownExecuted=true'>\"] --> B[Safe]",
+    '  click B "javascript:window.markdownExecuted=true"',
+    '```',
+  ].join('\n\n')
+  server.messages.set('design', [fixtureMessage('inert-markdown', 1, markdown)])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.locator('.markdown script, .markdown iframe')).toHaveCount(0)
+  await expect(chat.locator('.markdown')).toContainText('[Remote image]')
+  await expect(
+    chat.locator('[data-mermaid-diagram][data-rendered="true"], [data-mermaid-diagram][data-mermaid-error]'),
+  ).toHaveCount(1)
+  const url = page.url()
+  await chat.getByText('Unsafe link', { exact: true }).click()
+  expect(
+    await page.evaluate(() => (window as unknown as { markdownExecuted?: boolean }).markdownExecuted),
+  ).toBeUndefined()
+  expect(page.url()).toBe(url)
+  // Chromium emits request events even for a CSP-blocked image. Verify every
+  // attempted external load is blocked by policy, rather than a network failure.
+  await expect
+    .poll(async () => {
+      const violations = await page.evaluate(
+        () =>
+          (window as unknown as { markdownPolicyViolations: { url: string; directive: string }[] })
+            .markdownPolicyViolations,
+      )
+      return externalRequests.every((url) =>
+        violations.some((entry) => entry.url === url && entry.directive === 'img-src'),
+      )
+    })
+    .toBe(true)
+  expect(externalResponses).toEqual([])
+  expect(errors).toEqual([])
+})
+
 test('workspace headers copy full paths and create on the matching machine without toggling the group', async () => {
   const path = '/home/dev/项目 A/目录[测试]/a-very-long-workspace-name/desktop'
   server.machines.push({
