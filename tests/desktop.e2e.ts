@@ -1581,12 +1581,16 @@ test('font size updates both panes and settings remain usable at the minimum win
 test('thinking section excludes idle and background sessions, unread updates persist and history is muted', async () => {
   const design = server.sessions.get('design')!
   const review = server.sessions.get('review')!
+  const historyPath = '/home/dev/archived-project'
+  server.sessions.get('history')!.metadata!.path = historyPath
+  await page.reload()
   await page.getByTestId('session-review').click()
   const designRow = page.getByTestId('session-design')
   await expect(designRow).toHaveAttribute('data-status', 'ready')
   await expect(designRow.locator('.session-ready-icon')).toBeVisible()
   await expect(page.locator('.session-unread-badge')).toHaveCount(0)
   const historyRow = page.getByTestId('session-history')
+  const historyWorkspace = page.locator('.session-group').filter({ has: historyRow })
   await expect(page.getByTestId('sessions-history')).not.toContainText('LINUX-DEV-01', { ignoreCase: true })
   await expect(page.getByTestId('sessions-history').locator('.group-machine')).toHaveCount(0)
   await expect(page.locator('.brand .version')).toHaveText(appVersion)
@@ -1609,23 +1613,21 @@ test('thinking section excludes idle and background sessions, unread updates per
   expect(await historyRow.locator('.session-copy').evaluate((el) => getComputedStyle(el).color)).not.toBe(
     await designRow.locator('.session-copy').evaluate((el) => getComputedStyle(el).color),
   )
-  const historyGroup = page.getByTestId('sessions-history').getByRole('button', { name: /折叠工作区/ })
+  const historyGroup = historyWorkspace.getByRole('button', { name: /折叠工作区/ })
   await expect(historyGroup).toHaveAttribute('aria-expanded', 'true')
   await historyGroup.click()
   await expect(historyRow).toBeHidden()
-  await expect(
-    page.getByTestId('sessions-history').getByRole('button', { name: /展开工作区/ }),
-  ).toHaveAttribute('aria-expanded', 'false')
+  await expect(historyWorkspace.getByRole('button', { name: /展开工作区/ })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
   await page.reload()
   await expect(historyRow).toBeHidden()
   await page.getByRole('textbox', { name: '搜索会话' }).fill('OpenCode')
   await expect(historyRow).toBeVisible()
   await page.getByRole('textbox', { name: '搜索会话' }).fill('')
   await expect(historyRow).toBeHidden()
-  await page
-    .getByTestId('sessions-history')
-    .getByRole('button', { name: /展开工作区/ })
-    .focus()
+  await historyWorkspace.getByRole('button', { name: /展开工作区/ }).focus()
   await page.keyboard.press('Enter')
   await expect(historyRow).toBeVisible()
   design.thinking = true
@@ -1637,7 +1639,7 @@ test('thinking section excludes idle and background sessions, unread updates per
   await expect(thinking.getByTestId('session-history')).toHaveCount(0)
   await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
   await expect(page.getByTestId('sessions-history').getByTestId('session-history')).toBeVisible()
-  await expect(page.getByTestId('sessions-history')).toContainText('/home/dev/hapi-desktop')
+  await expect(historyWorkspace.locator('.group-path')).toHaveText(historyPath)
   design.thinking = false
   design.updatedAt += 10
   server.emit({
@@ -1666,7 +1668,7 @@ test('thinking section excludes idle and background sessions, unread updates per
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
   await expect(thinking.getByTestId('session-design')).toBeVisible()
   await page.getByRole('button', { name: '设置', exact: true }).click()
-  const grouping = page.getByRole('checkbox', { name: '按状态分区显示会话' })
+  const grouping = page.getByRole('checkbox', { name: '工作区内按状态分区显示会话' })
   await expect(grouping).toBeChecked()
   await grouping.click()
   await expect(grouping).not.toBeChecked()
@@ -3268,20 +3270,49 @@ test('Markdown embedded code stays inert and external diagram images are blocked
   expect(errors).toEqual([])
 })
 
-test('workspace headers remain visible as sessions move between active and history sections', async () => {
+test('active workspaces contain their sessions, stay above history and retain collapse state across updates', async () => {
   const path = '/home/dev/live-project'
   const design = server.sessions.get('design')!
   const review = server.sessions.get('review')!
   for (const session of [design, review]) session.metadata!.path = path
   design.thinking = true
+  for (let i = 0; i < 18; i++) {
+    const session = fixtureSession(`archived-${i}`, `Archived project ${i}`, 'codex', false)
+    session.metadata!.path = `/home/dev/archived-${i}`
+    session.updatedAt = Date.now() + 1000 + i
+    server.sessions.set(session.id, session)
+  }
+  await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
   await page.reload()
   const headings = page.locator('.workspace-group-heading').filter({ hasText: path })
-  const workspace = page.getByTestId('sessions-workspaces')
+  const workspace = page.locator('.session-group').filter({ has: page.getByTestId('session-design') })
   await expect(headings).toHaveCount(1)
-  await expect(headings).toBeVisible()
-  await expect(workspace.locator('.session-row')).toHaveCount(0)
-  await expect(page.getByTestId('sessions-thinking').getByTestId('session-design')).toBeVisible()
-  await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
+  await expect(headings).toBeInViewport()
+  await expect(headings.locator('.group-name')).toHaveText('live-project')
+  await expect(headings.locator('.group-path')).toHaveText(path)
+  await expect(headings.locator('.group-path')).toHaveAttribute('title', path)
+  await expect(headings.locator('.workspace-group-count')).toHaveText('2')
+  await expect(workspace.locator('.session-row')).toHaveCount(2)
+  await expect(workspace.getByTestId('sessions-thinking').getByTestId('session-design')).toBeVisible()
+  await expect(workspace.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
+  await headings.getByRole('button', { name: /^折叠工作区/ }).click()
+  await expect(workspace.getByTestId('session-design')).toBeHidden()
+  await expect(workspace.getByTestId('session-review')).toBeHidden()
+  await expect(headings.getByRole('button', { name: /^展开工作区/ })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
+  await page.reload()
+  await expect(workspace.getByTestId('session-design')).toBeHidden()
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await search.fill('live-project')
+  await expect(workspace.getByTestId('session-design')).toBeVisible()
+  await expect(headings.getByRole('button', { name: /^折叠工作区/ })).toBeDisabled()
+  await search.fill('')
+  await expect(workspace.getByTestId('session-design')).toBeHidden()
+  await headings.getByRole('button', { name: /^展开工作区/ }).focus()
+  await page.keyboard.press('Enter')
+  await expect(workspace.getByTestId('session-design')).toBeVisible()
   await headings.getByRole('button', { name: `复制路径: ${path}`, exact: true }).click()
   await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(path)
   await headings.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true }).click()
@@ -3289,12 +3320,18 @@ test('workspace headers remain visible as sessions move between active and histo
   await expect(launch.getByLabel('目录', { exact: true })).toHaveValue(path)
   await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-1')
   await launch.getByRole('button', { name: '取消', exact: true }).click()
+  const archived = fixtureSession('same-workspace-history', 'Earlier project session', 'codex', false)
+  archived.metadata!.path = path
+  server.sessions.set(archived.id, archived)
+  server.emit({ type: 'session-added', sessionId: archived.id, data: archived })
+  await expect(workspace.getByTestId('sessions-history').getByTestId(`session-${archived.id}`)).toBeVisible()
+  await expect(headings.locator('.workspace-group-count')).toHaveText('3')
   design.active = false
   design.thinking = false
   design.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
-  await expect(page.getByTestId('sessions-history').getByTestId('session-design')).toBeVisible()
-  await expect(workspace).toHaveCount(0)
+  await expect(workspace.getByTestId('sessions-history').getByTestId('session-design')).toBeVisible()
+  await expect(workspace.locator('.session-row')).toHaveCount(3)
   await expect(headings).toHaveCount(1)
   await expect(headings).toBeVisible()
   design.active = true
@@ -3304,12 +3341,15 @@ test('workspace headers remain visible as sessions move between active and histo
   await expect(headings).toHaveCount(1)
   await expect(page.getByTestId('session-design')).toHaveCount(1)
   await expect(page.getByTestId('session-review')).toHaveCount(1)
-  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await expect(workspace.getByTestId('sessions-active').getByTestId('session-design')).toBeVisible()
   await search.fill('no-matching-workspace')
   await expect(headings).toHaveCount(0)
   await search.fill('')
   await expect(headings).toBeVisible()
-  for (const id of ['design', 'review']) {
+  await workspace.getByTestId('session-design').click()
+  await expect(page.getByTestId('chat-design')).toBeVisible()
+  await page.screenshot({ path: '/tmp/hapi-desktop-workspace-groups.png', animations: 'disabled' })
+  for (const id of ['design', 'review', archived.id]) {
     server.sessions.delete(id)
     server.emit({ type: 'session-removed', sessionId: id })
   }
@@ -3336,10 +3376,9 @@ test('workspace headers copy full paths and create on the matching machine witho
   }
   await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
   await page.reload()
-  const group = page
-    .getByTestId('sessions-history')
-    .locator('.session-group')
-    .filter({ has: page.getByTestId('session-workspace-two') })
+  const group = page.locator('.session-group').filter({ has: page.getByTestId('session-workspace-two') })
+  await expect(group.locator('.group-name')).toHaveText('desktop')
+  await expect(group.locator('.group-machine')).toHaveText('linux-dev-02')
   const toggle = group.getByRole('button', { name: /^展开工作区/ })
   const plus = group.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true })
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -3395,22 +3434,19 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   delete missingMachine.metadata!.machineId
   server.sessions.set(missingMachine.id, missingMachine)
   await page.reload()
-  const history = page.getByTestId('sessions-history')
-  const group = history
-    .locator('.session-group')
-    .filter({ has: page.getByTestId('session-offline-workspace') })
+  const group = page.locator('.session-group').filter({ has: page.getByTestId('session-offline-workspace') })
   const plus = group.getByRole('button', { name: /在此目录新建会话/ })
   const copy = group.getByRole('button', { name: /复制路径/ })
   await expect(plus).toBeDisabled()
   await expect(copy).toBeEnabled()
   await expect(
-    history
+    page
       .locator('.session-group')
       .filter({ has: page.getByTestId('session-unknown-workspace') })
       .locator('.workspace-group-actions'),
   ).toHaveCount(0)
   await expect(
-    history
+    page
       .locator('.session-group')
       .filter({ has: page.getByTestId('session-missing-machine') })
       .getByRole('button', { name: /在此目录新建会话/ }),
@@ -3463,6 +3499,124 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
       .filter({ has: page.getByTestId('session-design') })
       .getByRole('button', { name: /在此目录新建会话/ }),
   ).toBeEnabled()
+  expect(errors).toEqual([])
+})
+
+test('middle click closes inactive, active and other-pane tabs while preserving drafts and focus', async () => {
+  await page.getByTestId('session-design').click()
+  const draft = '中键关闭后保留的草稿\n第二行'
+  const designInput = page.getByTestId('chat-design').locator('.composer textarea')
+  await designInput.fill(draft)
+  await page.getByTestId('session-review').click()
+  const firstPane = page.locator('.chat-pane').first()
+  const designTab = firstPane.getByRole('tab', { name: '桌面工作台 · 界面与交互' })
+  const reviewTab = firstPane.getByRole('tab', { name: '审查连接与恢复流程' })
+  await designTab.click({ button: 'middle' })
+  await expect(designTab).toHaveCount(0)
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await page.keyboard.press('Control+Shift+T')
+  await expect(designInput).toHaveValue(draft)
+  await expect(designTab).toHaveAttribute('aria-selected', 'true')
+  // The entire tab, including its close icon, accepts the middle button.
+  await designTab
+    .locator('..')
+    .getByRole('button', { name: '关闭标签页', exact: true })
+    .click({ button: 'middle' })
+  await expect(designTab).toHaveCount(0)
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('Control+Shift+T')
+  await expect(designInput).toHaveValue(draft)
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const secondPane = page.locator('.chat-pane').nth(1)
+  await secondPane.click()
+  await page.getByTestId('session-history').click()
+  await expect(secondPane).toHaveClass(/focused/)
+  await designTab.click({ button: 'middle' })
+  await expect(designTab).toHaveCount(0)
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await expect(secondPane).toHaveClass(/focused/)
+  await reviewTab.click({ button: 'middle' })
+  await expect(firstPane.getByRole('tab')).toHaveCount(0)
+  await expect(secondPane).toHaveClass(/focused/)
+  await expect(secondPane.getByTestId('chat-history')).toBeVisible()
+  await page.keyboard.press('Control+Shift+T')
+  await expect(reviewTab).toBeVisible()
+  await page.keyboard.press('Control+Shift+T')
+  await expect(designInput).toHaveValue(draft)
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'DELETE' || /\/(abort|archive)$/.test(request.path),
+    ),
+  ).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('closing other tabs keeps the context target and other pane, with bulk restore after reload', async () => {
+  await page.getByTestId('session-design').click()
+  const draft = '关闭其他标签后可恢复的草稿'
+  const designInput = page.getByTestId('chat-design').locator('.composer textarea')
+  await designInput.fill(draft)
+  for (const id of ['review', 'history']) await page.getByTestId(`session-${id}`).click()
+  const firstPane = page.locator('.chat-pane').first()
+  const originalOrder = await firstPane.getByRole('tab').allTextContents()
+  const reviewTab = firstPane.getByRole('tab', { name: '审查连接与恢复流程' })
+  const other = fixtureSession('other-pane', '另一栏会话', 'codex')
+  server.sessions.set(other.id, other)
+  server.messages.set(other.id, [])
+  server.emit({ type: 'session-added', sessionId: other.id, data: other })
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const secondPane = page.locator('.chat-pane').nth(1)
+  await secondPane.click()
+  await page.getByTestId('session-other-pane').click()
+  const otherInput = secondPane.locator('.composer textarea')
+  await otherInput.fill('另一栏的草稿')
+  // Establish the other pane's autosaved draft before exercising tab operations and reloading.
+  await expect
+    .poll(() =>
+      page.evaluate((id) => {
+        const key = Object.keys(localStorage).find(
+          (key) => key.startsWith('desktop:draft:') && key.endsWith(`:${id}`),
+        )
+        return key ? JSON.parse(localStorage.getItem(key)!).text : null
+      }, other.id),
+    )
+    .toBe('另一栏的草稿')
+  await reviewTab.click({ button: 'right' })
+  await expect(secondPane).toHaveClass(/focused/)
+  await expect(firstPane.getByTestId('chat-history')).toBeVisible()
+  await page.getByRole('menuitem', { name: '关闭其他标签页', exact: true }).click()
+  await expect(firstPane.getByRole('tab')).toHaveCount(1)
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await expect(secondPane).toHaveClass(/focused/)
+  await expect(otherInput).toHaveValue('另一栏的草稿')
+  await expect(otherInput).toBeFocused()
+  await page.reload()
+  await expect(firstPane.getByRole('tab')).toHaveCount(1)
+  await expect(otherInput).toHaveValue('另一栏的草稿')
+  await page.keyboard.press('Control+Shift+T')
+  await expect(designInput).toHaveValue(draft)
+  await page.keyboard.press('Control+Shift+T')
+  await expect(firstPane.getByRole('tab')).toHaveText(originalOrder)
+  const historyTab = firstPane.getByRole('tab', { name: 'OpenCode · 历史会话' })
+  await historyTab.click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '关闭其他标签页', exact: true }).click()
+  await expect(firstPane.getByRole('tab')).toHaveCount(1)
+  await expect(historyTab).toHaveAttribute('aria-selected', 'true')
+  await historyTab.focus()
+  await page.keyboard.press('Shift+F10')
+  await expect(page.getByRole('menuitem', { name: '关闭其他标签页', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await secondPane.getByRole('tab').click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: '关闭其他标签页', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(secondPane.getByRole('tab')).toHaveCount(1)
+  await expect(otherInput).toHaveValue('另一栏的草稿')
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'DELETE' || /\/(abort|archive)$/.test(request.path),
+    ),
+  ).toHaveLength(0)
   expect(errors).toEqual([])
 })
 

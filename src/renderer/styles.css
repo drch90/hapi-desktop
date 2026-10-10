@@ -340,13 +340,14 @@ input[type='checkbox'] {
   padding: 3px 10px 20px;
 }
 .session-group {
-  padding-top: 22px;
+  padding-top: 12px;
 }
+.group-name,
 .group-machine,
 .group-path {
   display: flex;
-  gap: 6px;
-  padding: 0 9px;
+  gap: 4px;
+  min-width: 0;
   font-size: calc(10px * var(--desk-font-scale));
   align-items: center;
   color: var(--desk-muted);
@@ -354,16 +355,20 @@ input[type='checkbox'] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.group-machine {
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+.group-name {
+  flex: 0 1 auto;
+  font-size: calc(12px * var(--desk-font-scale));
   font-weight: 600;
+  color: var(--app-fg);
+}
+.group-machine {
+  flex: 1;
+  min-width: 16px;
+  max-width: 40%;
 }
 .group-path {
-  margin: 6px 0 9px;
+  display: block;
   font-family: 'Cascadia Code', Consolas, monospace;
-  font-size: calc(10px * var(--desk-font-scale));
-  opacity: 0.8;
 }
 .session-row {
   display: flex;
@@ -780,15 +785,24 @@ input[type='checkbox'] {
   background: transparent;
 }
 .workspace-group-label {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.4;
   min-width: 0;
   flex: 1;
 }
-.workspace-group-label .group-machine,
-.workspace-group-label .group-path {
-  margin: 0;
+.workspace-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-.workspace-group-label .group-path > span {
+.workspace-group-title svg {
+  flex-shrink: 0;
+}
+.workspace-group-title span > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -805,6 +819,15 @@ input[type='checkbox'] {
   flex-shrink: 0;
   color: var(--desk-muted);
   font-size: calc(10px * var(--desk-font-scale));
+}
+.workspace-session-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 9px 9px 3px;
+  color: var(--desk-muted);
+  font-size: calc(10px * var(--desk-font-scale));
+  font-weight: 500;
 }
 .transcript {
   flex: 1;

@@ -1,6 +1,7 @@
 import type { SessionSummary } from '@hapi/protocol'
 import { buildSessionSearchScoreIndex, compareSessionsBySearchRelevance } from '@/lib/sessionListSearch'
 
+type SessionStatusSection = { key: string; title: string | null; sessions: SessionSummary[] }
 export type SessionGroup = [
   string,
   {
@@ -9,6 +10,7 @@ export type SessionGroup = [
     path: string
     hasDirectory: boolean
     sessions: SessionSummary[]
+    sections: SessionStatusSection[]
   },
 ]
 export type SessionSection = { key: string; title: string | null; groups: SessionGroup[] }
@@ -47,6 +49,22 @@ export function selectSessionList(options: {
       return !query || searchIndex.matchedIds.has(row.id)
     })
     .sort(compare)
+  const statusSections = (sessions: SessionSummary[]): SessionStatusSection[] =>
+    options.byStatus
+      ? [
+          {
+            key: 'thinking',
+            title: 'In progress',
+            sessions: sessions.filter((row) => row.active && row.thinking),
+          },
+          {
+            key: 'active',
+            title: 'Active sessions',
+            sessions: sessions.filter((row) => row.active && !row.thinking),
+          },
+          { key: 'history', title: 'History sessions', sessions: sessions.filter((row) => !row.active) },
+        ].filter((section) => section.sessions.length)
+      : [{ key: 'all', title: null, sessions }]
   const group = (sessions: SessionSummary[]): SessionGroup[] => {
     const groups = new Map<string, SessionGroup[1]>()
     for (const row of sessions) {
@@ -60,14 +78,38 @@ export function selectSessionList(options: {
           path,
           hasDirectory: path !== '—',
           sessions: [],
+          sections: [],
         })
       groups.get(key)!.sessions.push(row)
     }
-    return [...groups.entries()]
+    for (const workspace of groups.values()) {
+      workspace.sessions.sort(
+        (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || compare(a, b),
+      )
+      workspace.sections = statusSections(workspace.sessions)
+    }
+    // Active workspaces stay above older directories; text search keeps its relevance order.
+    return [...groups.entries()].sort(([, a], [, b]) =>
+      query ? 0 : Number(b.sessions.some((row) => row.active)) - Number(a.sessions.some((row) => row.active)),
+    )
   }
   const flat = (key: string, sessions: SessionSummary[]): SessionGroup[] =>
-    sessions.length ? [[key, { machine: '', machineId: null, path: '', hasDirectory: false, sessions }]] : []
-  const ordinary = rows.filter((row) => !row.globalPinned && !row.pinned)
+    sessions.length
+      ? [
+          [
+            key,
+            {
+              machine: '',
+              machineId: null,
+              path: '',
+              hasDirectory: false,
+              sessions,
+              sections: [{ key: 'all', title: null, sessions }],
+            },
+          ],
+        ]
+      : []
+  const workspaces = group(rows.filter((row) => !row.globalPinned))
   const sections: SessionSection[] = [
     {
       key: 'global-pinned',
@@ -80,38 +122,13 @@ export function selectSessionList(options: {
     {
       key: 'project-pinned',
       title: 'Project pins',
-      groups: group(rows.filter((row) => row.pinned && !row.globalPinned)),
+      groups: workspaces.filter(([, workspace]) => workspace.sessions.some((row) => row.pinned)),
+    },
+    {
+      key: 'all',
+      title: null,
+      groups: workspaces.filter(([, workspace]) => !workspace.sessions.some((row) => row.pinned)),
     },
   ]
-  if (!options.byStatus) sections.push({ key: 'all', title: null, groups: group(ordinary) })
-  else {
-    const historyGroups = group(ordinary.filter((row) => !row.active))
-    const visibleWorkspaces = new Set([...sections[1].groups, ...historyGroups].map(([key]) => key))
-    // Keep directory actions available when all its rows move into status sections,
-    // as the Web list does. Empty sessions prevent duplicating those rows.
-    const workspaceHeaders = group(ordinary.filter((row) => row.active))
-      .filter(([key, workspace]) => workspace.hasDirectory && !visibleWorkspaces.has(key))
-      .map(([key, workspace]): SessionGroup => [key, { ...workspace, sessions: [] }])
-    sections.push(
-      {
-        key: 'thinking',
-        title: 'In progress',
-        groups: flat(
-          'thinking',
-          ordinary.filter((row) => row.active && row.thinking),
-        ),
-      },
-      {
-        key: 'active',
-        title: 'Active sessions',
-        groups: flat(
-          'active',
-          ordinary.filter((row) => row.active && !row.thinking),
-        ),
-      },
-      { key: 'history', title: 'History sessions', groups: historyGroups },
-      { key: 'workspaces', title: null, groups: workspaceHeaders },
-    )
-  }
   return sections.filter((section) => section.groups.length)
 }

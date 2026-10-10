@@ -45,7 +45,7 @@ export type WorkspaceAction =
   | { type: 'open'; id: string; pane?: PaneId }
   | { type: 'close'; id: string }
   | { type: 'remove'; id: string }
-  | { type: 'close-tabs'; pane: PaneId; id: string; range: 'left' | 'right' | 'all' }
+  | { type: 'close-tabs'; pane: PaneId; id: string; range: 'left' | 'right' | 'all' | 'others' }
   | { type: 'restore'; available: string[] }
   | { type: 'place'; id: string; pane: PaneId; index: number }
   | { type: 'sidebar-width'; width: number }
@@ -88,7 +88,13 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
     const index = tabs.indexOf(action.id)
     if (index < 0) return state
     const ids =
-      action.range === 'all' ? tabs : action.range === 'left' ? tabs.slice(0, index) : tabs.slice(index + 1)
+      action.range === 'all'
+        ? tabs
+        : action.range === 'others'
+          ? tabs.filter((id) => id !== action.id)
+          : action.range === 'left'
+            ? tabs.slice(0, index)
+            : tabs.slice(index + 1)
     // Close right to left so every saved index still describes the original position.
     return [...ids].reverse().reduce((next, id) => reduceWorkspace(next, { type: 'close', id }), state)
   }

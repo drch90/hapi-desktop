@@ -38,6 +38,29 @@ describe('tab management', () => {
     expect(state.panes[0].tabs).toEqual(['a', 'b', 'c', 'd'])
     expect(state.closedTabs).toEqual([])
   })
+  it('keeps the target when closing other tabs and restores both sides in order', () => {
+    const original = workspace()
+    let state = reduceWorkspace(original, { type: 'close-tabs', pane: 0, id: 'b', range: 'others' })
+    expect(state.panes[0]).toEqual({ tabs: ['b'], active: 'b' })
+    expect(state.panes[1]).toEqual(original.panes[1])
+    expect(state.focused).toBe(1)
+    expect(state.closedTabs.map((item) => [item.id, item.index])).toEqual([
+      ['d', 3],
+      ['c', 2],
+      ['a', 0],
+    ])
+    expect(reduceWorkspace(state, { type: 'close-tabs', pane: 0, id: 'b', range: 'others' })).toEqual(state)
+    expect(reduceWorkspace(state, { type: 'close-tabs', pane: 0, id: 'missing', range: 'others' })).toBe(
+      state,
+    )
+    for (let i = 0; i < 3; i++)
+      state = reduceWorkspace(state, { type: 'restore', available: ['a', 'b', 'c', 'd'] })
+    expect(state.panes[0].tabs).toEqual(original.panes[0].tabs)
+    expect(state.closedTabs).toEqual([])
+    const activeTarget = reduceWorkspace(original, { type: 'close-tabs', pane: 0, id: 'd', range: 'others' })
+    expect(activeTarget.panes[0]).toEqual({ tabs: ['d'], active: 'd' })
+    expect(activeTarget.panes[1]).toEqual(original.panes[1])
+  })
   it('keeps same-pane active identity while reordering and activates cross-pane drops', () => {
     let state = reduceWorkspace(workspace(), { type: 'place', id: 'a', pane: 0, index: 2 })
     expect(state.panes[0]).toEqual({ tabs: ['b', 'c', 'a', 'd'], active: 'd' })
@@ -103,58 +126,69 @@ describe('session lenses', () => {
   }
   it('separates global and project pins without duplicate rows', () => {
     const sections = selectSessionList(options)
-    expect(sections.map((section) => section.key)).toEqual(['global-pinned', 'project-pinned', 'history'])
+    expect(sections.map((section) => section.key)).toEqual(['global-pinned', 'project-pinned'])
+    expect(sections[1].groups[0][1].sessions).toEqual([b, c])
     expect(sections.flatMap((section) => section.groups.flatMap(([, group]) => group.sessions))).toHaveLength(
       3,
     )
   })
-  it('retains workspace actions when all rows move into status sections without duplicating sessions', () => {
+  it('keeps running, idle and historical sessions inside one workspace with status subsections', () => {
     const running = { ...a, globalPinned: false, thinking: true }
     const idle = { ...b, pinned: false }
-    const sessions = [running, idle]
+    const sessions = [running, idle, c]
     const sections = selectSessionList({ ...options, sessions })
-    const headers = sections.find((section) => section.key === 'workspaces')!.groups
-    expect(headers).toHaveLength(1)
-    expect(headers[0][1]).toMatchObject({
+    expect(sections.map((section) => section.key)).toEqual(['all'])
+    const groups = sections[0].groups
+    expect(groups).toHaveLength(1)
+    expect(groups[0][1]).toMatchObject({
       machineId: 'linux-1',
       path: running.metadata!.path,
       hasDirectory: true,
-      sessions: [],
+      sessions: [c, idle, running],
+      sections: [
+        { key: 'thinking', sessions: [running] },
+        { key: 'active', sessions: [idle] },
+        { key: 'history', sessions: [c] },
+      ],
     })
-    expect(sections.flatMap((section) => section.groups.flatMap(([, group]) => group.sessions))).toEqual([
-      running,
+    expect(selectSessionList({ ...options, sessions: [running, idle] })[0].groups[0][1].sessions).toEqual([
       idle,
+      running,
     ])
-    // Existing history and project-pin headers already expose the same directory.
-    for (const rows of [
-      [...sessions, c],
-      [running, b],
-    ]) {
-      expect(
-        selectSessionList({ ...options, sessions: rows }).some((section) => section.key === 'workspaces'),
-      ).toBe(false)
-    }
-    expect(
-      selectSessionList({ ...options, sessions, byStatus: false }).map((section) => section.key),
-    ).toEqual(['all'])
+    expect(selectSessionList({ ...options, sessions, byStatus: false })[0].groups[0][1].sections).toEqual([
+      { key: 'all', title: null, sessions: [c, idle, running] },
+    ])
     expect(selectSessionList({ ...options, sessions: [a] }).map((section) => section.key)).toEqual([
       'global-pinned',
     ])
   })
-  it('uses the same machine, search, status and unread filters for retained directory headers', () => {
+  it('keeps identical paths on separate machines and applies search, status and unread filters', () => {
     const running = { ...a, globalPinned: false }
     const other = { ...b, pinned: false, metadata: { ...b.metadata!, machineId: 'linux-2' } }
     const base = { ...options, sessions: [running, other] }
     const headers = (overrides: Partial<typeof options> = {}) =>
-      selectSessionList({ ...base, ...overrides })
-        .find((section) => section.key === 'workspaces')
-        ?.groups.map(([, group]) => group.machineId) ?? []
+      selectSessionList({ ...base, ...overrides }).flatMap((section) =>
+        section.groups.map(([, group]) => group.machineId),
+      )
     expect(headers()).toEqual(['linux-2', 'linux-1'])
     expect(headers({ machine: 'linux-1' })).toEqual(['linux-1'])
     expect(headers({ search: 'API review' })).toEqual(['linux-1'])
     expect(headers({ unreadOnly: true, lastSeen: { 'alice:a': running.updatedAt } })).toEqual(['linux-2'])
     expect(headers({ status: 'History' })).toEqual([])
     expect(headers({ search: 'missing-workspace' })).toEqual([])
+  })
+  it('places active workspaces before newer history while preserving search relevance', () => {
+    const running = { ...a, globalPinned: false }
+    const history = { ...c, metadata: { ...c.metadata!, path: '/home/dev/archived-project' } }
+    const base = { ...options, sessions: [history, running] }
+    expect(selectSessionList(base)[0].groups.map(([, group]) => group.path)).toEqual([
+      running.metadata!.path,
+      history.metadata.path,
+    ])
+    expect(selectSessionList({ ...base, search: 'API' })[0].groups.map(([, group]) => group.path)).toEqual([
+      history.metadata.path,
+      running.metadata!.path,
+    ])
   })
   it('matches multiple words across fields and combines machine/status/unread lenses', () => {
     const sections = selectSessionList({

@@ -22,10 +22,21 @@ export function Tabs(props: {
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const trigger = useRef<HTMLButtonElement | null>(null)
-  const closeMenu = () => {
+  const previousFocus = useRef<HTMLElement | null>(null)
+  const closeMenu = (focusActivePane = false) => {
+    const menuElement = menuRef.current
     setMenu(null)
     requestAnimationFrame(() => {
-      if (trigger.current?.isConnected) trigger.current.focus()
+      if (focusActivePane) {
+        document.querySelector<HTMLElement>('.chat-pane.focused .tabs [aria-selected="true"]')?.focus()
+        return
+      }
+      // Let an outside click keep its new focus; otherwise return to the original control.
+      const focused = document.activeElement
+      if (focused && focused !== document.body && !menuElement?.contains(focused)) return
+      if (previousFocus.current?.isConnected && previousFocus.current !== document.body)
+        previousFocus.current.focus()
+      else if (trigger.current?.isConnected) trigger.current.focus()
       else (bar.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]') ?? bar.current)?.focus()
     })
   }
@@ -35,6 +46,10 @@ export function Tabs(props: {
     anchorPoint: menu ?? { x: 0, y: 0 },
     align: 'start',
   })
+  const rememberFocus = () => {
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && !menuRef.current?.contains(focused)) previousFocus.current = focused
+  }
   useEffect(() => {
     if (!props.dragging) setDropIndex(null)
   }, [props.dragging])
@@ -47,9 +62,14 @@ export function Tabs(props: {
     if (menu && !tabs.includes(menu.id)) setMenu(null)
   }, [tabs.join('|'), menu])
   const index = menu ? tabs.indexOf(menu.id) : -1
-  const items: { label: string; disabled?: boolean; run: () => void }[] = menu
+  const items: { label: string; disabled?: boolean; focusActivePane?: boolean; run: () => void }[] = menu
     ? [
         { label: 'Close tab', run: () => dispatch({ type: 'close', id: menu.id }) },
+        {
+          label: 'Close other tabs',
+          disabled: tabs.length < 2,
+          run: () => dispatch({ type: 'close-tabs', pane, id: menu.id, range: 'others' }),
+        },
         {
           label: 'Close tabs to the right',
           disabled: index === tabs.length - 1,
@@ -67,6 +87,7 @@ export function Tabs(props: {
         {
           label: 'Reopen closed tab',
           disabled: !workspace.closedTabs.some((record) => byId.has(record.id)),
+          focusActivePane: true,
           run: () => dispatch({ type: 'restore', available: [...byId.keys()] }),
         },
         {
@@ -81,6 +102,7 @@ export function Tabs(props: {
         },
         {
           label: 'Move to other pane',
+          focusActivePane: true,
           run: () => dispatch({ type: 'move', id: menu.id, pane: pane === 0 ? 1 : 0 }),
         },
       ]
@@ -94,7 +116,9 @@ export function Tabs(props: {
         aria-label={t('Session tabs')}
         ref={bar}
         onPointerDown={(event) => {
-          if (event.button !== 0) event.stopPropagation()
+          if (event.button === 0) return
+          event.preventDefault()
+          event.stopPropagation()
         }}
         onDragOver={(event) => {
           if (!props.dragging) return
@@ -132,6 +156,12 @@ export function Tabs(props: {
             className={`tab ${active === id ? 'active' : ''} ${dropIndex === tabIndex ? 'drop-before' : ''}`}
             key={id}
             draggable
+            onAuxClick={(event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              event.stopPropagation()
+              dispatch({ type: 'close', id })
+            }}
             onDragStart={(event) => {
               event.dataTransfer.setData('application/x-hapi-tab', id)
               event.dataTransfer.effectAllowed = 'move'
@@ -142,6 +172,7 @@ export function Tabs(props: {
             onContextMenu={(event) => {
               event.preventDefault()
               event.stopPropagation()
+              rememberFocus()
               trigger.current = event.currentTarget.querySelector('[role="tab"]')
               setMenu({ id, x: event.clientX, y: event.clientY })
             }}
@@ -154,6 +185,7 @@ export function Tabs(props: {
               onKeyDown={(event) => {
                 if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
                   event.preventDefault()
+                  rememberFocus()
                   trigger.current = event.currentTarget
                   const rect = event.currentTarget.getBoundingClientRect()
                   setMenu({ id, x: rect.left, y: rect.bottom })
@@ -191,6 +223,7 @@ export function Tabs(props: {
             aria-label={t('Session tabs')}
             ref={menuRef}
             style={menuStyle}
+            onPointerDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
               if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
               event.preventDefault()
@@ -214,7 +247,7 @@ export function Tabs(props: {
                 disabled={item.disabled}
                 onClick={() => {
                   item.run()
-                  closeMenu()
+                  closeMenu(item.focusActivePane)
                 }}
               >
                 {t(item.label)}

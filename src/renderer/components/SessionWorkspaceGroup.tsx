@@ -3,16 +3,16 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Copy, Folder, Plus, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { basename } from '@/utils/path'
 
 export function SessionWorkspaceGroup(props: {
   machine: string
   path: string
-  count?: number
+  count: number
   collapsed: boolean
   collapsible: boolean
   showHeading: boolean
   filtering: boolean
-  historyOnly: boolean
   hasDirectory: boolean
   canCreate: boolean
   onNewSession: () => void
@@ -25,15 +25,18 @@ export function SessionWorkspaceGroup(props: {
   const [copyFailed, setCopyFailed] = useState(false)
   const heading = (
     <span className="workspace-group-label">
-      {!props.historyOnly && (
-        <span className="group-machine">
-          <Server size={12} />
-          {props.machine}
+      <span className="workspace-group-title">
+        <span className="group-name" title={props.path}>
+          <Folder size={13} />
+          <span>{basename(props.path)}</span>
         </span>
-      )}
+        <span className="group-machine" title={props.machine}>
+          <Server size={12} />
+          <span>{props.machine}</span>
+        </span>
+      </span>
       <span className="group-path" title={props.path}>
-        <Folder size={12} />
-        <span>{props.path}</span>
+        {props.path}
       </span>
     </span>
   )
@@ -45,7 +48,7 @@ export function SessionWorkspaceGroup(props: {
             <Button
               variant="secondary"
               className="workspace-group-toggle"
-              aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.historyOnly ? '' : props.machine + ' '}${props.path}`}
+              aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.machine} ${props.path}`}
               aria-expanded={!props.collapsed}
               aria-controls={id}
               disabled={props.filtering}
@@ -86,7 +89,7 @@ export function SessionWorkspaceGroup(props: {
               </Button>
             </div>
           )}
-          {props.count !== undefined && <span className="workspace-group-count">{props.count}</span>}
+          <span className="workspace-group-count">{props.count}</span>
         </div>
       )}
       {copyFailed && (

@@ -736,111 +736,123 @@ function Workbench({
                     if (group.machineId && group.hasDirectory)
                       setNewSession({ machineId: group.machineId, directory: group.path })
                   }}
-                  count={group.sessions.length || undefined}
+                  count={group.sessions.length}
                   filtering={Boolean(search.trim())}
-                  historyOnly={section.key !== 'workspaces' && group.sessions.every((row) => !row.active)}
-                  showHeading={
-                    section.key === 'history' ||
-                    section.key === 'all' ||
-                    section.key === 'project-pinned' ||
-                    section.key === 'workspaces'
-                  }
-                  collapsible={
-                    (section.key === 'history' || section.key === 'all') &&
-                    group.sessions.every((row) => !row.active)
-                  }
+                  showHeading={section.key !== 'global-pinned'}
+                  collapsible={section.key !== 'global-pinned'}
                   collapsed={
-                    (section.key === 'history' || section.key === 'all') &&
+                    section.key !== 'global-pinned' &&
                     !search.trim() &&
-                    group.sessions.every((row) => !row.active) &&
-                    isHistoryGroupCollapsed(workspace, key, bootstrap.settings.collapseHistoryByDefault)
+                    isHistoryGroupCollapsed(
+                      workspace,
+                      key,
+                      bootstrap.settings.collapseHistoryByDefault &&
+                        section.key !== 'project-pinned' &&
+                        group.sessions.every((row) => !row.active),
+                    )
                   }
                   onToggle={() =>
                     dispatch({
                       type: 'toggle-history-group',
                       key,
-                      defaultCollapsed: bootstrap.settings.collapseHistoryByDefault,
+                      defaultCollapsed:
+                        bootstrap.settings.collapseHistoryByDefault &&
+                        section.key !== 'project-pinned' &&
+                        group.sessions.every((row) => !row.active),
                     })
                   }
                 >
-                  {group.sessions.map((row) => {
-                    const unread =
-                      readStateReady &&
-                      classifySessionAttention(row, {
-                        selected: visibleIds.includes(row.id),
-                        manualUnreadAt: getSessionManualUnreadAt(`${scope}:${row.id}`),
-                        lastSeenAt: lastSeen[`${scope}:${row.id}`] ?? 0,
-                      })?.kind === 'unread'
-                    const status = !row.active
-                      ? 'history'
-                      : row.pendingRequestsCount
-                        ? 'pending'
-                        : row.thinking
-                          ? 'thinking'
-                          : row.backgroundTaskCount
-                            ? 'background'
-                            : 'ready'
-                    return (
-                      <button
-                        key={row.id}
-                        data-testid={`session-${row.id}`}
-                        data-status={status}
-                        className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
-                        onClick={() => dispatch({ type: 'open', id: row.id })}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                            event.preventDefault()
-                            const rect = event.currentTarget.getBoundingClientRect()
-                            setSessionMenu({ id: row.id, point: { x: rect.left + 20, y: rect.bottom } })
-                          }
-                        }}
-                      >
-                        {status === 'ready' ? (
-                          <CheckCircle2 size={14} className="session-ready-icon" aria-hidden="true" />
-                        ) : (
-                          <span
-                            className={`status-dot ${row.pendingRequestsCount ? 'pending' : row.thinking ? 'thinking' : row.active ? 'online' : ''}`}
-                          />
-                        )}
-                        <span className="session-copy">
-                          <span>
-                            {(row.pinned || row.globalPinned) && (
-                              <Pin
-                                size={12}
-                                className="session-pin"
-                                aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
+                  {group.sections.map((statusSection) => (
+                    <div
+                      key={statusSection.key}
+                      className="workspace-session-section"
+                      data-testid={statusSection.title ? `sessions-${statusSection.key}` : undefined}
+                    >
+                      {statusSection.title && (
+                        <h3 className="workspace-session-status">
+                          {t(statusSection.title)} <span>{statusSection.sessions.length}</span>
+                        </h3>
+                      )}
+                      {statusSection.sessions.map((row) => {
+                        const unread =
+                          readStateReady &&
+                          classifySessionAttention(row, {
+                            selected: visibleIds.includes(row.id),
+                            manualUnreadAt: getSessionManualUnreadAt(`${scope}:${row.id}`),
+                            lastSeenAt: lastSeen[`${scope}:${row.id}`] ?? 0,
+                          })?.kind === 'unread'
+                        const status = !row.active
+                          ? 'history'
+                          : row.pendingRequestsCount
+                            ? 'pending'
+                            : row.thinking
+                              ? 'thinking'
+                              : row.backgroundTaskCount
+                                ? 'background'
+                                : 'ready'
+                        return (
+                          <button
+                            key={row.id}
+                            data-testid={`session-${row.id}`}
+                            data-status={status}
+                            className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
+                            onClick={() => dispatch({ type: 'open', id: row.id })}
+                            onContextMenu={(event) => {
+                              event.preventDefault()
+                              setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                                event.preventDefault()
+                                const rect = event.currentTarget.getBoundingClientRect()
+                                setSessionMenu({ id: row.id, point: { x: rect.left + 20, y: rect.bottom } })
+                              }
+                            }}
+                          >
+                            {status === 'ready' ? (
+                              <CheckCircle2 size={14} className="session-ready-icon" aria-hidden="true" />
+                            ) : (
+                              <span
+                                className={`status-dot ${row.pendingRequestsCount ? 'pending' : row.thinking ? 'thinking' : row.active ? 'online' : ''}`}
                               />
                             )}
-                            {sessionTitle(row)}
-                          </span>
-                          <small>
-                            {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
-                            <strong className="session-status">
-                              {t(
-                                status === 'pending'
-                                  ? 'Pending'
-                                  : status === 'thinking'
-                                    ? 'Thinking'
-                                    : status === 'ready'
-                                      ? 'Ready'
-                                      : status === 'background'
-                                        ? 'Running in background'
-                                        : 'History',
-                              )}
-                            </strong>
-                          </small>
-                        </span>
-                        {row.pendingRequestsCount > 0 && (
-                          <span className="count">{row.pendingRequestsCount}</span>
-                        )}
-                        {unread && <Badge className="session-unread-badge">{t('New activity')}</Badge>}
-                      </button>
-                    )
-                  })}
+                            <span className="session-copy">
+                              <span>
+                                {(row.pinned || row.globalPinned) && (
+                                  <Pin
+                                    size={12}
+                                    className="session-pin"
+                                    aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
+                                  />
+                                )}
+                                {sessionTitle(row)}
+                              </span>
+                              <small>
+                                {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
+                                <strong className="session-status">
+                                  {t(
+                                    status === 'pending'
+                                      ? 'Pending'
+                                      : status === 'thinking'
+                                        ? 'Thinking'
+                                        : status === 'ready'
+                                          ? 'Ready'
+                                          : status === 'background'
+                                            ? 'Running in background'
+                                            : 'History',
+                                  )}
+                                </strong>
+                              </small>
+                            </span>
+                            {row.pendingRequestsCount > 0 && (
+                              <span className="count">{row.pendingRequestsCount}</span>
+                            )}
+                            {unread && <Badge className="session-unread-badge">{t('New activity')}</Badge>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))}
                 </SessionWorkspaceGroup>
               ))}
             </section>
@@ -923,7 +935,10 @@ function Workbench({
                   )}
                   <section
                     className={`chat-pane ${workspace.focused === pane ? 'focused' : ''}`}
-                    onFocusCapture={() => dispatch({ type: 'focus', pane })}
+                    onFocusCapture={(event) => {
+                      // Portaled menus belong to this React tree, but are outside the pane.
+                      if (event.currentTarget.contains(event.target)) dispatch({ type: 'focus', pane })
+                    }}
                     onPointerDown={() => {
                       if (workspace.focused !== pane) dispatch({ type: 'focus', pane })
                     }}
