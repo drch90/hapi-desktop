@@ -503,7 +503,7 @@ index 7d36478..175c3bf 100644
          } catch {
              haptic.notification('error')
 diff --git a/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx b/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
-index 80e7165..44795e8 100644
+index 80e7165..0498b44 100644
 --- a/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
 +++ b/vendor/hapi/web/src/components/SessionFiles/DirectoryTree.tsx
 @@ -1,4 +1,4 @@
@@ -549,23 +549,49 @@ index 80e7165..44795e8 100644
          </div>
      )
  }
-@@ -146,6 +149,7 @@ function DirectoryNode(props: {
+@@ -146,6 +149,8 @@ function DirectoryNode(props: {
      depth: number
      onOpenFile: (path: string) => void
      onRequestFileMenu?: FileMenuRequestHandler
++    onRequestDirectoryMenu?: FileMenuRequestHandler
 +    renderDownload?: (path: string, fileName: string) => ReactNode
      expanded: Set<string>
      onToggle: (path: string) => void
      sort: DirectorySort
-@@ -224,6 +228,7 @@ function DirectoryNode(props: {
+@@ -154,6 +159,12 @@ function DirectoryNode(props: {
+     const toast = useToast()
+     const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
+     const isExpanded = props.expanded.has(props.path)
++    const rowHandlers = useFileMenuTrigger({
++        onOpen: () => props.onToggle(props.path),
++        onOpenMenu: props.onRequestDirectoryMenu
++            ? (point) => props.onRequestDirectoryMenu!(props.path, point)
++            : undefined,
++    })
+     const { entries, error, isLoading } = useSessionDirectory(props.api, props.sessionId, props.path, {
+         enabled: isExpanded
+     })
+@@ -194,7 +205,9 @@ function DirectoryNode(props: {
+         <div>
+             <button
+                 type="button"
+-                onClick={() => props.onToggle(props.path)}
++                {...rowHandlers}
++                aria-expanded={isExpanded}
++                aria-haspopup={props.onRequestDirectoryMenu ? 'menu' : undefined}
+                 className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-[var(--app-subtle-bg)] transition-colors"
+                 style={{ paddingLeft: indent }}
+             >
+@@ -224,6 +237,8 @@ function DirectoryNode(props: {
                                      depth={childDepth}
                                      onOpenFile={props.onOpenFile}
                                      onRequestFileMenu={props.onRequestFileMenu}
++                                    onRequestDirectoryMenu={props.onRequestDirectoryMenu}
 +                                    renderDownload={props.renderDownload}
                                      expanded={props.expanded}
                                      onToggle={props.onToggle}
                                      sort={props.sort}
-@@ -245,6 +250,7 @@ function DirectoryNode(props: {
+@@ -245,6 +260,7 @@ function DirectoryNode(props: {
                                      downloadDisabled={Boolean(downloadingPath)}
                                      onOpen={() => props.onOpenFile(filePath)}
                                      onDownload={() => void handleDownload(filePath, entry.name)}
@@ -573,10 +599,11 @@ index 80e7165..44795e8 100644
                                      onOpenMenu={props.onRequestFileMenu
                                          ? (point) => props.onRequestFileMenu!(filePath, point)
                                          : undefined}
-@@ -296,13 +302,16 @@ export function DirectoryTree(props: {
+@@ -296,13 +312,17 @@ export function DirectoryTree(props: {
      rootLabel: string
      onOpenFile: (path: string) => void
      onRequestFileMenu?: FileMenuRequestHandler
++    onRequestDirectoryMenu?: FileMenuRequestHandler
 +    renderDownload?: (path: string, fileName: string) => ReactNode
 +    storageKey?: string
      sort: DirectorySort
@@ -593,10 +620,11 @@ index 80e7165..44795e8 100644
  
      const handleToggle = useCallback((path: string) => {
          setExpanded((prev) => {
-@@ -326,6 +335,7 @@ export function DirectoryTree(props: {
+@@ -326,6 +346,8 @@ export function DirectoryTree(props: {
                  depth={0}
                  onOpenFile={props.onOpenFile}
                  onRequestFileMenu={props.onRequestFileMenu}
++                onRequestDirectoryMenu={props.onRequestDirectoryMenu}
 +                renderDownload={props.renderDownload}
                  expanded={expanded}
                  onToggle={handleToggle}

@@ -736,20 +736,21 @@ function Workbench({
                     if (group.machineId && group.hasDirectory)
                       setNewSession({ machineId: group.machineId, directory: group.path })
                   }}
-                  count={group.sessions.length}
+                  count={group.sessions.length || undefined}
                   filtering={Boolean(search.trim())}
-                  historyOnly={group.sessions.every((row) => !row.active)}
+                  historyOnly={section.key !== 'workspaces' && group.sessions.every((row) => !row.active)}
                   showHeading={
-                    section.key === 'history' || section.key === 'all' || section.key === 'project-pinned'
+                    section.key === 'history' ||
+                    section.key === 'all' ||
+                    section.key === 'project-pinned' ||
+                    section.key === 'workspaces'
                   }
                   collapsible={
-                    section.key !== 'global-pinned' &&
-                    section.key !== 'project-pinned' &&
+                    (section.key === 'history' || section.key === 'all') &&
                     group.sessions.every((row) => !row.active)
                   }
                   collapsed={
-                    section.key !== 'global-pinned' &&
-                    section.key !== 'project-pinned' &&
+                    (section.key === 'history' || section.key === 'all') &&
                     !search.trim() &&
                     group.sessions.every((row) => !row.active) &&
                     isHistoryGroupCollapsed(workspace, key, bootstrap.settings.collapseHistoryByDefault)

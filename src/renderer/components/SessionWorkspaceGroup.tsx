@@ -7,7 +7,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 export function SessionWorkspaceGroup(props: {
   machine: string
   path: string
-  count: number
+  count?: number
   collapsed: boolean
   collapsible: boolean
   showHeading: boolean
@@ -86,7 +86,7 @@ export function SessionWorkspaceGroup(props: {
               </Button>
             </div>
           )}
-          <span className="workspace-group-count">{props.count}</span>
+          {props.count !== undefined && <span className="workspace-group-count">{props.count}</span>}
         </div>
       )}
       {copyFailed && (

@@ -194,6 +194,7 @@ export function FilePanel(props: {
                 sort={sort}
                 onOpenFile={(path) => setSelected({ path })}
                 onRequestFileMenu={(path, point) => setMenu({ path, point })}
+                onRequestDirectoryMenu={(path, point) => setMenu({ path, point })}
                 renderDownload={(path, fileName) => (
                   <SaveFileButton
                     compact
@@ -250,11 +251,11 @@ export function FilePanel(props: {
       <FileActionMenu
         isOpen={menu !== null}
         onClose={() => setMenu(null)}
-        relativePath={menu?.path ?? ''}
+        relativePath={menu?.path || '.'}
         absolutePath={resolveAbsoluteFilePath(props.workspacePath, menu?.path ?? '')}
         anchorPoint={menu?.point ?? { x: 0, y: 0 }}
         onAddToComposer={() => {
-          if (menu) props.onAddToComposer(menu.path)
+          if (menu) props.onAddToComposer(menu.path || '.')
         }}
       />
     </aside>

@@ -84,7 +84,14 @@ export function selectSessionList(options: {
     },
   ]
   if (!options.byStatus) sections.push({ key: 'all', title: null, groups: group(ordinary) })
-  else
+  else {
+    const historyGroups = group(ordinary.filter((row) => !row.active))
+    const visibleWorkspaces = new Set([...sections[1].groups, ...historyGroups].map(([key]) => key))
+    // Keep directory actions available when all its rows move into status sections,
+    // as the Web list does. Empty sessions prevent duplicating those rows.
+    const workspaceHeaders = group(ordinary.filter((row) => row.active))
+      .filter(([key, workspace]) => workspace.hasDirectory && !visibleWorkspaces.has(key))
+      .map(([key, workspace]): SessionGroup => [key, { ...workspace, sessions: [] }])
     sections.push(
       {
         key: 'thinking',
@@ -102,7 +109,9 @@ export function selectSessionList(options: {
           ordinary.filter((row) => row.active && !row.thinking),
         ),
       },
-      { key: 'history', title: 'History sessions', groups: group(ordinary.filter((row) => !row.active)) },
+      { key: 'history', title: 'History sessions', groups: historyGroups },
+      { key: 'workspaces', title: null, groups: workspaceHeaders },
     )
+  }
   return sections.filter((section) => section.groups.length)
 }

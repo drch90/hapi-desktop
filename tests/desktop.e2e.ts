@@ -303,6 +303,64 @@ test('file sidebar shares web search, tree, sorting, menus, previews and partial
   expect(errors).toEqual([])
 })
 
+for (const [platform, workspacePath, absoluteDirectory] of [
+  ['POSIX', '/home/dev/project', '/home/dev/project/文档 files/nested'],
+  ['Windows', 'D:\\工作目录\\project', 'D:\\工作目录\\project\\文档 files\\nested'],
+]) {
+  test(`folder menus copy paths and add root and nested directories to the draft (${platform})`, async () => {
+    server.sessions.get('design')!.metadata!.path = workspacePath
+    server.directoryEntries.set('', [{ name: '文档 files', type: 'directory' }])
+    server.directoryEntries.set('文档 files', [{ name: 'nested', type: 'directory' }])
+    server.directoryEntries.set('文档 files/nested', [{ name: 'guide.md', type: 'file' }])
+    await page.reload()
+    await page.getByTestId('session-design').click()
+    const input = page.getByTestId('chat-design').getByRole('textbox', { name: '发送消息…' })
+    await input.fill('原有草稿\n第二行')
+    await page.getByRole('button', { name: '文件', exact: true }).click()
+    const panel = page.locator('.file-panel')
+    const root = panel.locator('.file-list button[aria-expanded]').first()
+    const directory = panel.getByRole('button', { name: '文档 files', exact: true })
+    await directory.click({ button: 'right' })
+    await expect(directory).toHaveAttribute('aria-expanded', 'false')
+    await page.getByRole('menuitem', { name: '复制路径', exact: true }).click()
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('文档 files')
+    await root.focus()
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click()
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(workspacePath)
+    await expect(root).toHaveAttribute('aria-expanded', 'true')
+    await root.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '复制路径', exact: true }).click()
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('.')
+    await root.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '添加到对话框', exact: true }).click()
+    await expect(input).toHaveValue('原有草稿\n第二行\n`.`')
+    await expect(input).toBeFocused()
+    await directory.click()
+    const nested = panel.getByRole('button', { name: 'nested', exact: true })
+    await nested.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click()
+    await expect
+      .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(absoluteDirectory)
+    await expect(nested).toHaveAttribute('aria-expanded', 'false')
+    await nested.focus()
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: '添加到对话框', exact: true }).click()
+    await expect(input).toHaveValue('原有草稿\n第二行\n`.`\n`文档 files/nested`')
+    await expect(input).toBeFocused()
+    await expect(panel.locator('.file-preview')).toHaveCount(0)
+    await page.reload()
+    await expect(input).toHaveValue('原有草稿\n第二行\n`.`\n`文档 files/nested`')
+    await expect(directory).toHaveAttribute('aria-expanded', 'true')
+    await expect(nested).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+    ).toHaveLength(0)
+    expect(errors).toEqual([])
+  })
+}
+
 test('session context menu copies web references and confirms archive and deletion without opening the target', async () => {
   await page.getByTestId('session-design').click()
   await page.getByTestId('session-review').click({ button: 'right' })
@@ -3207,6 +3265,55 @@ test('Markdown embedded code stays inert and external diagram images are blocked
     })
     .toBe(true)
   expect(externalResponses).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('workspace headers remain visible as sessions move between active and history sections', async () => {
+  const path = '/home/dev/live-project'
+  const design = server.sessions.get('design')!
+  const review = server.sessions.get('review')!
+  for (const session of [design, review]) session.metadata!.path = path
+  design.thinking = true
+  await page.reload()
+  const headings = page.locator('.workspace-group-heading').filter({ hasText: path })
+  const workspace = page.getByTestId('sessions-workspaces')
+  await expect(headings).toHaveCount(1)
+  await expect(headings).toBeVisible()
+  await expect(workspace.locator('.session-row')).toHaveCount(0)
+  await expect(page.getByTestId('sessions-thinking').getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
+  await headings.getByRole('button', { name: `复制路径: ${path}`, exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(path)
+  await headings.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true }).click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue(path)
+  await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-1')
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  design.active = false
+  design.thinking = false
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: 'design', data: design })
+  await expect(page.getByTestId('sessions-history').getByTestId('session-design')).toBeVisible()
+  await expect(workspace).toHaveCount(0)
+  await expect(headings).toHaveCount(1)
+  await expect(headings).toBeVisible()
+  design.active = true
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: 'design', data: design })
+  await expect(workspace).toBeVisible()
+  await expect(headings).toHaveCount(1)
+  await expect(page.getByTestId('session-design')).toHaveCount(1)
+  await expect(page.getByTestId('session-review')).toHaveCount(1)
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await search.fill('no-matching-workspace')
+  await expect(headings).toHaveCount(0)
+  await search.fill('')
+  await expect(headings).toBeVisible()
+  for (const id of ['design', 'review']) {
+    server.sessions.delete(id)
+    server.emit({ type: 'session-removed', sessionId: id })
+  }
+  await expect(headings).toHaveCount(0)
   expect(errors).toEqual([])
 })
 

@@ -149,6 +149,7 @@ function DirectoryNode(props: {
     depth: number
     onOpenFile: (path: string) => void
     onRequestFileMenu?: FileMenuRequestHandler
+    onRequestDirectoryMenu?: FileMenuRequestHandler
     renderDownload?: (path: string, fileName: string) => ReactNode
     expanded: Set<string>
     onToggle: (path: string) => void
@@ -158,6 +159,12 @@ function DirectoryNode(props: {
     const toast = useToast()
     const [downloadingPath, setDownloadingPath] = useState<string | null>(null)
     const isExpanded = props.expanded.has(props.path)
+    const rowHandlers = useFileMenuTrigger({
+        onOpen: () => props.onToggle(props.path),
+        onOpenMenu: props.onRequestDirectoryMenu
+            ? (point) => props.onRequestDirectoryMenu!(props.path, point)
+            : undefined,
+    })
     const { entries, error, isLoading } = useSessionDirectory(props.api, props.sessionId, props.path, {
         enabled: isExpanded
     })
@@ -198,7 +205,9 @@ function DirectoryNode(props: {
         <div>
             <button
                 type="button"
-                onClick={() => props.onToggle(props.path)}
+                {...rowHandlers}
+                aria-expanded={isExpanded}
+                aria-haspopup={props.onRequestDirectoryMenu ? 'menu' : undefined}
                 className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-[var(--app-subtle-bg)] transition-colors"
                 style={{ paddingLeft: indent }}
             >
@@ -228,6 +237,7 @@ function DirectoryNode(props: {
                                     depth={childDepth}
                                     onOpenFile={props.onOpenFile}
                                     onRequestFileMenu={props.onRequestFileMenu}
+                                    onRequestDirectoryMenu={props.onRequestDirectoryMenu}
                                     renderDownload={props.renderDownload}
                                     expanded={props.expanded}
                                     onToggle={props.onToggle}
@@ -302,6 +312,7 @@ export function DirectoryTree(props: {
     rootLabel: string
     onOpenFile: (path: string) => void
     onRequestFileMenu?: FileMenuRequestHandler
+    onRequestDirectoryMenu?: FileMenuRequestHandler
     renderDownload?: (path: string, fileName: string) => ReactNode
     storageKey?: string
     sort: DirectorySort
@@ -335,6 +346,7 @@ export function DirectoryTree(props: {
                 depth={0}
                 onOpenFile={props.onOpenFile}
                 onRequestFileMenu={props.onRequestFileMenu}
+                onRequestDirectoryMenu={props.onRequestDirectoryMenu}
                 renderDownload={props.renderDownload}
                 expanded={expanded}
                 onToggle={handleToggle}

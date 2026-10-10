@@ -108,6 +108,54 @@ describe('session lenses', () => {
       3,
     )
   })
+  it('retains workspace actions when all rows move into status sections without duplicating sessions', () => {
+    const running = { ...a, globalPinned: false, thinking: true }
+    const idle = { ...b, pinned: false }
+    const sessions = [running, idle]
+    const sections = selectSessionList({ ...options, sessions })
+    const headers = sections.find((section) => section.key === 'workspaces')!.groups
+    expect(headers).toHaveLength(1)
+    expect(headers[0][1]).toMatchObject({
+      machineId: 'linux-1',
+      path: running.metadata!.path,
+      hasDirectory: true,
+      sessions: [],
+    })
+    expect(sections.flatMap((section) => section.groups.flatMap(([, group]) => group.sessions))).toEqual([
+      running,
+      idle,
+    ])
+    // Existing history and project-pin headers already expose the same directory.
+    for (const rows of [
+      [...sessions, c],
+      [running, b],
+    ]) {
+      expect(
+        selectSessionList({ ...options, sessions: rows }).some((section) => section.key === 'workspaces'),
+      ).toBe(false)
+    }
+    expect(
+      selectSessionList({ ...options, sessions, byStatus: false }).map((section) => section.key),
+    ).toEqual(['all'])
+    expect(selectSessionList({ ...options, sessions: [a] }).map((section) => section.key)).toEqual([
+      'global-pinned',
+    ])
+  })
+  it('uses the same machine, search, status and unread filters for retained directory headers', () => {
+    const running = { ...a, globalPinned: false }
+    const other = { ...b, pinned: false, metadata: { ...b.metadata!, machineId: 'linux-2' } }
+    const base = { ...options, sessions: [running, other] }
+    const headers = (overrides: Partial<typeof options> = {}) =>
+      selectSessionList({ ...base, ...overrides })
+        .find((section) => section.key === 'workspaces')
+        ?.groups.map(([, group]) => group.machineId) ?? []
+    expect(headers()).toEqual(['linux-2', 'linux-1'])
+    expect(headers({ machine: 'linux-1' })).toEqual(['linux-1'])
+    expect(headers({ search: 'API review' })).toEqual(['linux-1'])
+    expect(headers({ unreadOnly: true, lastSeen: { 'alice:a': running.updatedAt } })).toEqual(['linux-2'])
+    expect(headers({ status: 'History' })).toEqual([])
+    expect(headers({ search: 'missing-workspace' })).toEqual([])
+  })
   it('matches multiple words across fields and combines machine/status/unread lenses', () => {
     const sections = selectSessionList({
       ...options,

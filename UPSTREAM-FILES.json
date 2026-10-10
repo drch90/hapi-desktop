@@ -1645,7 +1645,7 @@
   },
   "web/src/components/SessionFiles/DirectoryTree.tsx": {
     "upstream": "b9b23a63d7b293216037ecca8a2b03b47ca56a3ddd7f4237f937b7b00c00e092",
-    "vendored": "9a8786af3be160420e951aee37d93da08c87cdaa0bb82917c7675245bd357c1a"
+    "vendored": "2c307e7489cba41292f0a433fccea52abd9475d6e0d41ba564dab3ca9919c113"
   },
   "web/src/components/SessionHeader.test.tsx": {
     "upstream": "5ff60cc8a7d33b17270cf0afa11c7309375110f2fced71a0df353d6ffa75d8d6",
