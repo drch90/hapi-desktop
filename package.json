@@ -1,6 +1,6 @@
 {
   "name": "hapi-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A Windows workbench for your HAPI sessions",
   "private": true,
   "license": "AGPL-3.0-only",

@@ -5,6 +5,33 @@ import path from 'node:path'
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
   [
+    'Runner workspaces',
+    'Runner 工作区',
+    'Runner 工作區',
+    'Espaces de travail du runner',
+    'Runner のワークスペース',
+    'Рабочие области runner',
+    'Không gian làm việc của runner',
+  ],
+  [
+    'Recent and session folders',
+    '最近及会话目录',
+    '最近及工作階段目錄',
+    'Dossiers récents et des sessions',
+    '最近使ったフォルダーとセッションのフォルダー',
+    'Недавние папки и папки сеансов',
+    'Thư mục gần đây và của phiên',
+  ],
+  [
+    'Directory unavailable',
+    '目录不可用',
+    '目錄無法使用',
+    'Dossier indisponible',
+    'フォルダーを利用できません',
+    'Папка недоступна',
+    'Thư mục không khả dụng',
+  ],
+  [
     'The operation could not be confirmed. Refresh the session before retrying.',
     '尚未确认操作是否完成，请刷新会话状态后再重试。',
     '尚未確認操作是否完成，請重新整理工作階段狀態後再試。',

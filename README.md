@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前正式版本为 **1.0.1**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.1 发布说明](docs/release-notes/v1.0.1.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本为 **1.0.2**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.2 发布说明](docs/release-notes/v1.0.2.md)。
 
 ## 开始使用
 
@@ -12,9 +12,17 @@
 
 当前安装包尚未配置代码签名，Windows 可能显示发布者未知。应用没有自动更新，更新时从 Releases 下载新版安装包安装。
 
+## 新建会话
+
+新建窗口提供 **Runner 工作区** 和 **最近及会话目录**，可直接点击选择；按钮显示简短目录，悬停查看完整路径。工作区来自所选 runner 上报的 `workspaceRoots`，第一个标为默认；runner 可通过 `hapi runner start --workspace-root /path/a --workspace-root /path/b` 配置多个根目录。仍可手动输入或点击“浏览”选择子目录，支持 Linux 路径、Windows 盘符和 UNC 路径。
+
+普通新建优先选择上次成功使用且在线的机器，否则选择第一台在线机器。目录依次采用从工作区分组明确传入的目录、该机器上次成功使用的目录、runner 的默认工作区；切换机器会切换到对应的历史目录或默认工作区。未配置根目录且没有本机记录时保持空白，允许手动填写或选择已有会话目录。手动修改或清空输入后，机器信息刷新不会覆盖输入；所选机器离线时暂停创建，不会自动改到另一台机器。
+
+最近目录在成功创建后保存，每台机器保留最近 5 个，按 Hub、账户和 runner 隔离，重启后可继续选择。快捷列表同时合并 Hub 中该机器已有会话的目录及工作树主目录并去重，因此首次使用桌面端也可直接选择已有项目。取消或创建失败不更新记录，注销时清理本机记录。已确认不存在或超出工作区范围的快捷目录会禁用，并在悬停提示原因；提交前再次检查 runner 的目录范围。
+
 ## 会话工作台
 
-1.0.1 新增会话状态分层、历史分组批量展开/折叠、归档预览、归档自动关闭、双击标签定位及标签任务状态。当前交互评估与后续建议见 [交互优化记录](docs/interaction-review.md)。
+会话工作台提供状态分层、历史分组批量展开/折叠、归档预览、归档自动关闭、双击标签定位及标签任务状态。当前交互评估与后续建议见 [交互优化记录](docs/interaction-review.md)。
 
 标签页支持鼠标中键关闭；右键支持关闭当前、关闭其他标签页、关闭左侧、关闭右侧、关闭本栏全部标签、恢复最近关闭标签，以及左右移动或移到另一栏。“关闭其他标签页”保留右键点中的标签，只关闭同一栏的其余标签；仅剩一个标签时禁用。支持拖动排序和跨栏插入；关闭标签不会归档或中断远端会话，也不会删除草稿。最近关闭记录保留 30 个普通标签，已删除会话不会恢复。
 
@@ -141,7 +149,7 @@ xvfb-run -a bun run test:e2e
 bun run package:win
 ```
 
-当前产物路径为 `build/HAPI-Desktop-1.0.1-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+当前产物路径为 `build/HAPI-Desktop-1.0.2-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 ### 自动构建与公开发布
 
@@ -154,8 +162,8 @@ bun run package:win
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.1 -m "HAPI Desktop 1.0.1"
-git push origin v1.0.1
+git tag -a v1.0.2 -m "HAPI Desktop 1.0.2"
+git push origin v1.0.2
 ```
 
 推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.2-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。

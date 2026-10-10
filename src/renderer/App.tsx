@@ -1139,6 +1139,8 @@ function Workbench({
       />
       {newSession && (
         <NewSessionDialog
+          scope={scope}
+          sessions={rows}
           initialMachineId={newSession.machineId}
           initialDirectory={newSession.directory}
           close={() => setNewSession(null)}

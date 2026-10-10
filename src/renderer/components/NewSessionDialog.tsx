@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Folder } from 'lucide-react'
 import { SessionSchema } from '@hapi/protocol/schemas'
-import { type CodexCollaborationMode, type PermissionMode } from '@hapi/protocol'
+import { type CodexCollaborationMode, type PermissionMode, type SessionSummary } from '@hapi/protocol'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MachineSelector } from '@/components/NewSession/MachineSelector'
@@ -23,6 +23,7 @@ import {
 } from '@/components/NewSession/types'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
+import { useDirectorySuggestions } from '@/hooks/useDirectorySuggestions'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useOpencodeModelsForCwd } from '@/hooks/queries/useOpencodeModelsForCwd'
 import { useOpencodeModelVariants } from '@/hooks/queries/useOpencodeModelVariants'
@@ -30,15 +31,21 @@ import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
 import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
 import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
 import { I18nContext } from '@/lib/i18n-context'
-import { api, errorKey } from '../lib/api'
+import { getPathDisplayName } from '@/utils/path'
+import { createApi, errorKey } from '../lib/api'
+import { loadNewSessionLocations, rememberSessionLocation } from '../lib/newSessionLocations'
 import { machinesKey, queries, sessionKey } from '../lib/sync'
 
 export function NewSessionDialog({
+  scope,
+  sessions,
   close,
   created,
   initialMachineId,
   initialDirectory,
 }: {
+  scope: string
+  sessions: SessionSummary[]
   close: () => void
   created: (id: string) => void
   initialMachineId?: string
@@ -46,16 +53,45 @@ export function NewSessionDialog({
 }) {
   const { t } = useTranslation()
   const upstream = useContext(I18nContext)
+  const api = useMemo(() => createApi(scope), [scope])
+  const [locations] = useState(() => loadNewSessionLocations(scope))
   const machines = useQuery({
     queryKey: machinesKey,
     queryFn: async () => (await api.getMachines()).machines,
   })
   const online = machines.data?.filter((machine) => machine.active) ?? []
   const [chosenMachine, setMachine] = useState(initialMachineId ?? '')
-  const machineId = chosenMachine || online[0]?.id || ''
+  const machineId =
+    chosenMachine ||
+    online.find((machine) => machine.id === locations.lastMachineId)?.id ||
+    online[0]?.id ||
+    ''
+  // Keep even an automatically selected runner when it goes offline; never redirect a launch.
+  useEffect(() => {
+    if (!chosenMachine && machineId) setMachine(machineId)
+  }, [chosenMachine, machineId])
   const machineAvailable = online.some((machine) => machine.id === machineId)
+  const selectedMachine = machines.data?.find((machine) => machine.id === machineId)
+  const workspaceRoots = useMemo(
+    () => [
+      ...new Set(selectedMachine?.metadata?.workspaceRoots?.map((path) => path.trim()).filter(Boolean) ?? []),
+    ],
+    [selectedMachine?.metadata?.workspaceRoots],
+  )
+  const recentPaths = useMemo(
+    () => (Object.hasOwn(locations.paths, machineId) ? locations.paths[machineId] : []),
+    [locations, machineId],
+  )
+  const allPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
+  const historyPaths = machineId ? allPaths.filter((path) => !workspaceRoots.includes(path)) : []
   const [agent, setAgent] = useState<'claude' | 'codex' | 'opencode' | 'hermes'>('codex')
-  const [directory, setDirectory] = useState(initialDirectory ?? '')
+  // Resolve defaults once per machine selection; metadata refreshes must not move the launch.
+  // An empty string is an intentional user edit, while null waits for the runner's defaults.
+  const [directoryOverride, setDirectory] = useState<string | null>(initialDirectory ?? null)
+  const directory = directoryOverride ?? recentPaths[0] ?? workspaceRoots[0] ?? ''
+  useEffect(() => {
+    if (directoryOverride === null && directory) setDirectory(directory)
+  }, [directoryOverride, directory])
   const [permission, setPermission] = useState<PermissionMode>('default')
   const [yolo, setYolo] = useState(false)
   const [model, setModel] = useState('auto')
@@ -69,6 +105,13 @@ export function NewSessionDialog({
   const [browsing, setBrowsing] = useState(false)
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [error, setError] = useState('')
   const { spawnSession } = useSpawnSession(api)
   const availability = useQuery({
@@ -80,13 +123,17 @@ export function NewSessionDialog({
     machineAvailable &&
     (availability.data?.agents.some((item) => item.agent === agent && item.available) ?? false)
   const cwd = useDeferredValue(directory.trim())
-  const paths = useMemo(() => (cwd ? [cwd] : []), [cwd])
-  const { pathExistence, outsideWorkspaceRoots } = useMachinePathsExists(
+  const paths = useMemo(
+    () => [...new Set([...(cwd ? [cwd] : []), ...workspaceRoots, ...allPaths])].slice(0, 1000),
+    [cwd, workspaceRoots, allPaths],
+  )
+  const { pathExistence, outsideWorkspaceRoots, checkPathsExists } = useMachinePathsExists(
     api,
     machineAvailable ? machineId : null,
     paths,
   )
-  const discoverOpencode = agent === 'opencode' && available && pathExistence[cwd] === true
+  const discoverOpencode =
+    agent === 'opencode' && available && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd)
   const hermes = useHermesModels({
     api,
     machineId,
@@ -139,6 +186,12 @@ export function NewSessionDialog({
     setTier('standard')
   }
 
+  function chooseDirectory(path: string) {
+    setDirectory(path)
+    setError('')
+    if (agent === 'opencode' || agent === 'hermes') resetModel()
+  }
+
   return (
     <Dialog
       open
@@ -162,6 +215,12 @@ export function NewSessionDialog({
             setBusy(true)
             setError('')
             try {
+              const status = await checkPathsExists([directory.trim()])
+              if (!mounted.current) return
+              if (status.outsideWorkspaceRoots?.includes(directory.trim())) {
+                setError('The directory is outside the configured workspace roots.')
+                return
+              }
               const response = await spawnSession({
                 machineId,
                 directory: directory.trim(),
@@ -181,11 +240,13 @@ export function NewSessionDialog({
                 startingMode: 'remote',
               })
               if (response.type !== 'success' || !response.sessionId) throw new Error('SPAWN_FAILED')
+              if (!mounted.current) return
+              rememberSessionLocation(scope, machineId, directory)
               await queries.fetchQuery({
                 queryKey: sessionKey(response.sessionId),
                 queryFn: async () => SessionSchema.parse((await api.getSession(response.sessionId)).session),
               })
-              created(response.sessionId)
+              if (mounted.current) created(response.sessionId)
             } catch (cause) {
               setError(errorKey(cause))
             } finally {
@@ -208,7 +269,8 @@ export function NewSessionDialog({
                 isDisabled={busy}
                 onChange={(value) => {
                   setMachine(value)
-                  setDirectory('')
+                  setDirectory(null)
+                  setError('')
                   resetModel()
                 }}
               />
@@ -248,14 +310,15 @@ export function NewSessionDialog({
                   {t('Directory')}
                   <input
                     value={directory}
-                    placeholder="/home/user/project"
+                    placeholder={
+                      workspaceRoots[0] ||
+                      (selectedMachine?.metadata?.platform === 'win32'
+                        ? 'C:\\Projects'
+                        : '/home/user/project')
+                    }
                     required
-                    pattern="/.*"
                     disabled={busy}
-                    onChange={(event) => {
-                      setDirectory(event.target.value)
-                      if (agent === 'opencode' || agent === 'hermes') resetModel()
-                    }}
+                    onChange={(event) => chooseDirectory(event.target.value)}
                   />
                 </label>
                 <Button
@@ -268,6 +331,42 @@ export function NewSessionDialog({
                   {t('Browse')}
                 </Button>
               </div>
+              {[
+                { label: 'Runner workspaces', paths: workspaceRoots },
+                { label: 'Recent and session folders', paths: historyPaths },
+              ].map(({ label, paths }) =>
+                paths.length ? (
+                  <div key={label} className="launch-folder-group" role="group" aria-label={t(label)}>
+                    <span className="small muted">{t(label)}</span>
+                    <div className="launch-folder-options">
+                      {paths.map((path) => {
+                        const unavailable = outsideWorkspaceRoots.has(path)
+                          ? 'The directory is outside the configured workspace roots.'
+                          : pathExistence[path] === false
+                            ? 'Directory unavailable'
+                            : ''
+                        return (
+                          <button
+                            key={path}
+                            type="button"
+                            title={unavailable ? `${path}\n${t(unavailable)}` : path}
+                            aria-label={path}
+                            aria-pressed={directory.trim() === path}
+                            disabled={busy || !machineAvailable || Boolean(unavailable)}
+                            onClick={() => chooseDirectory(path)}
+                          >
+                            <Folder size={13} aria-hidden="true" />
+                            <span>{getPathDisplayName(path)}</span>
+                            {label === 'Runner workspaces' && path === workspaceRoots[0] && (
+                              <small>{t('Default')}</small>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null,
+              )}
             </div>
             <fieldset aria-label={t('Model')} disabled={busy}>
               {agent === 'hermes' ? (
@@ -402,8 +501,7 @@ export function NewSessionDialog({
                     machinesLoading={machines.isPending}
                     initialMachineId={machineId}
                     onStartSession={(_, path) => {
-                      setDirectory(path)
-                      if (agent === 'opencode' || agent === 'hermes') resetModel()
+                      chooseDirectory(path)
                       setBrowsing(false)
                     }}
                   />

@@ -2090,6 +2090,202 @@ for (const [sessionId, flavor, command] of [
   })
 }
 
+test('new session locations offer runner workspaces and session folders without replacing manual edits', async () => {
+  server.machines[0].metadata.workspaceRoots = ['/home/dev', '/srv/projects']
+  server.machines.push({
+    ...server.machines[0],
+    id: 'linux-2',
+    metadata: { ...server.machines[0].metadata, host: 'linux-dev-02', workspaceRoots: ['/mnt/team'] },
+  })
+  const history = server.sessions.get('history')!
+  history.metadata!.path = '/home/dev/worktrees/feature'
+  history.metadata!.worktree = { basePath: '/home/dev/base', branch: 'feature', name: 'feature' }
+  const other = fixtureSession('other-runner', '另一台机器', 'codex', false)
+  other.metadata!.machineId = 'linux-2'
+  other.metadata!.path = '/mnt/team/previous'
+  server.sessions.set(other.id, other)
+  await page.reload()
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  const directory = launch.getByLabel('目录', { exact: true })
+  const roots = launch.getByRole('group', { name: 'Runner 工作区', exact: true })
+  const folders = launch.getByRole('group', { name: '最近及会话目录', exact: true })
+  await expect(directory).toHaveValue('/home/dev')
+  await expect(roots.getByRole('button')).toHaveCount(2)
+  await expect(roots.getByRole('button', { name: '/home/dev', exact: true })).toContainText('默认')
+  await expect(folders.getByRole('button', { name: '/home/dev/hapi-desktop', exact: true })).toHaveCount(1)
+  await expect(folders.getByRole('button', { name: '/home/dev/base', exact: true })).toBeVisible()
+  await expect(
+    folders.getByRole('button', { name: '/home/dev/worktrees/feature', exact: true }),
+  ).toBeVisible()
+  await expect(folders.getByRole('button', { name: '/mnt/team/previous', exact: true })).toHaveCount(0)
+  // Updating runner metadata must also preserve a default that was already filled in.
+  server.machines[0].metadata.workspaceRoots = ['/home/dev/updated-default', '/srv/projects']
+  server.emit({ type: 'machine-updated', machineId: 'linux-1', data: server.machines[0] })
+  await expect(roots.getByRole('button', { name: '/home/dev/updated-default', exact: true })).toBeVisible()
+  await expect(directory).toHaveValue('/home/dev')
+  const alternate = roots.getByRole('button', { name: '/srv/projects', exact: true })
+  await alternate.focus()
+  await alternate.press('Enter')
+  await expect(directory).toHaveValue('/srv/projects')
+  await expect(alternate).toHaveAttribute('aria-pressed', 'true')
+  await folders.getByRole('button', { name: '/home/dev/base', exact: true }).click()
+  await expect(directory).toHaveValue('/home/dev/base')
+  expect(server.spawnCount).toBe(0)
+
+  await directory.fill('')
+  server.machines[0].metadata.workspaceRoots = ['/home/dev/new-root', '/srv/projects']
+  server.emit({ type: 'machine-updated', machineId: 'linux-1', data: server.machines[0] })
+  await expect(roots.getByRole('button', { name: '/home/dev/new-root', exact: true })).toBeVisible()
+  await expect(directory).toHaveValue('')
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeDisabled()
+  await directory.fill('/home/dev/manual')
+  server.emit({ type: 'machine-updated', machineId: 'linux-1', data: server.machines[0] })
+  await expect(directory).toHaveValue('/home/dev/manual')
+
+  const machine = launch.locator('.new-session-location select').first()
+  await machine.selectOption('linux-2')
+  await expect(directory).toHaveValue('/mnt/team')
+  await expect(folders.getByRole('button')).toHaveCount(1)
+  await expect(folders.getByRole('button', { name: '/mnt/team/previous', exact: true })).toBeVisible()
+  server.machines[1].active = false
+  server.emit({ type: 'machine-updated', machineId: 'linux-2', data: server.machines[1] })
+  await expect(machine).toHaveValue('')
+  await expect(directory).toHaveValue('/mnt/team')
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeDisabled()
+  await expect(roots.getByRole('button')).toBeDisabled()
+  expect(server.spawnCount).toBe(0)
+  expect(errors).toEqual([])
+})
+
+test('successful new session locations survive reload and remember each runner independently', async () => {
+  server.machines.push({
+    ...server.machines[0],
+    id: 'linux-2',
+    metadata: { ...server.machines[0].metadata, host: 'linux-dev-02', workspaceRoots: ['/mnt/team'] },
+  })
+  await page.reload()
+  const open = page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true })
+  await open.click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  const machine = launch.locator('.new-session-location select').first()
+  const directory = launch.getByLabel('目录', { exact: true })
+  await machine.selectOption('linux-2')
+  await directory.fill('/mnt/team/last-used')
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created')).toBeVisible()
+  // The saved location remains useful even after its only session has been deleted on the Hub.
+  server.sessions.delete('created')
+  await page.reload()
+  await open.click()
+  await expect(machine).toHaveValue('linux-2')
+  await expect(directory).toHaveValue('/mnt/team/last-used')
+  await expect(launch.getByRole('button', { name: '/mnt/team/last-used', exact: true })).toBeVisible()
+  await directory.fill('/mnt/team/cancelled')
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  await open.click()
+  await expect(directory).toHaveValue('/mnt/team/last-used')
+  await machine.selectOption('linux-1')
+  await expect(directory).toHaveValue('/home/dev')
+  await directory.fill('/home/dev/last-used')
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created-2')).toBeVisible()
+  await open.click()
+  await expect(machine).toHaveValue('linux-1')
+  await expect(directory).toHaveValue('/home/dev/last-used')
+  await machine.selectOption('linux-2')
+  await expect(directory).toHaveValue('/mnt/team/last-used')
+  await expect(launch.getByRole('button', { name: '/home/dev/last-used', exact: true })).toHaveCount(0)
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  server.machines[0].active = false
+  await page.reload()
+  await open.click()
+  await expect(machine).toHaveValue('linux-2')
+  await expect(directory).toHaveValue('/mnt/team/last-used')
+  expect(server.requests.filter((r) => r.path.endsWith('/spawn')).map((r) => r.path)).toEqual([
+    '/api/machines/linux-2/spawn',
+    '/api/machines/linux-1/spawn',
+  ])
+  expect(errors).toEqual([])
+})
+
+test('new session locations disable unavailable shortcuts and validate paths again before spawning', async () => {
+  server.sessions.get('history')!.metadata!.path = '/home/dev/missing'
+  server.sessions.get('review')!.metadata!.path = '/private/project'
+  server.outsideWorkspacePaths.add('/private/project')
+  await page.reload()
+  const open = page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true })
+  await open.click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  const directory = launch.getByLabel('目录', { exact: true })
+  const create = launch.getByRole('button', { name: '创建会话', exact: true })
+  const missing = launch.getByRole('button', { name: '/home/dev/missing', exact: true })
+  const outside = launch.getByRole('button', { name: '/private/project', exact: true })
+  await expect(missing).toBeDisabled()
+  await expect(missing).toHaveAttribute('title', /目录不可用/)
+  await expect(outside).toBeDisabled()
+  await expect(outside).toHaveAttribute('title', /工作区/)
+  // The roots changed after the background check. Submission must check again.
+  server.outsideWorkspacePaths.add('/home/dev')
+  await create.click()
+  await expect(launch.getByRole('alert')).toContainText('工作区')
+  expect(server.spawnCount).toBe(0)
+  server.outsideWorkspacePaths.clear()
+  await directory.fill('/home/dev/check-failure')
+  server.failPathChecks = true
+  await create.click()
+  await expect(launch.getByRole('alert')).toBeVisible()
+  expect(server.spawnCount).toBe(0)
+  server.failPathChecks = false
+  server.failSpawn = true
+  await directory.fill('/home/dev/launch-failure')
+  await create.click()
+  await expect(launch.getByRole('alert')).toBeVisible()
+  await expect.poll(() => server.requests.filter((r) => r.path.endsWith('/spawn')).length).toBe(1)
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith('desktop:new-session-locations:')),
+    ),
+  ).toEqual([])
+  await launch.getByRole('button', { name: '取消', exact: true }).click()
+  await open.click()
+  await expect(directory).toHaveValue('/home/dev')
+  expect(errors).toEqual([])
+})
+
+test('new session locations accept Windows runner roots and allow manual entry without configured roots', async () => {
+  server.machines[0].metadata.workspaceRoots = []
+  server.machines.push({
+    ...server.machines[0],
+    id: 'windows-1',
+    metadata: {
+      ...server.machines[0].metadata,
+      platform: 'win32',
+      host: 'windows-dev-01',
+      workspaceRoots: ['C:\\Projects\\工作目录', '\\\\server\\share\\team'],
+    },
+  })
+  await page.reload()
+  await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
+  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  const directory = launch.getByLabel('目录', { exact: true })
+  await expect(directory).toHaveValue('')
+  await expect(launch.getByRole('group', { name: 'Runner 工作区', exact: true })).toHaveCount(0)
+  await directory.fill('/home/dev/manual')
+  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeEnabled()
+  await launch.locator('.new-session-location select').first().selectOption('windows-1')
+  await expect(directory).toHaveValue('C:\\Projects\\工作目录')
+  await launch.getByRole('button', { name: '\\\\server\\share\\team', exact: true }).click()
+  await expect(directory).toHaveValue('\\\\server\\share\\team')
+  await launch.getByRole('button', { name: '创建会话', exact: true }).click()
+  await expect(page.getByTestId('chat-created')).toBeVisible()
+  expect(server.requests.find((r) => r.path.endsWith('/spawn'))).toMatchObject({
+    path: '/api/machines/windows-1/spawn',
+    body: { directory: '\\\\server\\share\\team' },
+  })
+  expect(errors).toEqual([])
+})
+
 test('new sessions use the selected remote runner and safe default permissions', async () => {
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
   const dialog = page.getByRole('dialog')
@@ -2757,6 +2953,7 @@ test('multiple large image attachments survive SSE and history reload without di
 test('Hermes creation uses provider model IDs and native permissions, with manual/default fallback', async () => {
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
   const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
+  await launch.getByLabel('目录', { exact: true }).fill('')
   await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
   await expect(launch.getByRole('group', { name: '思考强度', exact: true })).toHaveCount(0)
   await expect(launch.getByRole('group', { name: '模式', exact: true })).toHaveCount(0)
@@ -3417,7 +3614,7 @@ test('workspace headers copy full paths and create on the matching machine witho
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   // The global button must not retain a canceled workspace's location.
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
-  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('')
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('/home/dev')
   await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-1')
   await launch.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('workspace-two')
@@ -3510,7 +3707,7 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('/home/dev/offline')
   expect(server.requests.filter((r) => r.path.endsWith('/spawn'))).toEqual([])
   await machine.selectOption('linux-1')
-  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('')
+  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('/home/dev')
   await launch.getByRole('button', { name: '取消', exact: true }).click()
   await expect(
     page

@@ -198,6 +198,9 @@ export class FixtureHub {
     },
   ]
   spawnCount = 0
+  failSpawn = false
+  outsideWorkspacePaths = new Set<string>()
+  failPathChecks = false
   readonly server = createServer(async (request, response) => {
     const url = new URL(request.url!, 'http://fixture')
     const path = url.pathname
@@ -316,6 +319,10 @@ export class FixtureHub {
       (machine) => path === `/api/machines/${machine.id}/spawn` && machine.active,
     )
     if (spawnMachine) {
+      if (this.failSpawn) {
+        reply({ type: 'error', message: 'Fixture launch failed' })
+        return
+      }
       const id = ++this.spawnCount === 1 ? 'created' : `created-${this.spawnCount}`
       const s = fixtureSession(id, '新建远程会话', String(body.agent))
       s.metadata!.path = String(body.directory)
@@ -334,7 +341,14 @@ export class FixtureHub {
       return
     }
     if (/^\/api\/machines\/[^/]+\/paths\/exists$/.test(path)) {
-      reply({ exists: Object.fromEntries((body.paths as string[]).map((p) => [p, !p.endsWith('/missing')])) })
+      if (this.failPathChecks) {
+        reply({ error: 'Fixture path check failed' }, 503)
+        return
+      }
+      reply({
+        exists: Object.fromEntries((body.paths as string[]).map((p) => [p, !p.endsWith('/missing')])),
+        outsideWorkspaceRoots: (body.paths as string[]).filter((p) => this.outsideWorkspacePaths.has(p)),
+      })
       return
     }
     if (path === '/api/machines/linux-1/list-directory') {
