@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { FixtureHub, fixtureSession, fixtureMessage, fixtureCodexEvent } from './fake-server'
+import { closeTestElectron } from './electron-cleanup'
 import { version as appVersion } from '../package.json'
 import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
 
@@ -124,9 +125,12 @@ test.beforeEach(async () => {
 })
 
 test.afterEach(async () => {
-  await electron?.close()
-  await server?.close()
-  if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
+  try {
+    await closeTestElectron(electron)
+  } finally {
+    await server?.close()
+    if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
+  }
 })
 
 test('body links open the browser and remote file preview on the first click, including pane focus changes', async () => {

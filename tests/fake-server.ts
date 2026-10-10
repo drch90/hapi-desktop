@@ -932,7 +932,9 @@ export class FixtureHub {
   }
   async close() {
     for (const stream of this.streams) stream.end()
-    this.server.closeAllConnections()
-    await new Promise<void>((resolve) => this.server.close(() => resolve()))
+    await new Promise<void>((resolve) => {
+      this.server.close(() => resolve())
+      this.server.closeAllConnections()
+    })
   }
 }
