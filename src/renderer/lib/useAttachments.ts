@@ -63,9 +63,9 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
       previewUrl: item.value?.previewUrl,
       uploadSessionId: item.value?.uploadSessionId,
     }))
-  function publish(persistWhenDetached = false) {
-    if (state.epoch !== runtimeEpoch || (!state.alive && !persistWhenDetached)) return
-    if (state.alive) setItems([...state.items])
+  function publish() {
+    if (state.epoch !== runtimeEpoch || !state.alive) return
+    setItems([...state.items])
     saveDraftAttachments(key, draftFiles())
   }
 
@@ -288,10 +288,22 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     await lifetimes.get(targetKey)?.reload?.()
   }
 
-  function clearSent(ids: string[]) {
+  async function clearSent(ids: string[]) {
+    if (!ids.length) return
+    if (state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
     state.items = state.items.filter((item) => !ids.includes(item.value?.id ?? item.id))
-    // A tab can close while a send is waiting for its receipt.
-    publish(true)
+    try {
+      // Drain earlier progress writes and persist the removal before the tray
+      // clears. A fast reload must not restore a partially saved upload batch.
+      // This also applies when a tab closed while waiting for the send receipt.
+      await moveDraftAttachments(key, key, () => {
+        if (state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
+        return draftFiles()
+      })
+      if (state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
+    } finally {
+      if (state.alive && state.epoch === runtimeEpoch) setItems([...state.items])
+    }
   }
 
   return {

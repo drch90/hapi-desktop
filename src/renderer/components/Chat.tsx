@@ -415,9 +415,9 @@ export function Chat({
         outgoing.scheduledAt,
         outgoing.deliveryMode ?? deliveryMode,
       )
+      await attachments.clearSent(outgoing.attachments?.map((item) => item.id) ?? [])
       storeAttempt(scope, id, null)
       setAttempt(null)
-      attachments.clearSent(outgoing.attachments?.map((item) => item.id) ?? [])
       if (latestDraft.current.text.trim() === outgoing.text)
         updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
       navigation.followLatest()
@@ -454,7 +454,7 @@ export function Chat({
     try {
       const status = await checkDelivery(scopedApi, id, attempt)
       if (status === 'accepted') {
-        attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
+        await attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
         if (latestDraft.current.text.trim() === attempt.text) updateDraft({ text: '' })
         setAttempt(null)
         storeAttempt(scope, id, null)

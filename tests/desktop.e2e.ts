@@ -2660,7 +2660,79 @@ test('multiple large image attachments survive SSE and history reload without di
   )
   await expect(chat.getByTestId('attachment-draft')).toHaveCount(4)
   await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  // Drain upload progress writes before delaying the next draft transaction.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            new Promise<number>((resolve, reject) => {
+              const open = indexedDB.open('hapi-composer-drafts')
+              open.onerror = () => reject(open.error)
+              open.onsuccess = () => {
+                const transaction = open.result.transaction('attachments')
+                const request = transaction.objectStore('attachments').getAll()
+                transaction.oncomplete = () => {
+                  open.result.close()
+                  resolve(
+                    request.result
+                      .flatMap((draft) => draft.files)
+                      .filter((file) => file.path && file.uploadSessionId === 'design').length,
+                  )
+                }
+                transaction.onerror = () => reject(transaction.error)
+              }
+            }),
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(4)
+  await page.evaluate(() => {
+    const originalOpen = indexedDB.open.bind(indexedDB)
+    const pending: (() => void)[] = []
+    indexedDB.open = (...args) => {
+      const request = originalOpen(...args)
+      if (args[0] !== 'hapi-composer-drafts') return request
+      let onSuccess: IDBRequest['onsuccess'] = null
+      Object.defineProperty(request, 'onsuccess', {
+        get: () => onSuccess,
+        set: (handler: IDBRequest['onsuccess']) => {
+          onSuccess = handler
+        },
+      })
+      request.addEventListener('success', (event) => pending.push(() => onSuccess?.call(request, event)))
+      return request
+    }
+    Object.assign(window, {
+      attachmentPersistenceGate: {
+        pending: () => pending.length,
+        release: () => {
+          indexedDB.open = originalOpen
+          for (const notify of pending.splice(0)) notify()
+        },
+      },
+    })
+  })
   await chat.getByRole('button', { name: '发送', exact: true }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { attachmentPersistenceGate: { pending: () => number } }
+        ).attachmentPersistenceGate.pending(),
+      ),
+    )
+    .toBeGreaterThan(0)
+  await expect(chat.getByTestId('attachment-draft')).toHaveCount(4)
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeDisabled()
+  expect(
+    await page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith('desktop:outbox:'))),
+  ).toHaveLength(1)
+  await page.evaluate(() =>
+    (
+      window as unknown as { attachmentPersistenceGate: { release: () => void } }
+    ).attachmentPersistenceGate.release(),
+  )
   await expect(chat.getByTestId('attachment-draft')).toHaveCount(0)
   await expect(chat.locator('.transcript').getByRole('img', { name: /^large-/ })).toHaveCount(4)
   // A following event must also arrive on the same SSE connection.
