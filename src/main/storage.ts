@@ -10,7 +10,6 @@ export const defaultSettings: Settings = {
   theme: 'system',
   enterBehavior: 'newline',
   fontSize: 'normal',
-  groupSessionsByStatus: true,
   collapseHistoryByDefault: true,
   codexExplorationCollapsed: true,
   notifications: true,
@@ -23,7 +22,9 @@ export class DesktopStorage {
     mkdirSync(directory, { recursive: true })
     try {
       const raw = JSON.parse(readFileSync(join(directory, 'settings.json'), 'utf8'))
-      const { hubUrl, ...preferences } = raw
+      // Status sections are always shown now. Ignore the retired switch while
+      // migrating older files so the remaining preferences are still retained.
+      const { hubUrl, groupSessionsByStatus: _legacyGrouping, ...preferences } = raw
       this.settings = {
         ...defaultSettings,
         ...settingsUpdateSchema.parse(preferences),

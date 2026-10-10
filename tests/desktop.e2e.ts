@@ -1578,77 +1578,56 @@ test('font size updates both panes and settings remain usable at the minimum win
   expect(errors).toEqual([])
 })
 
-test('thinking section excludes idle and background sessions, unread updates persist and history is muted', async () => {
+test('status sections separate individual sessions, include pending and background work, and preserve unread state', async () => {
   const design = server.sessions.get('design')!
   const review = server.sessions.get('review')!
-  const historyPath = '/home/dev/archived-project'
-  server.sessions.get('history')!.metadata!.path = historyPath
+  server.sessions.get('history')!.metadata!.path = '/home/dev/archived-project'
+  await page.evaluate(() =>
+    window.desktop.updateSettings({ notifications: false, collapseHistoryByDefault: true }),
+  )
   await page.reload()
   await page.getByTestId('session-review').click()
   const designRow = page.getByTestId('session-design')
+  const historyRow = page.getByTestId('session-history')
+  const historyGroup = page.locator('.session-group').filter({ has: historyRow })
+  const running = page.getByTestId('sessions-thinking')
+  const active = page.getByTestId('sessions-active')
+  await expect(page.locator('.sidebar .filters')).toHaveCount(0)
+  for (const name of ['全部', '活动中', '待处理', '历史'])
+    await expect(page.locator('.sidebar').getByRole('button', { name, exact: true })).toHaveCount(0)
+  await expect(active.locator('.workspace-group-heading')).toHaveCount(0)
+  await expect(active.locator('.session-row')).toHaveCount(2)
   await expect(designRow).toHaveAttribute('data-status', 'ready')
   await expect(designRow.locator('.session-ready-icon')).toBeVisible()
   await expect(page.locator('.session-unread-badge')).toHaveCount(0)
-  const historyRow = page.getByTestId('session-history')
-  const historyWorkspace = page.locator('.session-group').filter({ has: historyRow })
-  await expect(page.getByTestId('sessions-history')).not.toContainText('LINUX-DEV-01', { ignoreCase: true })
-  await expect(page.getByTestId('sessions-history').locator('.group-machine')).toHaveCount(0)
+  await expect(historyRow).toBeHidden()
   await expect(page.locator('.brand .version')).toHaveText(appVersion)
-  await page.getByRole('button', { name: '设置', exact: true }).click()
-  const defaultCollapse = page.getByRole('checkbox', { name: '默认折叠历史工作区' })
-  await expect(page.getByRole('dialog')).toContainText(`HAPI Desktop ${appVersion}`)
-  await defaultCollapse.click()
-  await expect(defaultCollapse).toBeChecked()
-  await page.keyboard.press('Escape')
-  await expect(historyRow).toBeHidden()
-  await page.reload()
-  await expect(historyRow).toBeHidden()
-  await page.getByRole('button', { name: '设置', exact: true }).click()
-  await expect(defaultCollapse).toBeChecked()
-  await defaultCollapse.click()
-  await expect(defaultCollapse).not.toBeChecked()
-  await page.keyboard.press('Escape')
+  await historyGroup.locator('.workspace-group-toggle').click()
   await expect(historyRow).toBeVisible()
   await expect(historyRow).toHaveAttribute('data-status', 'history')
   expect(await historyRow.locator('.session-copy').evaluate((el) => getComputedStyle(el).color)).not.toBe(
     await designRow.locator('.session-copy').evaluate((el) => getComputedStyle(el).color),
   )
-  const historyGroup = historyWorkspace.getByRole('button', { name: /折叠工作区/ })
-  await expect(historyGroup).toHaveAttribute('aria-expanded', 'true')
-  await historyGroup.click()
-  await expect(historyRow).toBeHidden()
-  await expect(historyWorkspace.getByRole('button', { name: /展开工作区/ })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
   await page.reload()
-  await expect(historyRow).toBeHidden()
-  await page.getByRole('textbox', { name: '搜索会话' }).fill('OpenCode')
   await expect(historyRow).toBeVisible()
-  await page.getByRole('textbox', { name: '搜索会话' }).fill('')
-  await expect(historyRow).toBeHidden()
-  await historyWorkspace.getByRole('button', { name: /展开工作区/ }).focus()
-  await page.keyboard.press('Enter')
-  await expect(historyRow).toBeVisible()
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText(`HAPI Desktop ${appVersion}`)
+  await expect(page.getByRole('checkbox', { name: '工作区内按状态分区显示会话' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   design.thinking = true
   design.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
-  const thinking = page.getByTestId('sessions-thinking')
-  await expect(thinking.getByTestId('session-design')).toBeVisible()
-  await expect(thinking.getByTestId('session-review')).toHaveCount(0)
-  await expect(thinking.getByTestId('session-history')).toHaveCount(0)
-  await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
-  await expect(page.getByTestId('sessions-history').getByTestId('session-history')).toBeVisible()
-  await expect(historyWorkspace.locator('.group-path')).toHaveText(historyPath)
+  await expect(running.getByTestId('session-design')).toBeVisible()
+  await expect(running.locator('.workspace-group-heading')).toHaveCount(0)
+  await expect(active.getByTestId('session-review')).toBeVisible()
+  expect(
+    await page
+      .locator('.session-tree > .session-section')
+      .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-section'))),
+  ).toEqual(['thinking', 'active', 'history'])
   design.thinking = false
   design.updatedAt += 10
-  server.emit({
-    type: 'session-updated',
-    sessionId: 'design',
-    data: { thinking: false, updatedAt: design.updatedAt },
-  })
-  await expect(thinking).toHaveCount(0)
-  await expect(designRow).toHaveAttribute('data-status', 'ready')
+  server.emit({ type: 'session-updated', sessionId: 'design', data: design })
   await expect(designRow.locator('.session-unread-badge')).toHaveText('新动态')
   await page.reload()
   await expect(designRow.locator('.session-unread-badge')).toHaveText('新动态')
@@ -1656,38 +1635,27 @@ test('thinking section excludes idle and background sessions, unread updates per
   await expect(designRow.locator('.session-unread-badge')).toHaveCount(0)
   review.backgroundTaskCount = 1
   review.updatedAt += 10
-  server.emit({
-    type: 'session-updated',
-    sessionId: 'review',
-    data: { backgroundTaskCount: 1, updatedAt: review.updatedAt },
-  })
-  await expect(page.getByTestId('session-review')).toHaveAttribute('data-status', 'background')
-  await expect(thinking).toHaveCount(0)
-  design.thinking = true
-  design.updatedAt += 10
-  server.emit({ type: 'session-updated', sessionId: 'design', data: design })
-  await expect(thinking.getByTestId('session-design')).toBeVisible()
-  await page.getByRole('button', { name: '设置', exact: true }).click()
-  const grouping = page.getByRole('checkbox', { name: '工作区内按状态分区显示会话' })
-  await expect(grouping).toBeChecked()
-  await grouping.click()
-  await expect(grouping).not.toBeChecked()
-  await page.keyboard.press('Escape')
-  await expect(thinking).toHaveCount(0)
-  await expect(page.getByTestId('sessions-all').locator('.session-row')).toHaveCount(3)
-  await page.reload()
-  await expect(page.getByTestId('sessions-all').locator('.session-row')).toHaveCount(3)
-  await page.getByRole('button', { name: '设置', exact: true }).click()
-  await expect(grouping).not.toBeChecked()
-  await grouping.click()
-  await expect(grouping).toBeChecked()
-  await page.keyboard.press('Escape')
-  await expect(thinking.getByTestId('session-design')).toBeVisible()
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  await expect(running.getByTestId('session-review')).toHaveAttribute('data-status', 'background')
+  await expect(active.getByTestId('session-design')).toBeVisible()
   review.backgroundTaskCount = 0
+  review.agentState!.requests = {
+    approval: { tool: 'Bash', arguments: { command: 'bun test' }, createdAt: Date.now() },
+  }
+  review.agentStateVersion++
   review.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  await expect(running.getByTestId('session-review')).toHaveAttribute('data-status', 'pending')
+  await expect(historyGroup.locator('.workspace-group-count')).toHaveText('1')
+  review.agentState!.requests = {}
+  review.agentStateVersion++
+  review.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  await expect(active.getByTestId('session-review')).toBeVisible()
+  await expect(running).toHaveCount(0)
   await expect(page.getByTestId('session-review').locator('.session-unread-badge')).toHaveText('新动态')
-  await page.screenshot({ path: 'build/session-status-preview.png', animations: 'disabled' })
+  await expect(page.getByTestId('session-design')).toHaveCount(1)
+  await expect(page.getByTestId('session-review')).toHaveCount(1)
   expect(errors).toEqual([])
 })
 
@@ -3272,11 +3240,12 @@ test('Markdown embedded code stays inert and external diagram images are blocked
   expect(errors).toEqual([])
 })
 
-test('active workspaces contain their sessions, stay above history and retain collapse state across updates', async () => {
+test('live sessions move individually while historical workspace groups keep their identity and collapse state', async () => {
   const path = '/home/dev/live-project'
   const design = server.sessions.get('design')!
   const review = server.sessions.get('review')!
-  for (const session of [design, review]) session.metadata!.path = path
+  const history = server.sessions.get('history')!
+  for (const session of [design, review, history]) session.metadata!.path = path
   design.thinking = true
   for (let i = 0; i < 18; i++) {
     const session = fixtureSession(`archived-${i}`, `Archived project ${i}`, 'codex', false)
@@ -3287,75 +3256,49 @@ test('active workspaces contain their sessions, stay above history and retain co
   await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
   await page.reload()
   const headings = page.locator('.workspace-group-heading').filter({ hasText: path })
-  const workspace = page.locator('.session-group').filter({ has: page.getByTestId('session-design') })
+  const workspace = page.locator('.session-group').filter({ has: page.getByTestId('session-history') })
   await expect(headings).toHaveCount(1)
-  await expect(headings).toBeInViewport()
   await expect(headings.locator('.group-name')).toHaveText('live-project')
-  await expect(headings.locator('.group-path')).toHaveText(path)
   await expect(headings.locator('.group-path')).toHaveAttribute('title', path)
-  await expect(headings.locator('.workspace-group-count')).toHaveText('2')
-  await expect(workspace.locator('.session-row')).toHaveCount(2)
-  await expect(workspace.getByTestId('sessions-thinking').getByTestId('session-design')).toBeVisible()
-  await expect(workspace.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
+  await expect(headings.locator('.workspace-group-count')).toHaveText('1')
+  await expect(workspace.getByTestId('session-history')).toBeHidden()
+  await expect(page.getByTestId('sessions-thinking').getByTestId('session-design')).toBeInViewport()
+  await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeInViewport()
+  await headings.getByRole('button', { name: /^展开工作区/ }).click()
+  await expect(workspace.getByTestId('session-history')).toBeVisible()
   await headings.getByRole('button', { name: /^折叠工作区/ }).click()
-  await expect(workspace.getByTestId('session-design')).toBeHidden()
-  await expect(workspace.getByTestId('session-review')).toBeHidden()
-  await expect(headings.getByRole('button', { name: /^展开工作区/ })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  )
   await page.reload()
-  await expect(workspace.getByTestId('session-design')).toBeHidden()
+  await expect(workspace.getByTestId('session-history')).toBeHidden()
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('session-review')).toBeVisible()
   const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
   await search.fill('live-project')
-  await expect(workspace.getByTestId('session-design')).toBeVisible()
+  await expect(workspace.getByTestId('session-history')).toBeVisible()
   await expect(headings.getByRole('button', { name: /^折叠工作区/ })).toBeDisabled()
   await search.fill('')
-  await expect(workspace.getByTestId('session-design')).toBeHidden()
-  await headings.getByRole('button', { name: /^展开工作区/ }).focus()
-  await page.keyboard.press('Enter')
-  await expect(workspace.getByTestId('session-design')).toBeVisible()
-  await headings.getByRole('button', { name: `复制路径: ${path}`, exact: true }).click()
-  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(path)
-  await headings.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true }).click()
-  const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
-  await expect(launch.getByLabel('目录', { exact: true })).toHaveValue(path)
-  await expect(launch.locator('.new-session-location select').first()).toHaveValue('linux-1')
-  await launch.getByRole('button', { name: '取消', exact: true }).click()
-  const archived = fixtureSession('same-workspace-history', 'Earlier project session', 'codex', false)
-  archived.metadata!.path = path
-  server.sessions.set(archived.id, archived)
-  server.emit({ type: 'session-added', sessionId: archived.id, data: archived })
-  await expect(workspace.getByTestId('sessions-history').getByTestId(`session-${archived.id}`)).toBeVisible()
-  await expect(headings.locator('.workspace-group-count')).toHaveText('3')
+  await expect(workspace.getByTestId('session-history')).toBeHidden()
+  await headings.getByRole('button', { name: /^展开工作区/ }).click()
   design.active = false
   design.thinking = false
   design.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
-  await expect(workspace.getByTestId('sessions-history').getByTestId('session-design')).toBeVisible()
-  await expect(workspace.locator('.session-row')).toHaveCount(3)
-  await expect(headings).toHaveCount(1)
-  await expect(headings).toBeVisible()
+  await expect(workspace.getByTestId('session-design')).toBeVisible()
+  await expect(headings.locator('.workspace-group-count')).toHaveText('2')
+  await expect(page.getByTestId('sessions-thinking')).toHaveCount(0)
+  await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
   design.active = true
   design.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
-  await expect(workspace).toBeVisible()
+  await expect(page.getByTestId('sessions-active').getByTestId('session-design')).toBeVisible()
+  await expect(headings.locator('.workspace-group-count')).toHaveText('1')
   await expect(headings).toHaveCount(1)
   await expect(page.getByTestId('session-design')).toHaveCount(1)
   await expect(page.getByTestId('session-review')).toHaveCount(1)
-  await expect(workspace.getByTestId('sessions-active').getByTestId('session-design')).toBeVisible()
-  await search.fill('no-matching-workspace')
+  server.sessions.delete('history')
+  server.emit({ type: 'session-removed', sessionId: 'history' })
   await expect(headings).toHaveCount(0)
-  await search.fill('')
-  await expect(headings).toBeVisible()
-  await workspace.getByTestId('session-design').click()
-  await expect(page.getByTestId('chat-design')).toBeVisible()
-  await page.screenshot({ path: '/tmp/hapi-desktop-workspace-groups.png', animations: 'disabled' })
-  for (const id of ['design', 'review', archived.id]) {
-    server.sessions.delete(id)
-    server.emit({ type: 'session-removed', sessionId: id })
-  }
-  await expect(headings).toHaveCount(0)
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('session-review')).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -3493,28 +3436,29 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   await machine.selectOption('linux-1')
   await expect(launch.getByLabel('目录', { exact: true })).toHaveValue('')
   await launch.getByRole('button', { name: '取消', exact: true }).click()
-  await page.evaluate(() => window.desktop.updateSettings({ groupSessionsByStatus: false }))
   await expect(
     page
-      .getByTestId('sessions-all')
+      .getByTestId('sessions-history')
       .locator('.session-group')
-      .filter({ has: page.getByTestId('session-design') })
+      .filter({ has: page.getByTestId('session-history') })
       .getByRole('button', { name: /在此目录新建会话/ }),
   ).toBeEnabled()
   expect(errors).toEqual([])
 })
 
-test('workspace group menus expand and collapse all displayed directories and remember the choice', async () => {
+test('workspace group menus expand and collapse historical directories without hiding live sessions', async () => {
   server.sessions.get('history')!.metadata!.path = '/home/dev/only-history'
+  const second = fixtureSession('past-menu', 'Another historical workspace', 'codex', false)
+  second.metadata!.path = '/home/dev/second-history'
+  server.sessions.set(second.id, second)
   await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
   await page.reload()
-  const activeGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-design') })
   const historyGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-history') })
-  const heading = activeGroup.locator('.workspace-group-heading')
-  const toggle = activeGroup.locator('.workspace-group-toggle')
+  const otherGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-past-menu') })
+  const heading = historyGroup.locator('.workspace-group-heading')
+  const toggle = historyGroup.locator('.workspace-group-toggle')
   const menu = page.getByRole('menu', { name: '工作区分组', exact: true })
-  await expect(page.getByTestId('session-design')).toBeVisible()
-  await expect(page.getByTestId('session-history')).toBeHidden()
+  await toggle.click()
   await page.getByTestId('session-design').click()
   const input = page.getByTestId('chat-design').locator('.composer textarea')
   await input.fill('分组操作保留输入焦点')
@@ -3524,25 +3468,26 @@ test('workspace group menus expand and collapse all displayed directories and re
   await page.keyboard.press('End')
   await expect(menu.getByRole('menuitem', { name: '全部折叠', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('session-design')).toBeHidden()
-  await expect(page.getByTestId('session-review')).toBeHidden()
   await expect(page.getByTestId('session-history')).toBeHidden()
+  await expect(page.getByTestId('session-past-menu')).toBeHidden()
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('session-review')).toBeVisible()
   await expect(input).toBeFocused()
   await page.reload()
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(historyGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(otherGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
   await toggle.focus()
   await page.keyboard.press('Shift+F10')
   await expect(menu.getByRole('menuitem', { name: '全部展开', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(toggle).toBeFocused()
-  await expect(page.getByTestId('session-design')).toBeVisible()
   await expect(page.getByTestId('session-history')).toBeVisible()
+  await expect(page.getByTestId('session-past-menu')).toBeVisible()
   await page.reload()
   await expect(page.getByTestId('session-history')).toBeVisible()
   const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
   await search.fill('only-history')
-  await historyGroup.locator('.workspace-group-count').click({ button: 'right' })
+  await heading.click({ button: 'right' })
   await expect(menu.getByRole('menuitem', { name: '全部折叠', exact: true })).toBeDisabled()
   await expect(menu.getByRole('menuitem', { name: '全部展开', exact: true })).toBeDisabled()
   await expect(menu).toContainText('清空搜索后可展开或折叠分组')
@@ -3553,13 +3498,41 @@ test('workspace group menus expand and collapse all displayed directories and re
   expect(errors).toEqual([])
 })
 
-test('active directories default to expanded even when a status filter only shows their history', async () => {
+test('locating a live session keeps historical workspace collapse choices intact', async () => {
   await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
   await page.reload()
-  await page.getByRole('button', { name: '历史', exact: true }).click()
-  await expect(page.getByTestId('session-design')).toHaveCount(0)
-  await expect(page.getByTestId('session-history')).toBeVisible()
-  await expect(page.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+  const historyToggle = page.getByTestId('sessions-history').locator('.workspace-group-toggle')
+  await expect(historyToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('session-history')).toBeHidden()
+  await page.getByTestId('session-design').click()
+  await page.getByRole('tab', { name: '桌面工作台 · 界面与交互', exact: true }).dblclick()
+  await expect(page.getByTestId('session-design')).toBeInViewport({ ratio: 1 })
+  await expect(page.getByTestId('sessions-active').locator('.workspace-group-heading')).toHaveCount(0)
+  await expect(historyToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByTestId('session-history')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('the collapsed pending shortcut opens and locates a request without introducing hidden status filters', async () => {
+  await page.evaluate(() => window.desktop.updateSettings({ notifications: false }))
+  await page.getByTestId('session-design').click()
+  await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('design')
+  const review = server.sessions.get('review')!
+  review.agentState!.requests = {
+    approval: { tool: 'Bash', arguments: { command: 'bun test' }, createdAt: Date.now() },
+  }
+  review.agentStateVersion++
+  review.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: 'review', data: review })
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await page.getByRole('button', { name: '待处理: 1', exact: true }).click()
+  await expect(page.locator('.sidebar')).not.toHaveClass(/collapsed/)
+  await expect(page.getByRole('textbox', { name: '搜索会话', exact: true })).toHaveValue('')
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await expect(page.getByTestId('chat-review').locator('.approval-area')).toBeFocused()
+  await expect(page.getByTestId('sessions-thinking').getByTestId('session-review')).toBeInViewport()
+  await expect(page.getByTestId('sessions-active').getByTestId('session-design')).toBeVisible()
+  await expect(page.locator('.sidebar .filters')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -3571,6 +3544,7 @@ test('double-clicking a tab reveals its workspace through filters, keeps preview
   history.metadata!.host = 'linux-dev-02'
   history.updatedAt = 1
   server.sessions.get('review')!.metadata!.path = path
+  server.sessions.get('review')!.active = false
   const otherMachine = structuredClone(server.machines[0])
   otherMachine.id = 'linux-2'
   otherMachine.metadata.host = 'linux-dev-02'
@@ -3593,8 +3567,6 @@ test('double-clicking a tab reveals its workspace through filters, keeps preview
   await input.fill('定位时保留预览草稿\n第二行')
   await search.fill('')
   await expect(group.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
-  await otherGroup.locator('.workspace-group-toggle').click()
-  await page.getByRole('button', { name: '活动中', exact: true }).click()
   const machine = page.getByRole('combobox', { name: '按机器筛选', exact: true })
   await machine.selectOption('linux-1')
   await page.getByLabel('仅看未读', { exact: true }).check()
@@ -3610,7 +3582,7 @@ test('double-clicking a tab reveals its workspace through filters, keeps preview
   await expect(search).toHaveValue('')
   await expect(machine).toHaveValue('')
   await expect(page.getByLabel('仅看未读', { exact: true })).not.toBeChecked()
-  await expect(page.getByRole('button', { name: '全部', exact: true })).toHaveClass('selected')
+  await expect(page.locator('.sidebar .filters')).toHaveCount(0)
   await expect(group.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'true')
   await expect(otherGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
   await expect(row).toHaveClass(/selected/)
@@ -3671,7 +3643,7 @@ test('double-clicking tabs locates global and project pins in either pane while 
   })
   await expect(right).toHaveClass(/focused/)
   await historyTab.dblclick()
-  await expect(page.getByTestId('sessions-project-pinned').getByTestId('session-history')).toBeInViewport({
+  await expect(page.getByTestId('sessions-history').getByTestId('session-history')).toBeInViewport({
     ratio: 1,
   })
   await expect(left).toHaveClass(/focused/)

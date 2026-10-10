@@ -7,7 +7,6 @@ export type Settings = {
   theme: 'system' | 'light' | 'dark'
   enterBehavior: 'newline' | 'send'
   fontSize: 'small' | 'normal' | 'large' | 'extra-large'
-  groupSessionsByStatus: boolean
   collapseHistoryByDefault: boolean
   codexExplorationCollapsed: boolean
   notifications: boolean

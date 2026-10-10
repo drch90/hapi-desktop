@@ -43,6 +43,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
       hubUrl: 'http://192.168.1.5:3006',
       locale: 'zh',
       theme: 'dark',
+      groupSessionsByStatus: false,
       notifications: false,
       launchAtLogin: false,
     }),
@@ -51,17 +52,16 @@ it('preserves older preferences and defaults Enter to newline, then persists the
   expect(storage.settings).toMatchObject({
     enterBehavior: 'newline',
     fontSize: 'normal',
-    groupSessionsByStatus: true,
     collapseHistoryByDefault: true,
     codexExplorationCollapsed: true,
     theme: 'dark',
     notifications: false,
   })
+  expect(storage.settings).not.toHaveProperty('groupSessionsByStatus')
   storage.saveSettings({
     ...storage.settings,
     enterBehavior: 'send',
     fontSize: 'extra-large',
-    groupSessionsByStatus: false,
     collapseHistoryByDefault: false,
     codexExplorationCollapsed: false,
   })
@@ -69,7 +69,6 @@ it('preserves older preferences and defaults Enter to newline, then persists the
     ...storage.settings,
     enterBehavior: 'send',
     fontSize: 'extra-large',
-    groupSessionsByStatus: false,
   })
 })
 

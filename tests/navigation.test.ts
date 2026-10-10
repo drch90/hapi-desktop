@@ -310,54 +310,52 @@ describe('session lenses', () => {
     sessions: [a, b, c],
     machines: [{ id: 'linux-1', metadata: { host: 'server' } }],
     search: '',
-    status: 'All',
     machine: '',
     unreadOnly: false,
     lastSeen: {},
     scope: 'alice',
-    byStatus: true,
   }
   it('separates global and project pins without duplicate rows', () => {
     const sections = selectSessionList(options)
-    expect(sections.map((section) => section.key)).toEqual(['global-pinned', 'project-pinned'])
-    expect(sections[1].groups[0][1].sessions).toEqual([b, c])
+    expect(sections.map((section) => section.key)).toEqual(['global-pinned', 'active', 'history'])
+    expect(sections[1].groups[0][1].sessions).toEqual([b])
+    expect(sections[2].groups[0][1].sessions).toEqual([c])
     expect(sections.flatMap((section) => section.groups.flatMap(([, group]) => group.sessions))).toHaveLength(
       3,
     )
   })
-  it('keeps running, idle and historical sessions inside one workspace with status subsections', () => {
+  it('floats individual live sessions into status sections while only history keeps workspace groups', () => {
     const running = { ...a, globalPinned: false, thinking: true }
     const idle = { ...b, pinned: false }
-    const sessions = [running, idle, c]
+    const background = { ...idle, id: 'background', backgroundTaskCount: 2 }
+    const pending = { ...idle, id: 'pending', pendingRequestsCount: 1 }
+    const sessions = [running, idle, background, pending, c]
     const sections = selectSessionList({ ...options, sessions })
-    expect(sections.map((section) => section.key)).toEqual(['all'])
-    const groups = sections[0].groups
-    expect(groups).toHaveLength(1)
-    expect(groups[0][1]).toMatchObject({
+    expect(sections.map((section) => section.key)).toEqual(['thinking', 'active', 'history'])
+    expect(sections[0].groups[0][1]).toMatchObject({
+      path: '',
+      hasDirectory: false,
+      sessions: [background, pending, running],
+    })
+    expect(sections[1].groups[0][1]).toMatchObject({ hasDirectory: false, sessions: [idle] })
+    expect(sections[2].groups[0][1]).toMatchObject({
       machineId: 'linux-1',
       path: running.metadata!.path,
       hasDirectory: true,
-      sessions: [c, idle, running],
-      sections: [
-        { key: 'thinking', sessions: [running] },
-        { key: 'active', sessions: [idle] },
-        { key: 'history', sessions: [c] },
-      ],
+      sessions: [c],
     })
-    expect(selectSessionList({ ...options, sessions: [running, idle] })[0].groups[0][1].sessions).toEqual([
-      idle,
-      running,
-    ])
-    expect(selectSessionList({ ...options, sessions, byStatus: false })[0].groups[0][1].sections).toEqual([
-      { key: 'all', title: null, sessions: [c, idle, running] },
-    ])
+    const updated = selectSessionList({ ...options, sessions: [{ ...running, active: false }, idle, c] })
+    expect(updated.map((section) => section.key)).toEqual(['active', 'history'])
+    expect(updated[0].groups[0][1].sessions).toEqual([idle])
+    expect(updated[1].groups[0][0]).toBe(sections[2].groups[0][0])
+    expect(updated[1].groups[0][1].sessions.map((row) => row.id)).toEqual(['c', 'a'])
     expect(selectSessionList({ ...options, sessions: [a] }).map((section) => section.key)).toEqual([
       'global-pinned',
     ])
   })
-  it('keeps identical paths on separate machines and applies search, status and unread filters', () => {
-    const running = { ...a, globalPinned: false }
-    const other = { ...b, pinned: false, metadata: { ...b.metadata!, machineId: 'linux-2' } }
+  it('keeps historical paths on separate machines and applies search and unread filters', () => {
+    const running = { ...a, globalPinned: false, active: false }
+    const other = { ...b, active: false, pinned: false, metadata: { ...b.metadata!, machineId: 'linux-2' } }
     const base = { ...options, sessions: [running, other] }
     const headers = (overrides: Partial<typeof options> = {}) =>
       selectSessionList({ ...base, ...overrides }).flatMap((section) =>
@@ -367,40 +365,39 @@ describe('session lenses', () => {
     expect(headers({ machine: 'linux-1' })).toEqual(['linux-1'])
     expect(headers({ search: 'API review' })).toEqual(['linux-1'])
     expect(headers({ unreadOnly: true, lastSeen: { 'alice:a': running.updatedAt } })).toEqual(['linux-2'])
-    expect(headers({ status: 'History' })).toEqual([])
     expect(headers({ search: 'missing-workspace' })).toEqual([])
   })
-  it('places active workspaces before newer history while preserving search relevance', () => {
+  it('keeps live sections ahead of newer history and promotes project pins within their section', () => {
     const running = { ...a, globalPinned: false }
     const history = { ...c, metadata: { ...c.metadata!, path: '/home/dev/archived-project' } }
     const base = { ...options, sessions: [history, running] }
-    expect(selectSessionList(base)[0].groups.map(([, group]) => group.path)).toEqual([
-      running.metadata!.path,
-      history.metadata.path,
+    expect(selectSessionList(base).map((section) => section.key)).toEqual(['active', 'history'])
+    expect(selectSessionList({ ...base, search: 'API' }).map((section) => section.key)).toEqual([
+      'active',
+      'history',
     ])
-    expect(selectSessionList({ ...base, search: 'API' })[0].groups.map(([, group]) => group.path)).toEqual([
-      history.metadata.path,
-      running.metadata!.path,
-    ])
+    const pinned = { ...b, updatedAt: 1 }
+    const sections = selectSessionList({ ...options, sessions: [running, pinned, history] })
+    expect(sections[0].groups[0][1].sessions).toEqual([pinned, running])
+    expect(sections[1].groups[0][1].path).toBe(history.metadata.path)
   })
-  it('matches multiple words across fields and combines machine/status/unread lenses', () => {
+  it('matches multiple words across fields and combines machine and unread lenses', () => {
     const sections = selectSessionList({
       ...options,
       search: 'API server',
       unreadOnly: true,
       lastSeen: { 'alice:a': 100 },
       machine: 'linux-1',
-      status: 'History',
     })
     expect(
       sections.flatMap((section) =>
         section.groups.flatMap(([, group]) => group.sessions.map((row) => row.id)),
       ),
-    ).toEqual(['c'])
+    ).toEqual(['b', 'c'])
     expect(selectSessionList({ ...options, machine: 'missing' })).toEqual([])
   })
   it('matches session IDs and worktree paths while preserving pinned grouping during search', () => {
-    expect(selectSessionList({ ...options, search: 'a', byStatus: false })[0].key).toBe('global-pinned')
+    expect(selectSessionList({ ...options, search: 'a' })[0].key).toBe('global-pinned')
     const worktree = {
       ...c,
       metadata: {

@@ -32,7 +32,7 @@ import { en, zhCN } from '@/lib/locales'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { forgetQueueEdit } from './lib/queueEdit'
-import { selectSessionList, sessionWorkspaceKey } from './lib/sessionList'
+import { selectSessionList, sessionGroupKey } from './lib/sessionList'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import {
@@ -334,7 +334,6 @@ function Workbench({
   const [attentionTarget, setAttentionTarget] = useState<{ id: string; token: number } | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('All')
   const [machineFilter, setMachineFilter] = useState('')
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [markAllRead, setMarkAllRead] = useState(false)
@@ -389,7 +388,6 @@ function Workbench({
       machine.metadata?.displayName || machine.metadata?.host || machine.id,
     ]),
   )
-  const activeWorkspaceKeys = new Set(rows.filter((row) => row.active).map(sessionWorkspaceKey))
   const dispatch = useCallback(
     (action: WorkspaceAction) => {
       const id =
@@ -587,28 +585,15 @@ function Workbench({
         sessions: sessions.data ?? [],
         machines: machines.data ?? [],
         search,
-        status: filter,
         machine: machineFilter,
         unreadOnly: readStateReady && unreadOnly,
         lastSeen,
         scope,
-        byStatus: bootstrap.settings.groupSessionsByStatus,
       }),
-    [
-      sessions.data,
-      machines.data,
-      search,
-      filter,
-      machineFilter,
-      unreadOnly,
-      lastSeen,
-      readStateReady,
-      scope,
-      bootstrap.settings.groupSessionsByStatus,
-    ],
+    [sessions.data, machines.data, search, machineFilter, unreadOnly, lastSeen, readStateReady, scope],
   )
   const groupKeys = sections
-    .filter((section) => section.key !== 'global-pinned')
+    .filter((section) => section.key === 'history')
     .flatMap((section) => section.groups.map(([key]) => key))
   const locateSession = (id: string) => {
     const row = byId.get(id)
@@ -622,25 +607,41 @@ function Workbench({
       )
     ) {
       setSearch('')
-      setFilter('All')
       setMachineFilter('')
       setUnreadOnly(false)
     }
     rawDispatch({ type: 'sidebar', collapsed: false })
-    if (!row.globalPinned)
-      rawDispatch({ type: 'set-history-groups', keys: [sessionWorkspaceKey(row)], collapsed: false })
+    if (!row.active && !row.globalPinned)
+      rawDispatch({ type: 'set-history-groups', keys: [sessionGroupKey(row)], collapsed: false })
     setLocateTarget(id)
   }
   useEffect(() => {
     if (!locateTarget) return
     if (activeId === locateTarget && !workspace.sidebarCollapsed) {
+      const row = sessions.data?.find((row) => row.id === locateTarget)
+      if (
+        row &&
+        !row.active &&
+        !row.globalPinned &&
+        !workspace.expandedHistoryGroups.includes(sessionGroupKey(row))
+      ) {
+        rawDispatch({ type: 'set-history-groups', keys: [sessionGroupKey(row)], collapsed: false })
+        return
+      }
       // Wait for the expanded group and any cleared filters to reach the DOM.
       sessionTree.current
         ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(locateTarget)}"]`)
         ?.scrollIntoView({ block: 'center', inline: 'nearest' })
     }
     setLocateTarget(null)
-  }, [locateTarget, activeId, workspace.sidebarCollapsed, sections])
+  }, [
+    locateTarget,
+    activeId,
+    workspace.sidebarCollapsed,
+    workspace.expandedHistoryGroups,
+    sections,
+    sessions.data,
+  ])
   function replaceSession(from: string, to: string) {
     if (!to || to.length > 256) throw new Error('INVALID_RESPONSE')
     migrateSessionLocalState(scope, from, to)
@@ -687,12 +688,13 @@ function Workbench({
                 className="icon-button pending-shortcut"
                 title={`${t('Pending')}: ${pendingCount}`}
                 aria-label={`${t('Pending')}: ${pendingCount}`}
+                disabled={!pendingCount}
                 onClick={() => {
-                  dispatch({ type: 'sidebar', collapsed: false })
-                  setFilter('Pending')
-                  setSearch('')
-                  setUnreadOnly(false)
-                  setMachineFilter('')
+                  const target = rows.find((row) => row.pendingRequestsCount > 0)
+                  if (!target) return
+                  openListedSession(target.id)
+                  locateSession(target.id)
+                  setAttentionTarget({ id: target.id, token: Date.now() })
                 }}
               >
                 <Bell size={18} />
@@ -742,18 +744,6 @@ function Workbench({
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="filters">
-          {['All', 'Active', 'Pending', 'History'].map((value) => (
-            <button
-              key={value}
-              className={filter === value ? 'selected' : ''}
-              onClick={() => setFilter(value)}
-            >
-              {t(value)}
-              {value === 'Pending' && rows.some((s) => s.pendingRequestsCount) ? <i /> : null}
-            </button>
-          ))}
-        </div>
         <div className="session-list-tools">
           <select
             aria-label={t('Filter by machine')}
@@ -800,147 +790,149 @@ function Workbench({
             <p className="muted padded">{t(search ? 'No matching sessions' : 'No sessions yet')}</p>
           )}
           {sections.map((section) => (
-            <section key={section.key} data-testid={`sessions-${section.key}`} className="session-section">
+            <section
+              key={section.key}
+              data-testid={`sessions-${section.key}`}
+              className="session-section"
+              data-section={section.key}
+            >
               {section.title && (
                 <h2>
                   {t(section.title)}{' '}
                   <span>{section.groups.reduce((count, [, group]) => count + group.sessions.length, 0)}</span>
                 </h2>
               )}
-              {section.groups.map(([key, group]) => (
-                <SessionWorkspaceGroup
-                  key={key}
-                  machine={group.machine}
-                  path={group.path}
-                  hasDirectory={group.hasDirectory}
-                  canCreate={
-                    connection.status === 'connected' &&
-                    Boolean(
-                      machines.data?.some((machine) => machine.id === group.machineId && machine.active),
-                    )
-                  }
-                  onNewSession={() => {
-                    if (group.machineId && group.hasDirectory)
-                      setNewSession({ machineId: group.machineId, directory: group.path })
-                  }}
-                  count={group.sessions.length}
-                  filtering={Boolean(search.trim())}
-                  showHeading={section.key !== 'global-pinned'}
-                  collapsible={section.key !== 'global-pinned'}
-                  collapsed={
-                    section.key !== 'global-pinned' &&
-                    !search.trim() &&
-                    isHistoryGroupCollapsed(
-                      workspace,
-                      key,
-                      bootstrap.settings.collapseHistoryByDefault &&
-                        section.key !== 'project-pinned' &&
-                        !activeWorkspaceKeys.has(key),
-                    )
-                  }
-                  onToggle={() =>
-                    dispatch({
-                      type: 'toggle-history-group',
-                      key,
-                      defaultCollapsed:
-                        bootstrap.settings.collapseHistoryByDefault &&
-                        section.key !== 'project-pinned' &&
-                        !activeWorkspaceKeys.has(key),
-                    })
-                  }
-                  onSetAllCollapsed={(collapsed) =>
-                    dispatch({ type: 'set-history-groups', keys: groupKeys, collapsed })
-                  }
-                >
-                  {group.sections.map((statusSection) => (
-                    <div
-                      key={statusSection.key}
-                      className="workspace-session-section"
-                      data-testid={statusSection.title ? `sessions-${statusSection.key}` : undefined}
-                    >
-                      {statusSection.title && (
-                        <h3 className="workspace-session-status">
-                          {t(statusSection.title)} <span>{statusSection.sessions.length}</span>
-                        </h3>
-                      )}
-                      {statusSection.sessions.map((row) => {
-                        const unread = unreadIds.has(row.id)
-                        const status = !row.active
-                          ? 'history'
-                          : row.pendingRequestsCount
-                            ? 'pending'
-                            : row.thinking
-                              ? 'thinking'
-                              : row.backgroundTaskCount
-                                ? 'background'
-                                : 'ready'
-                        return (
-                          <button
-                            key={row.id}
-                            data-testid={`session-${row.id}`}
-                            data-session-id={row.id}
-                            data-status={status}
-                            className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
-                            onClick={() => openListedSession(row.id)}
-                            onDoubleClick={() => dispatch({ type: 'open', id: row.id, preview: false })}
-                            onContextMenu={(event) => {
+              {section.groups.map(([key, group]) => {
+                // Carry over earlier workspace choices; new history overrides
+                // take precedence and never hide live sessions in the top sections.
+                const defaultCollapsed = isHistoryGroupCollapsed(
+                  workspace,
+                  group.workspaceKey,
+                  section.key === 'history' &&
+                    bootstrap.settings.collapseHistoryByDefault &&
+                    !group.sessions.some((row) => row.pinned),
+                )
+                return (
+                  <SessionWorkspaceGroup
+                    key={key}
+                    machine={group.machine}
+                    path={group.path}
+                    hasDirectory={group.hasDirectory}
+                    canCreate={
+                      connection.status === 'connected' &&
+                      Boolean(
+                        machines.data?.some((machine) => machine.id === group.machineId && machine.active),
+                      )
+                    }
+                    onNewSession={() => {
+                      if (group.machineId && group.hasDirectory)
+                        setNewSession({ machineId: group.machineId, directory: group.path })
+                    }}
+                    count={group.sessions.length}
+                    filtering={Boolean(search.trim())}
+                    showHeading={section.key === 'history'}
+                    collapsible={section.key === 'history'}
+                    collapsed={
+                      section.key === 'history' &&
+                      !search.trim() &&
+                      isHistoryGroupCollapsed(workspace, key, defaultCollapsed)
+                    }
+                    onToggle={() =>
+                      dispatch({
+                        type: 'toggle-history-group',
+                        key,
+                        defaultCollapsed,
+                      })
+                    }
+                    onSetAllCollapsed={(collapsed) =>
+                      dispatch({ type: 'set-history-groups', keys: groupKeys, collapsed })
+                    }
+                  >
+                    {group.sessions.map((row) => {
+                      const unread = unreadIds.has(row.id)
+                      const status = !row.active
+                        ? 'history'
+                        : row.pendingRequestsCount
+                          ? 'pending'
+                          : row.thinking
+                            ? 'thinking'
+                            : row.backgroundTaskCount
+                              ? 'background'
+                              : 'ready'
+                      return (
+                        <button
+                          key={row.id}
+                          data-testid={`session-${row.id}`}
+                          data-session-id={row.id}
+                          data-status={status}
+                          title={[
+                            row.metadata?.machineId
+                              ? machineNames.get(row.metadata.machineId) || row.metadata.machineId
+                              : undefined,
+                            row.metadata?.path,
+                          ]
+                            .filter(Boolean)
+                            .join('\n')}
+                          className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
+                          onClick={() => openListedSession(row.id)}
+                          onDoubleClick={() => dispatch({ type: 'open', id: row.id, preview: false })}
+                          onContextMenu={(event) => {
+                            event.preventDefault()
+                            setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
                               event.preventDefault()
-                              setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                                event.preventDefault()
-                                const rect = event.currentTarget.getBoundingClientRect()
-                                setSessionMenu({ id: row.id, point: { x: rect.left + 20, y: rect.bottom } })
-                              }
-                            }}
-                          >
-                            {status === 'ready' ? (
-                              <CheckCircle2 size={14} className="session-ready-icon" aria-hidden="true" />
-                            ) : (
-                              <span
-                                className={`status-dot ${row.pendingRequestsCount ? 'pending' : row.thinking ? 'thinking' : row.active ? 'online' : ''}`}
-                              />
-                            )}
-                            <span className="session-copy">
-                              <span>
-                                {(row.pinned || row.globalPinned) && (
-                                  <Pin
-                                    size={12}
-                                    className="session-pin"
-                                    aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
-                                  />
-                                )}
-                                {sessionTitle(row)}
-                              </span>
-                              <small>
-                                {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
-                                <strong className="session-status">
-                                  {t(
-                                    status === 'pending'
-                                      ? 'Pending'
-                                      : status === 'thinking'
-                                        ? 'Thinking'
-                                        : status === 'ready'
-                                          ? 'Ready'
-                                          : status === 'background'
-                                            ? 'Running in background'
-                                            : 'History',
-                                  )}
-                                </strong>
-                              </small>
+                              const rect = event.currentTarget.getBoundingClientRect()
+                              setSessionMenu({ id: row.id, point: { x: rect.left + 20, y: rect.bottom } })
+                            }
+                          }}
+                        >
+                          {status === 'ready' ? (
+                            <CheckCircle2 size={14} className="session-ready-icon" aria-hidden="true" />
+                          ) : (
+                            <span
+                              className={`status-dot ${row.pendingRequestsCount ? 'pending' : row.thinking ? 'thinking' : row.active ? 'online' : ''}`}
+                            />
+                          )}
+                          <span className="session-copy">
+                            <span>
+                              {(row.pinned || row.globalPinned) && (
+                                <Pin
+                                  size={12}
+                                  className="session-pin"
+                                  aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
+                                />
+                              )}
+                              {sessionTitle(row)}
                             </span>
-                            {row.pendingRequestsCount > 0 && (
-                              <span className="count">{row.pendingRequestsCount}</span>
-                            )}
-                            {unread && <Badge className="session-unread-badge">{t('New activity')}</Badge>}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ))}
-                </SessionWorkspaceGroup>
-              ))}
+                            <small>
+                              {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
+                              <strong className="session-status">
+                                {t(
+                                  status === 'pending'
+                                    ? 'Pending'
+                                    : status === 'thinking'
+                                      ? 'Thinking'
+                                      : status === 'ready'
+                                        ? 'Ready'
+                                        : status === 'background'
+                                          ? 'Running in background'
+                                          : 'History',
+                                )}
+                              </strong>
+                            </small>
+                          </span>
+                          {row.pendingRequestsCount > 0 && (
+                            <span className="count">{row.pendingRequestsCount}</span>
+                          )}
+                          {unread && <Badge className="session-unread-badge">{t('New activity')}</Badge>}
+                        </button>
+                      )
+                    })}
+                  </SessionWorkspaceGroup>
+                )
+              })}
             </section>
           ))}
         </div>
@@ -1254,14 +1246,6 @@ function SettingsDialog({
               <option value="newline">{t('Enter for newline')}</option>
               <option value="send">{t('Enter to send')}</option>
             </select>
-          </label>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={bootstrap.settings.groupSessionsByStatus}
-              onChange={(e) => void update({ groupSessionsByStatus: e.target.checked })}
-            />
-            {t('Group sessions by status')}
           </label>
           <label className="check-label">
             <input

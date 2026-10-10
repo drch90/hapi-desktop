@@ -1105,15 +1105,6 @@ const rows = [
     'История сеансов',
     'Lịch sử phiên',
   ],
-  [
-    'Group sessions by status',
-    '工作区内按状态分区显示会话',
-    '在工作區內依狀態分區顯示工作階段',
-    'Regrouper les sessions par état dans chaque espace de travail',
-    '各ワークスペース内でセッションを状態別に表示',
-    'Группировать сеансы по состоянию внутри рабочего пространства',
-    'Nhóm phiên theo trạng thái trong từng không gian làm việc',
-  ],
   ['Ready', '就绪', '就緒', 'Prêt', '待機中', 'Готов', 'Sẵn sàng'],
   ['New activity', '新动态', '新動態', 'Nouveauté', '更新あり', 'Обновление', 'Cập nhật mới'],
   [
@@ -1811,8 +1802,6 @@ const newKeys = Object.fromEntries(
     Object.fromEntries(rows.map((row) => [row[0], index === 0 ? row[0] : row[index]])),
   ]),
 )
-// Keep the stable source key while describing the nested status sections.
-newKeys.en['Group sessions by status'] = 'Group sessions by status within each workspace'
 const directory = path.resolve('src/renderer/i18n/locales')
 await fs.mkdir(directory, { recursive: true })
 for (const [locale, translation] of Object.entries(newKeys)) {
@@ -1826,6 +1815,7 @@ for (const [locale, translation] of Object.entries(newKeys)) {
     /* Initial generation. */
   }
   delete previous['Unable to load session options. Reopen settings to retry.']
+  delete previous['Group sessions by status']
   const sorted = Object.fromEntries(
     Object.entries({ ...previous, ...translation }).sort(([a], [b]) => a.localeCompare(b)),
   )
