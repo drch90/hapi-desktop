@@ -32,7 +32,7 @@ import { en, zhCN } from '@/lib/locales'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { forgetQueueEdit } from './lib/queueEdit'
-import { selectSessionList } from './lib/sessionList'
+import { selectSessionList, sessionWorkspaceKey } from './lib/sessionList'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import {
@@ -57,9 +57,11 @@ import {
   sessionsKey,
   sessionKey,
   forgetSession,
+  markSessionArchived,
 } from './lib/sync'
 import {
   loadWorkspace,
+  saveWorkspace,
   reduceWorkspace,
   migrateSessionLocalState,
   isHistoryGroupCollapsed,
@@ -337,6 +339,8 @@ function Workbench({
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [markAllRead, setMarkAllRead] = useState(false)
   const searchInput = useRef<HTMLInputElement>(null)
+  const sessionTree = useRef<HTMLDivElement>(null)
+  const [locateTarget, setLocateTarget] = useState<string | null>(null)
   const workbench = useRef<HTMLElement>(null)
   const [workbenchWidth, setWorkbenchWidth] = useState(window.innerWidth)
   const [showSettings, setShowSettings] = useState(false)
@@ -379,6 +383,13 @@ function Workbench({
   })
   const rows = sessions.data ?? []
   const byId = new Map(rows.map((row) => [row.id, row]))
+  const machineNames = new Map(
+    (machines.data ?? []).map((machine) => [
+      machine.id,
+      machine.metadata?.displayName || machine.metadata?.host || machine.id,
+    ]),
+  )
+  const activeWorkspaceKeys = new Set(rows.filter((row) => row.active).map(sessionWorkspaceKey))
   const dispatch = useCallback(
     (action: WorkspaceAction) => {
       const id =
@@ -395,6 +406,30 @@ function Workbench({
     },
     [scope, sessions.data, workspace.focused, workspace.panes],
   )
+  const openListedSession = (id: string) => {
+    const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
+    dispatch({ type: 'open', id, preview: row ? !row.active : undefined })
+  }
+  const previousSessionStates = useRef(new Map<string, { active: boolean; lifecycle?: string }>())
+  useEffect(() => {
+    if (!sessions.data) return
+    for (const row of sessions.data) {
+      const previous = previousSessionStates.current.get(row.id)
+      // A confirmed lifecycle change also covers archiving from Web. A lost
+      // runner connection alone must not close a tab or interrupt its draft.
+      if (previous && previous.lifecycle !== 'archived' && row.metadata?.lifecycleState === 'archived')
+        rawDispatch({ type: 'close', id: row.id })
+      else if (row.active && !previous?.active) rawDispatch({ type: 'keep-tab', id: row.id })
+    }
+    previousSessionStates.current = new Map(
+      sessions.data.map((row) => [row.id, { active: row.active, lifecycle: row.metadata?.lifecycleState }]),
+    )
+  }, [sessions.data])
+  const sessionArchived = useCallback(async (id: string) => {
+    previousSessionStates.current.set(id, { active: false, lifecycle: 'archived' })
+    await markSessionArchived(id)
+    rawDispatch({ type: 'close', id })
+  }, [])
   const sidebarMax = Math.max(
     220,
     Math.min(480, workbenchWidth - (workspace.split ? 440 : 320) - (workspace.sidePanel ? 240 : 0)),
@@ -461,23 +496,24 @@ function Workbench({
     [sessionDeleted],
   )
   useEffect(() => {
-    localStorage.setItem(`desktop:workspace:${scope}`, JSON.stringify(workspace))
+    saveWorkspace(scope, workspace)
   }, [workspace, scope])
   useEffect(() => {
     let disposed = false
     openSession.current = (id, attention, noticeScope) => {
       if (noticeScope && noticeScope !== scope) return
       if (!attention && !noticeScope) {
-        rawDispatch({ type: 'open', id })
+        const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
+        rawDispatch({ type: 'open', id, preview: row ? !row.active : undefined })
         return
       }
       void createApi(scope)
         .getSession(id)
-        .then(() => {
+        .then(({ session }) => {
           if (disposed) return
           const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
           if (row) markSessionSeen(`${scope}:${id}`, row.updatedAt)
-          rawDispatch({ type: 'open', id })
+          rawDispatch({ type: 'open', id, preview: !attention && !session.active })
           if (attention) setAttentionTarget({ id, token: Date.now() })
           refreshSessions()
         })
@@ -494,6 +530,23 @@ function Workbench({
     .filter((_, index) => index === 0 || workspace.split)
     .map((pane) => pane.active)
     .filter((id): id is string => Boolean(id))
+  const unreadIds = useMemo(
+    () =>
+      new Set(
+        rows
+          .filter(
+            (row) =>
+              readStateReady &&
+              classifySessionAttention(row, {
+                selected: visibleIds.includes(row.id),
+                manualUnreadAt: getSessionManualUnreadAt(`${scope}:${row.id}`),
+                lastSeenAt: lastSeen[`${scope}:${row.id}`] ?? 0,
+              })?.kind === 'unread',
+          )
+          .map((row) => row.id),
+      ),
+    [sessions.data, readStateReady, scope, lastSeen, visibleIds.join('|')],
+  )
   useEffect(() => {
     const updateFocus = () => setWindowFocused(document.hasFocus() && document.visibilityState === 'visible')
     window.addEventListener('focus', updateFocus)
@@ -554,6 +607,40 @@ function Workbench({
       bootstrap.settings.groupSessionsByStatus,
     ],
   )
+  const groupKeys = sections
+    .filter((section) => section.key !== 'global-pinned')
+    .flatMap((section) => section.groups.map(([key]) => key))
+  const locateSession = (id: string) => {
+    const row = byId.get(id)
+    if (!row) return
+    // Only explicit location changes filters, and only if they hide the target.
+    // Opening the tab marks it read, so an unread-only list must also be cleared.
+    if (
+      unreadOnly ||
+      !sections.some((section) =>
+        section.groups.some(([, group]) => group.sessions.some((row) => row.id === id)),
+      )
+    ) {
+      setSearch('')
+      setFilter('All')
+      setMachineFilter('')
+      setUnreadOnly(false)
+    }
+    rawDispatch({ type: 'sidebar', collapsed: false })
+    if (!row.globalPinned)
+      rawDispatch({ type: 'set-history-groups', keys: [sessionWorkspaceKey(row)], collapsed: false })
+    setLocateTarget(id)
+  }
+  useEffect(() => {
+    if (!locateTarget) return
+    if (activeId === locateTarget && !workspace.sidebarCollapsed) {
+      // Wait for the expanded group and any cleared filters to reach the DOM.
+      sessionTree.current
+        ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(locateTarget)}"]`)
+        ?.scrollIntoView({ block: 'center', inline: 'nearest' })
+    }
+    setLocateTarget(null)
+  }, [locateTarget, activeId, workspace.sidebarCollapsed, sections])
   function replaceSession(from: string, to: string) {
     if (!to || to.length > 256) throw new Error('INVALID_RESPONSE')
     migrateSessionLocalState(scope, from, to)
@@ -702,7 +789,7 @@ function Workbench({
             <CheckCircle2 size={16} />
           </button>
         </div>
-        <div className="session-tree">
+        <div className="session-tree" ref={sessionTree}>
           {sessions.isPending && <p className="muted padded">{t('Loading…')}</p>}
           {sessions.isError && (
             <button className="error padded" onClick={() => void sessions.refetch()}>
@@ -748,7 +835,7 @@ function Workbench({
                       key,
                       bootstrap.settings.collapseHistoryByDefault &&
                         section.key !== 'project-pinned' &&
-                        group.sessions.every((row) => !row.active),
+                        !activeWorkspaceKeys.has(key),
                     )
                   }
                   onToggle={() =>
@@ -758,8 +845,11 @@ function Workbench({
                       defaultCollapsed:
                         bootstrap.settings.collapseHistoryByDefault &&
                         section.key !== 'project-pinned' &&
-                        group.sessions.every((row) => !row.active),
+                        !activeWorkspaceKeys.has(key),
                     })
+                  }
+                  onSetAllCollapsed={(collapsed) =>
+                    dispatch({ type: 'set-history-groups', keys: groupKeys, collapsed })
                   }
                 >
                   {group.sections.map((statusSection) => (
@@ -774,13 +864,7 @@ function Workbench({
                         </h3>
                       )}
                       {statusSection.sessions.map((row) => {
-                        const unread =
-                          readStateReady &&
-                          classifySessionAttention(row, {
-                            selected: visibleIds.includes(row.id),
-                            manualUnreadAt: getSessionManualUnreadAt(`${scope}:${row.id}`),
-                            lastSeenAt: lastSeen[`${scope}:${row.id}`] ?? 0,
-                          })?.kind === 'unread'
+                        const unread = unreadIds.has(row.id)
                         const status = !row.active
                           ? 'history'
                           : row.pendingRequestsCount
@@ -794,9 +878,11 @@ function Workbench({
                           <button
                             key={row.id}
                             data-testid={`session-${row.id}`}
+                            data-session-id={row.id}
                             data-status={status}
                             className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
-                            onClick={() => dispatch({ type: 'open', id: row.id })}
+                            onClick={() => openListedSession(row.id)}
+                            onDoubleClick={() => dispatch({ type: 'open', id: row.id, preview: false })}
                             onContextMenu={(event) => {
                               event.preventDefault()
                               setSessionMenu({ id: row.id, point: { x: event.clientX, y: event.clientY } })
@@ -948,6 +1034,10 @@ function Workbench({
                       workspace={workspace}
                       dispatch={dispatch}
                       byId={byId}
+                      machineNames={machineNames}
+                      connected={connection.status === 'connected'}
+                      unreadIds={unreadIds}
+                      onLocate={locateSession}
                       dragging={dragging}
                       onDrag={setDragging}
                     />
@@ -968,7 +1058,9 @@ function Workbench({
                         codexExplorationCollapsed={bootstrap.settings.codexExplorationCollapsed}
                         replaceSession={replaceSession}
                         sessionDeleted={sessionDeleted}
-                        openSession={(id) => dispatch({ type: 'open', id })}
+                        sessionArchived={sessionArchived}
+                        keepSession={(id) => dispatch({ type: 'keep-tab', id })}
+                        openSession={openListedSession}
                         registerComposer={registerComposer}
                         openFile={(path) => {
                           if (workspace.focused !== pane) dispatch({ type: 'focus', pane })
@@ -1015,7 +1107,7 @@ function Workbench({
                 workspacePath={byId.get(activeId)?.metadata?.path}
                 request={preview?.sessionId === activeId ? preview : undefined}
                 onAddToComposer={(path) => composerActions.current.get(activeId)?.(path)}
-                onOpenSession={(id) => dispatch({ type: 'open', id })}
+                onOpenSession={openListedSession}
                 close={() => dispatch({ type: 'side-panel' })}
               />
             </div>
@@ -1031,6 +1123,7 @@ function Workbench({
           scope={scope}
           onDismiss={() => setSessionMenu(null)}
           onDeleted={sessionDeleted}
+          onArchived={sessionArchived}
         />
       )}
       <ConfirmDialog

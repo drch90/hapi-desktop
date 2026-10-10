@@ -1,6 +1,10 @@
 import { z } from 'zod'
 
-const paneSchema = z.object({ tabs: z.array(z.string().max(256)).max(60), active: z.string().nullable() })
+const paneSchema = z.object({
+  tabs: z.array(z.string().max(256)).max(60),
+  active: z.string().nullable(),
+  preview: z.string().max(256).optional(),
+})
 export const workspaceSchema = z.object({
   panes: z.tuple([paneSchema, paneSchema]),
   split: z.boolean(),
@@ -42,7 +46,8 @@ export const emptyWorkspace: Workspace = {
   expandedHistoryGroups: [],
 }
 export type WorkspaceAction =
-  | { type: 'open'; id: string; pane?: PaneId }
+  | { type: 'open'; id: string; pane?: PaneId; preview?: boolean }
+  | { type: 'keep-tab'; id: string }
   | { type: 'close'; id: string }
   | { type: 'remove'; id: string }
   | { type: 'close-tabs'; pane: PaneId; id: string; range: 'left' | 'right' | 'all' | 'others' }
@@ -58,6 +63,7 @@ export type WorkspaceAction =
   | { type: 'side-panel' }
   | { type: 'file-panel-width'; width: number }
   | { type: 'toggle-history-group'; key: string; defaultCollapsed?: boolean }
+  | { type: 'set-history-groups'; keys: string[]; collapsed: boolean }
 
 export function isHistoryGroupCollapsed(state: Workspace, key: string, defaultCollapsed: boolean): boolean {
   if (state.expandedHistoryGroups.includes(key)) return false
@@ -76,7 +82,7 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
       if (!action.available.includes(record.id)) continue
       const next = { ...state, closedTabs: records }
       if (state.panes.some((pane) => pane.tabs.includes(record.id)))
-        return reduceWorkspace(next, { type: 'open', id: record.id })
+        return reduceWorkspace(next, { type: 'open', id: record.id, preview: false })
       const pane = state.split ? record.pane : state.focused
       const opened = reduceWorkspace(next, { type: 'open', id: record.id, pane })
       return reduceWorkspace(opened, { type: 'place', id: record.id, pane, index: record.index })
@@ -103,6 +109,8 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
     if (source < 0) return state
     const next = structuredClone(state)
     const sourcePane = next.panes[source]
+    // Explicitly arranging a preview keeps it, including cross-pane drops.
+    if (sourcePane.preview === action.id) delete sourcePane.preview
     const from = sourcePane.tabs.indexOf(action.id)
     sourcePane.tabs.splice(from, 1)
     const target = next.panes[action.pane]
@@ -114,6 +122,20 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
       next.split = true
     }
     return next
+  }
+  if (action.type === 'set-history-groups') {
+    const keys = new Set(action.keys)
+    return {
+      ...state,
+      collapsedHistoryGroups: [
+        ...state.collapsedHistoryGroups.filter((key) => !keys.has(key)),
+        ...(action.collapsed ? keys : []),
+      ],
+      expandedHistoryGroups: [
+        ...state.expandedHistoryGroups.filter((key) => !keys.has(key)),
+        ...(action.collapsed ? [] : keys),
+      ],
+    }
   }
   if (action.type === 'toggle-history-group') {
     const collapsed = isHistoryGroupCollapsed(state, action.key, action.defaultCollapsed ?? false)
@@ -141,8 +163,21 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
   if (action.type === 'ratio') return { ...state, ratio: Math.max(0.3, Math.min(0.7, action.ratio)) }
   if (action.type === 'split') {
     if (state.split) {
-      next.panes[0].tabs = [...new Set([...next.panes[0].tabs, ...next.panes[1].tabs])]
-      next.panes[0].active = state.panes[state.focused].active ?? next.panes[0].active
+      const preview = state.panes[state.focused].preview ?? state.panes[state.focused === 0 ? 1 : 0].preview
+      const discarded = state.panes.flatMap((pane) =>
+        pane.preview && pane.preview !== preview ? [pane.preview] : [],
+      )
+      next.panes[0].tabs = [...new Set([...next.panes[0].tabs, ...next.panes[1].tabs])].filter(
+        (id) => !discarded.includes(id),
+      )
+      next.panes[0].active =
+        [state.panes[state.focused].active, state.panes[state.focused === 0 ? 1 : 0].active].find(
+          (id) => id !== null && next.panes[0].tabs.includes(id),
+        ) ??
+        next.panes[0].tabs[0] ??
+        null
+      if (preview) next.panes[0].preview = preview
+      else delete next.panes[0].preview
       next.panes[1] = { tabs: [], active: null }
       next.focused = 0
     }
@@ -154,6 +189,8 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
       record.id === action.from ? { ...record, id: action.to } : record,
     )
     const sourcePane = next.panes.findIndex((p) => p.tabs.includes(action.from))
+    for (const pane of next.panes)
+      if (pane.preview === action.from || (sourcePane >= 0 && pane.preview === action.to)) delete pane.preview
     if (action.from === action.to || sourcePane < 0) return next
     for (const pane of next.panes) {
       pane.tabs = pane.tabs
@@ -171,12 +208,13 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
     for (const pane of next.panes) {
       const index = pane.tabs.indexOf(action.id)
       if (index < 0) continue
-      if (action.type === 'close')
+      if (action.type === 'close' && pane.preview !== action.id)
         next.closedTabs = [
           ...state.closedTabs.filter((record) => record.id !== action.id),
           { id: action.id, pane: next.panes.indexOf(pane) as PaneId, index },
         ].slice(-30)
       pane.tabs.splice(index, 1)
+      if (pane.preview === action.id) delete pane.preview
       if (pane.active === action.id) pane.active = pane.tabs[Math.max(0, index - 1)] ?? null
     }
     if (action.type !== 'move') return next
@@ -186,13 +224,42 @@ export function reduceWorkspace(state: Workspace, action: WorkspaceAction): Work
     next.split = true
     return next
   }
+  if (action.type === 'keep-tab') {
+    const pane = next.panes.find((pane) => pane.preview === action.id)
+    if (!pane) return state
+    delete pane.preview
+    return next
+  }
   const existing = next.panes.findIndex((pane) => pane.tabs.includes(action.id))
   const target = existing < 0 ? (action.pane ?? state.focused) : (existing as PaneId)
-  if (existing < 0) next.panes[target].tabs.push(action.id)
-  next.panes[target].active = action.id
+  const pane = next.panes[target]
+  if (existing < 0) {
+    if (action.preview) {
+      const index = pane.preview ? pane.tabs.indexOf(pane.preview) : -1
+      if (index >= 0) pane.tabs[index] = action.id
+      else pane.tabs.splice(pane.tabs.indexOf(pane.active ?? '') + 1, 0, action.id)
+      pane.preview = action.id
+    } else pane.tabs.push(action.id)
+  } else if (action.preview === false && pane.preview === action.id) delete pane.preview
+  pane.active = action.id
   next.focused = target
   if (target === 1) next.split = true
   return next
+}
+
+function withoutPreview(pane: Workspace['panes'][number]): Workspace['panes'][number] {
+  const { preview, ...saved } = pane
+  if (!preview) return saved
+  saved.tabs = pane.tabs.filter((id) => id !== preview)
+  if (saved.active === preview) saved.active = saved.tabs[Math.max(0, pane.tabs.indexOf(preview) - 1)] ?? null
+  return saved
+}
+
+export function saveWorkspace(scope: string, workspace: Workspace) {
+  localStorage.setItem(
+    `desktop:workspace:${scope}`,
+    JSON.stringify({ ...workspace, panes: workspace.panes.map(withoutPreview) }),
+  )
 }
 
 export function loadWorkspace(scope: string): Workspace {
@@ -200,6 +267,7 @@ export function loadWorkspace(scope: string): Workspace {
     const workspace = workspaceSchema.parse(
       JSON.parse(localStorage.getItem(`desktop:workspace:${scope}`) ?? 'null'),
     )
+    workspace.panes = [withoutPreview(workspace.panes[0]), withoutPreview(workspace.panes[1])]
     const seen = new Set<string>()
     for (const pane of workspace.panes) {
       pane.tabs = pane.tabs.filter((id) => {

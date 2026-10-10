@@ -7,7 +7,7 @@ import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { markSessionUnread } from '@/lib/sessionLastSeen'
 import { ApiError } from '@/api/client'
 import { getSessionTitle } from '@/lib/sessionTitle'
-import { api, createApi, errorKey } from '../lib/api'
+import { api, createApi, errorKey, operationErrorKey } from '../lib/api'
 import { queries, sessionsKey, sessionKey } from '../lib/sync'
 
 export function SessionListActions(props: {
@@ -17,6 +17,7 @@ export function SessionListActions(props: {
   scope: string
   onDismiss: () => void
   onDeleted: (id: string) => void
+  onArchived: (id: string) => Promise<void>
 }) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(true)
@@ -38,7 +39,7 @@ export function SessionListActions(props: {
         queries.invalidateQueries({ queryKey: sessionKey(props.session.id) }),
       ])
     } catch (error) {
-      throw new Error(t(errorKey(error)))
+      throw new Error(t(operationErrorKey(error)))
     } finally {
       setBusy(false)
     }
@@ -110,7 +111,12 @@ export function SessionListActions(props: {
         confirmLabel={t('Archive')}
         confirmingLabel={t('Working…')}
         isPending={busy || !props.connected || !props.session.active}
-        onConfirm={() => perform(() => api.archiveSession(props.session.id))}
+        onConfirm={() =>
+          perform(async () => {
+            await api.archiveSession(props.session.id)
+            await props.onArchived(props.session.id)
+          })
+        }
       />
       <ConfirmDialog
         isOpen={action === 'delete'}

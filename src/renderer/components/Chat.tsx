@@ -55,7 +55,7 @@ import { reduceChatBlocks } from '@/chat/reducer'
 import { getEventPresentation } from '@/chat/presentation'
 import type { ChatBlock, ToolCallBlock } from '@/chat/types'
 import { useQueueEdit, saveQueueEdit, queueEditEpoch } from '../lib/queueEdit'
-import { api, createApi, errorKey, unwrap } from '../lib/api'
+import { api, createApi, errorKey, operationErrorKey, unwrap } from '../lib/api'
 import { useAttachments } from '../lib/useAttachments'
 import { AttachmentTray } from './AttachmentTray'
 import { queries, refreshSessions, sessionKey, watchSession } from '../lib/sync'
@@ -88,6 +88,8 @@ type ChatProps = {
   codexExplorationCollapsed: boolean
   replaceSession: (from: string, to: string) => void
   sessionDeleted: (id: string) => void
+  sessionArchived: (id: string) => Promise<void>
+  keepSession: (id: string) => void
   openSession: (id: string) => void
   openFile: (path: string) => void
   registerComposer: (id: string, insert: ((path: string) => void) | null) => void
@@ -104,6 +106,8 @@ export function Chat({
   codexExplorationCollapsed,
   replaceSession,
   sessionDeleted,
+  sessionArchived,
+  keepSession,
   openSession,
   openFile,
   registerComposer,
@@ -325,8 +329,9 @@ export function Chat({
       await work()
       await refresh()
     } catch (error) {
-      setError(errorKey(error))
-      throw error
+      const key = operationErrorKey(error)
+      setError(key)
+      throw new Error(t(key))
     } finally {
       setBusy(false)
     }
@@ -344,6 +349,9 @@ export function Chat({
       (attempt && (!retry || attempt.status !== 'absent'))
     )
       return
+    // Sending turns a historical preview into work in progress. Keep the tab
+    // even if the request needs a retry or its delivery receipt is uncertain.
+    keepSession(id)
     setBusy(true)
     setError('')
     let target = id
@@ -1257,7 +1265,12 @@ export function Chat({
           confirmLabel={t('Archive')}
           confirmingLabel={t('Working…')}
           isPending={busy}
-          onConfirm={() => action(() => api.archiveSession(id))}
+          onConfirm={() =>
+            action(async () => {
+              await api.archiveSession(id)
+              await sessionArchived(id)
+            })
+          }
         />
         <ConfirmDialog
           isOpen={deleting}

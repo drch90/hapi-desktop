@@ -173,6 +173,8 @@ export class FixtureHub {
   ]
   failModelDiscovery = false
   failDelete = false
+  failArchive = false
+  emitArchiveEvents = true
   emitDeleteEvents = true
   machines = [
     {
@@ -615,7 +617,13 @@ export class FixtureHub {
     }
     if (action === '/resume') {
       const nextId = session.active || session.metadata?.flavor === 'hermes' ? id : 'resumed'
-      const next = { ...session, id: nextId, active: true }
+      const next = {
+        ...session,
+        id: nextId,
+        active: true,
+        metadataVersion: session.metadataVersion + 1,
+        metadata: session.metadata ? { ...session.metadata, lifecycleState: 'running' } : null,
+      }
       this.sessions.set(nextId, next)
       this.messages.set(nextId, this.messages.get(id) ?? [])
       if (this.resumeRemovesSource && nextId !== id) {
@@ -813,9 +821,18 @@ export class FixtureHub {
       return
     }
     if (action === '/abort' || action === '/archive') {
+      if (action === '/archive' && this.failArchive) {
+        reply({ error: 'Fixture archive failed' }, 500)
+        return
+      }
       session.active = false
       session.thinking = false
-      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      if (action === '/archive' && session.metadata) {
+        session.metadata.lifecycleState = 'archived'
+        session.metadataVersion++
+      }
+      if (action !== '/archive' || this.emitArchiveEvents)
+        this.emit({ type: 'session-updated', sessionId: id, data: session })
       reply({ ok: true })
       return
     }

@@ -16,6 +16,11 @@ export type SessionGroup = [
 export type SessionSection = { key: string; title: string | null; groups: SessionGroup[] }
 type Machine = { id: string; metadata?: { displayName?: string; host?: string } | null }
 
+export function sessionWorkspaceKey(session: Pick<SessionSummary, 'metadata'>): string {
+  const path = session.metadata?.path?.trim() ? session.metadata.path : '—'
+  return `${session.metadata?.machineId ?? null}:${path}`
+}
+
 export function selectSessionList(options: {
   sessions: SessionSummary[]
   machines: Machine[]
@@ -70,7 +75,7 @@ export function selectSessionList(options: {
     for (const row of sessions) {
       const machineId = row.metadata?.machineId ?? null
       const path = row.metadata?.path?.trim() ? row.metadata.path : '—'
-      const key = `${machineId}:${path}`
+      const key = sessionWorkspaceKey(row)
       if (!groups.has(key))
         groups.set(key, {
           machineId,

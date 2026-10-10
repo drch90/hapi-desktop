@@ -2263,6 +2263,8 @@ test('archived session deletion confirms, preserves failed requests and cleans t
   const design = page.getByTestId('chat-design')
   await design.getByRole('button', { name: '归档', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: '归档', exact: true }).click()
+  await expect(design).toHaveCount(0)
+  await page.getByTestId('session-design').click()
   await expect(design.getByRole('button', { name: '删除会话', exact: true })).toBeVisible()
   server.sessions.delete('design')
   server.emit({ type: 'session-removed', sessionId: 'design' })
@@ -3502,6 +3504,509 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   expect(errors).toEqual([])
 })
 
+test('workspace group menus expand and collapse all displayed directories and remember the choice', async () => {
+  server.sessions.get('history')!.metadata!.path = '/home/dev/only-history'
+  await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
+  await page.reload()
+  const activeGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-design') })
+  const historyGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-history') })
+  const heading = activeGroup.locator('.workspace-group-heading')
+  const toggle = activeGroup.locator('.workspace-group-toggle')
+  const menu = page.getByRole('menu', { name: '工作区分组', exact: true })
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('session-history')).toBeHidden()
+  await page.getByTestId('session-design').click()
+  const input = page.getByTestId('chat-design').locator('.composer textarea')
+  await input.fill('分组操作保留输入焦点')
+  await heading.locator('.group-name').click({ button: 'right' })
+  await expect(menu).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await page.keyboard.press('End')
+  await expect(menu.getByRole('menuitem', { name: '全部折叠', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('session-design')).toBeHidden()
+  await expect(page.getByTestId('session-review')).toBeHidden()
+  await expect(page.getByTestId('session-history')).toBeHidden()
+  await expect(input).toBeFocused()
+  await page.reload()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(historyGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await toggle.focus()
+  await page.keyboard.press('Shift+F10')
+  await expect(menu.getByRole('menuitem', { name: '全部展开', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(toggle).toBeFocused()
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await expect(page.getByTestId('session-history')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('session-history')).toBeVisible()
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await search.fill('only-history')
+  await historyGroup.locator('.workspace-group-count').click({ button: 'right' })
+  await expect(menu.getByRole('menuitem', { name: '全部折叠', exact: true })).toBeDisabled()
+  await expect(menu.getByRole('menuitem', { name: '全部展开', exact: true })).toBeDisabled()
+  await expect(menu).toContainText('清空搜索后可展开或折叠分组')
+  await page.keyboard.press('Escape')
+  await expect(search).toBeFocused()
+  await search.fill('')
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('active directories default to expanded even when a status filter only shows their history', async () => {
+  await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
+  await page.reload()
+  await page.getByRole('button', { name: '历史', exact: true }).click()
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await expect(page.getByTestId('session-history')).toBeVisible()
+  await expect(page.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+  expect(errors).toEqual([])
+})
+
+test('double-clicking a tab reveals its workspace through filters, keeps previews and scrolls only on request', async () => {
+  const path = '/home/dev/shared [project]'
+  const history = server.sessions.get('history')!
+  history.metadata!.path = path
+  history.metadata!.machineId = 'linux-2'
+  history.metadata!.host = 'linux-dev-02'
+  history.updatedAt = 1
+  server.sessions.get('review')!.metadata!.path = path
+  const otherMachine = structuredClone(server.machines[0])
+  otherMachine.id = 'linux-2'
+  otherMachine.metadata.host = 'linux-dev-02'
+  server.machines.push(otherMachine)
+  for (let index = 0; index < 24; index++) {
+    const session = fixtureSession(`old-${index}`, `Older project ${index}`, 'codex', false)
+    session.metadata!.path = `/home/dev/old-${index}`
+    server.sessions.set(session.id, session)
+  }
+  await page.evaluate(() => window.desktop.updateSettings({ collapseHistoryByDefault: true }))
+  await page.reload()
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  const row = page.getByTestId('session-history')
+  const group = page.locator('.session-group').filter({ has: row })
+  const otherGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-review') })
+  await search.fill('history')
+  await row.click()
+  const tab = page.getByRole('tab', { name: 'OpenCode · 历史会话', exact: true })
+  const input = page.getByTestId('chat-history').locator('.composer textarea')
+  await input.fill('定位时保留预览草稿\n第二行')
+  await search.fill('')
+  await expect(group.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await otherGroup.locator('.workspace-group-toggle').click()
+  await page.getByRole('button', { name: '活动中', exact: true }).click()
+  const machine = page.getByRole('combobox', { name: '按机器筛选', exact: true })
+  await machine.selectOption('linux-1')
+  await page.getByLabel('仅看未读', { exact: true }).check()
+  await search.fill('no-matching-session')
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await tab.click()
+  await expect(page.locator('.sidebar')).toHaveClass(/collapsed/)
+  await expect(page.getByRole('textbox', { name: '搜索会话', exact: true, includeHidden: true })).toHaveValue(
+    'no-matching-session',
+  )
+  await tab.dblclick()
+  await expect(page.locator('.sidebar')).not.toHaveClass(/collapsed/)
+  await expect(search).toHaveValue('')
+  await expect(machine).toHaveValue('')
+  await expect(page.getByLabel('仅看未读', { exact: true })).not.toBeChecked()
+  await expect(page.getByRole('button', { name: '全部', exact: true })).toHaveClass('selected')
+  await expect(group.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+  await expect(otherGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(row).toHaveClass(/selected/)
+  await expect(row).toBeInViewport({ ratio: 1 })
+  await expect(tab).toBeFocused()
+  await expect(tab.locator('..')).not.toHaveClass(/preview/)
+  await expect(input).toHaveValue('定位时保留预览草稿\n第二行')
+  const tree = page.locator('.session-tree')
+  expect(await tree.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await tree.evaluate((element) => {
+    element.scrollTop = 0
+  })
+  await expect(row).not.toBeInViewport()
+  const design = server.sessions.get('design')!
+  design.thinking = true
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: design.id, data: design })
+  await expect(page.getByTestId('session-design')).toHaveAttribute('data-status', 'thinking')
+  await expect(row).not.toBeInViewport()
+  await tab.dblclick()
+  await expect(row).toBeInViewport({ ratio: 1 })
+  await page.reload()
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  await expect(group.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'true')
+  await expect(otherGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(input).toHaveValue('定位时保留预览草稿\n第二行')
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'POST' && /\/(messages|archive)$/.test(request.path),
+    ),
+  ).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('double-clicking tabs locates global and project pins in either pane while keeping matching filters', async () => {
+  server.sessions.get('history')!.pinned = true
+  server.sessions.get('review')!.globalPinned = true
+  await page.reload()
+  await page.getByTestId('session-history').click()
+  const left = page.locator('.chat-pane').first()
+  const historyTab = left.getByRole('tab', { name: 'OpenCode · 历史会话', exact: true })
+  const historyInput = page.getByTestId('chat-history').locator('.composer textarea')
+  await historyInput.fill('左栏草稿')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const right = page.locator('.chat-pane').nth(1)
+  await right.click()
+  await page.getByTestId('session-review').click()
+  const reviewTab = right.getByRole('tab', { name: '审查连接与恢复流程', exact: true })
+  const reviewInput = page.getByTestId('chat-review').locator('.composer textarea')
+  await reviewInput.fill('右栏草稿')
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  await search.fill('linux')
+  const machine = page.getByRole('combobox', { name: '按机器筛选', exact: true })
+  await machine.selectOption('linux-1')
+  await reviewTab.dblclick()
+  await expect(page.getByTestId('sessions-global-pinned').getByTestId('session-review')).toBeInViewport({
+    ratio: 1,
+  })
+  await expect(right).toHaveClass(/focused/)
+  await historyTab.dblclick()
+  await expect(page.getByTestId('sessions-project-pinned').getByTestId('session-history')).toBeInViewport({
+    ratio: 1,
+  })
+  await expect(left).toHaveClass(/focused/)
+  await expect(historyTab).toBeFocused()
+  await expect(search).toHaveValue('linux')
+  await expect(machine).toHaveValue('linux-1')
+  await expect(historyInput).toHaveValue('左栏草稿')
+  await expect(reviewInput).toHaveValue('右栏草稿')
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  expect(errors).toEqual([])
+})
+
+test('tab activity follows work and requests, and shares persistent unread state with the session list', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('session-review').click()
+  const tab = page.getByRole('tab', { name: '桌面工作台 · 界面与交互', exact: true })
+  const status = tab.locator('.tab-activity')
+  const unread = tab.locator('.tab-unread')
+  const session = server.sessions.get('design')!
+  const publish = () => {
+    session.updatedAt += 10
+    session.agentStateVersion++
+    server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  }
+  await expect(status).toHaveAttribute('data-status', 'idle')
+  await expect(unread).toHaveCount(0)
+  session.thinking = true
+  session.backgroundTaskCount = 2
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'processing')
+  await expect(tab).toHaveAttribute('aria-description', /处理中…/)
+  await expect(unread).toHaveCount(0)
+  session.agentState!.requests = {
+    approval: { tool: 'Bash', arguments: { command: 'bun test' }, createdAt: Date.now() },
+  }
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'pending')
+  await expect(tab).toHaveAttribute('aria-description', /待处理 \(1\)/)
+  await expect(unread).toHaveCount(0)
+  session.thinking = false
+  session.agentState!.requests = {
+    question: {
+      tool: 'request_user_input',
+      arguments: { questions: [{ id: 'next', question: '下一步？', options: [] }] },
+      createdAt: Date.now(),
+    },
+  }
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'pending')
+  session.agentState!.requests = {}
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'background')
+  await expect(tab).toHaveAttribute('aria-description', /后台任务：2/)
+  await expect(unread).toHaveCount(0)
+  session.backgroundTaskCount = 0
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'idle')
+  await expect(unread).toBeVisible()
+  await expect(tab).toHaveAttribute('aria-description', /未读/)
+  await expect(page.getByTestId('session-design').locator('.session-unread-badge')).toBeVisible()
+  await expect(tab).toHaveText('桌面工作台 · 界面与交互')
+  await expect(tab).toHaveAttribute('title', /linux-dev-01\n\/home\/dev\/hapi-desktop/)
+  await page.reload()
+  await expect(unread).toBeVisible()
+  await tab.click()
+  await expect(unread).toHaveCount(0)
+  await expect(page.getByTestId('session-design').locator('.session-unread-badge')).toHaveCount(0)
+  await page.getByTestId('session-design').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /标记为未读|标为未读/ }).click()
+  await expect(unread).toBeVisible()
+  await tab.click()
+  await expect(unread).toHaveCount(0)
+  await page.getByRole('tab', { name: '审查连接与恢复流程', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '移动到另一栏', exact: true }).click()
+  publish()
+  await expect(page.getByTestId('chat-design')).toBeVisible()
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await expect(page.locator('.tab-unread')).toHaveCount(0)
+  session.active = false
+  session.thinking = true
+  publish()
+  await expect(status).toHaveAttribute('data-status', 'offline')
+  await expect(tab).toHaveAttribute('aria-description', /离线/)
+  expect(errors).toEqual([])
+})
+
+test('tab indicators fit narrow panes, respect reduced motion and stop showing cached work on disconnect', async () => {
+  const session = server.sessions.get('design')!
+  session.metadata!.name = '很长的会话标题'.repeat(12)
+  session.metadataVersion++
+  session.thinking = true
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-history').click()
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  const tab = page.locator('.chat-pane').first().getByRole('tab')
+  const status = tab.locator('.tab-activity')
+  const historyTab = page.getByRole('tab', { name: 'OpenCode · 历史会话', exact: true })
+  const historyStatus = historyTab.locator('.tab-activity')
+  await expect(status).toHaveAttribute('data-status', 'processing')
+  await expect(historyStatus).toHaveAttribute('data-status', 'offline')
+  for (const target of [
+    status,
+    historyStatus,
+    historyTab.locator('.tab-preview-icon'),
+    tab.locator('..').getByRole('button', { name: '关闭标签' }),
+  ])
+    await expect(target).toBeInViewport({ ratio: 1 })
+  await expect(tab.locator('.tab-title')).toHaveCSS('text-overflow', 'ellipsis')
+  expect(
+    await tab
+      .locator('.tab-title')
+      .evaluate((element) => element.clientWidth > 0 && element.scrollWidth > element.clientWidth),
+  ).toBe(true)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(status).toHaveCSS('animation-name', 'none')
+  let release!: () => void
+  server.eventStreamGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    for (const stream of server.streams) stream.end()
+    await expect(status).toHaveAttribute('data-status', 'disconnected')
+    await expect(historyStatus).toHaveAttribute('data-status', 'disconnected')
+    await expect(tab).toHaveAttribute('aria-description', /未连接/)
+    session.thinking = false
+    session.updatedAt += 10
+  } finally {
+    server.eventStreamGate = null
+    release()
+  }
+  await expect(status).toHaveAttribute('data-status', 'idle')
+  await expect(historyStatus).toHaveAttribute('data-status', 'offline')
+  expect(errors).toEqual([])
+})
+
+test('archived previews replace one another, preserve drafts, and persist only when explicitly kept', async () => {
+  const earlier = fixtureSession('earlier', '另一段历史', 'codex', false)
+  server.sessions.set(earlier.id, earlier)
+  server.messages.set(earlier.id, [fixtureMessage('earlier-message', 1, 'Earlier conversation')])
+  server.emit({ type: 'session-added', sessionId: earlier.id, data: earlier })
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('chat-design').locator('.composer textarea').fill('活动会话草稿')
+  await page.getByTestId('session-history').click()
+  const historyTab = page.getByRole('tab', { name: 'OpenCode · 历史会话' })
+  const historyInput = page.getByTestId('chat-history').locator('.composer textarea')
+  await expect(historyTab).toHaveAttribute('aria-description', /临时预览 · 双击保留标签页/)
+  await historyInput.fill('历史会话未发送草稿\n第二行')
+  await page.getByTestId('session-earlier').click()
+  await expect(historyTab).toHaveCount(0)
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  await expect(page.locator('.tab.preview')).toHaveCount(1)
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const key = Object.keys(localStorage).find((key) => key.startsWith('desktop:workspace:'))!
+        return JSON.parse(localStorage.getItem(key)!).panes[0].tabs
+      }),
+    )
+    .toEqual(['design'])
+  await page.reload()
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue('活动会话草稿')
+  await page.getByTestId('session-history').click()
+  await expect(historyInput).toHaveValue('历史会话未发送草稿\n第二行')
+  await page.getByTestId('session-history').dblclick()
+  await expect(page.locator('.tab.preview')).toHaveCount(0)
+  await page.getByTestId('session-earlier').click()
+  const earlierTab = page.getByRole('tab', { name: '另一段历史', exact: true })
+  await expect(earlierTab.locator('..')).toHaveClass(/preview/)
+  await earlierTab.dblclick()
+  await expect(page.locator('.tab.preview')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(earlierTab).toHaveAttribute('aria-selected', 'true')
+  await page.getByTestId('session-history').click()
+  await expect(historyTab.locator('..')).not.toHaveClass(/preview/)
+  expect(
+    server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+  ).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('preview tabs stay pane-local and can be kept from the context menu or by moving', async () => {
+  for (const id of ['past-right', 'past-next']) {
+    const session = fixtureSession(id, id, 'codex', false)
+    server.sessions.set(id, session)
+    server.messages.set(id, [fixtureMessage(`${id}-message`, 1, id)])
+    server.emit({ type: 'session-added', sessionId: id, data: session })
+  }
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('session-history').click()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const left = page.locator('.chat-pane').first()
+  const right = page.locator('.chat-pane').nth(1)
+  await right.click()
+  await page.getByTestId('session-past-right').click()
+  await expect(left.locator('.tab.preview')).toHaveCount(1)
+  await expect(right.locator('.tab.preview')).toHaveCount(1)
+  const leftInput = left.locator('.composer textarea')
+  await leftInput.fill('预览草稿')
+  await right.getByRole('tab', { name: 'past-right', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '保留标签页', exact: true }).click()
+  await expect(leftInput).toBeFocused()
+  await expect(left).toHaveClass(/focused/)
+  await expect(right.locator('.tab.preview')).toHaveCount(0)
+  await right.getByRole('tab').click()
+  await page.getByTestId('session-past-next').click()
+  await left.getByRole('tab', { name: 'OpenCode · 历史会话' }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '移动到另一栏', exact: true }).click()
+  await expect(left.locator('.tab.preview')).toHaveCount(0)
+  await expect(right.locator('.tab.preview')).toHaveCount(1)
+  await expect(right.getByRole('tab', { name: 'OpenCode · 历史会话' }).locator('..')).not.toHaveClass(
+    /preview/,
+  )
+  await expect(right.locator('.composer textarea')).toHaveValue('预览草稿')
+  await page.getByRole('button', { name: '单栏视图', exact: true }).click()
+  await expect(page.locator('.tab.preview')).toHaveCount(1)
+  await page.reload()
+  await expect(page.locator('.tab.preview')).toHaveCount(0)
+  await expect(page.getByRole('tab')).toHaveCount(3)
+  await expect(page.getByTestId('chat-history').locator('.composer textarea')).toHaveValue('预览草稿')
+  expect(errors).toEqual([])
+})
+
+for (const sameId of [false, true]) {
+  test(`sending from a preview keeps the tab after ${sameId ? 'same-ID' : 'migrated-ID'} resume and reload`, async () => {
+    if (sameId) {
+      server.sessions.get('history')!.metadata!.flavor = 'hermes'
+      server.failSend = 'accepted'
+    }
+    server.resumeRemovesSource = true
+    await page.reload()
+    await page.getByTestId('session-history').click()
+    await expect(page.locator('.tab.preview')).toHaveCount(1)
+    const input = page.getByTestId('chat-history').locator('.composer textarea')
+    await input.fill('从预览继续会话')
+    await input.press('Control+Enter')
+    const target = sameId ? 'history' : 'resumed'
+    const chat = page.getByTestId(`chat-${target}`)
+    if (sameId) await expect(chat.getByRole('button', { name: '检查送达状态' })).toBeVisible()
+    else await expect(chat.locator('.composer textarea')).toHaveValue('')
+    await expect(page.locator('.tab.preview')).toHaveCount(0)
+    await expect
+      .poll(
+        () =>
+          server.requests.filter(
+            (request) => request.path === `/api/sessions/${target}/messages` && request.method === 'POST',
+          ).length,
+      )
+      .toBe(1)
+    await page.reload()
+    await expect(chat).toBeVisible()
+    await expect(page.getByRole('tab')).toHaveCount(1)
+    if (sameId) {
+      await chat.getByRole('button', { name: '检查送达状态' }).click()
+      await expect(chat.locator('.composer textarea')).toHaveValue('')
+      expect(
+        server.requests.filter(
+          (request) => request.path === `/api/sessions/${target}/messages` && request.method === 'POST',
+        ),
+      ).toHaveLength(1)
+    }
+    expect(errors).toEqual([])
+  })
+}
+
+test('archiving closes tabs only after success and keeps drafts for later previews', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('chat-design').locator('.composer textarea').fill('归档前的设计草稿')
+  await page.getByTestId('session-review').click()
+  const review = page.getByTestId('chat-review')
+  await review.locator('.composer textarea').fill('归档前的审查草稿')
+  server.failArchive = true
+  await review.getByRole('button', { name: '归档', exact: true }).click()
+  const confirm = page.getByRole('dialog', { name: '归档此会话？', exact: true })
+  await confirm.getByRole('button', { name: '归档', exact: true }).click()
+  await expect(confirm).toContainText('尚未确认操作是否完成')
+  // The modal makes the background inaccessible without removing its tabs.
+  await expect(page.getByRole('tab', { includeHidden: true })).toHaveCount(2)
+  await expect(review.locator('.composer textarea')).toHaveValue('归档前的审查草稿')
+  server.failArchive = false
+  server.emitArchiveEvents = false
+  await confirm.getByRole('button', { name: '归档', exact: true }).click()
+  await expect(review).toHaveCount(0)
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue('归档前的设计草稿')
+  await page.getByTestId('session-review').click()
+  await expect(review.locator('.composer textarea')).toHaveValue('归档前的审查草稿')
+  await expect(page.locator('.tab.preview')).toHaveCount(1)
+  await page.getByTestId('session-design').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click()
+  await confirm.getByRole('button', { name: '归档', exact: true }).click()
+  await expect(page.getByRole('tab', { name: '桌面工作台 · 界面与交互' })).toHaveCount(0)
+  await expect(review).toBeVisible()
+  await page.getByTestId('session-design').click()
+  await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue('归档前的设计草稿')
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await expect(page.locator('.tab.preview')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('remote archive closes an open tab once while temporary inactivity keeps it open', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('chat-design').locator('.composer textarea').fill('远端归档后保留')
+  await page.getByTestId('session-review').click()
+  const design = server.sessions.get('design')!
+  design.active = false
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: design.id, data: design })
+  await expect(page.getByTestId('session-design')).toHaveAttribute('data-status', 'history')
+  await expect(page.getByRole('tab')).toHaveCount(2)
+  design.metadata!.lifecycleState = 'archived'
+  design.metadataVersion++
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: design.id, data: design })
+  await expect(page.getByRole('tab')).toHaveCount(1)
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  await page.getByTestId('session-design').click()
+  const preview = page.getByTestId('chat-design')
+  await expect(preview.locator('.composer textarea')).toHaveValue('远端归档后保留')
+  design.metadata!.name = '已归档但仍可预览'
+  design.metadataVersion++
+  design.updatedAt += 10
+  server.emit({ type: 'session-updated', sessionId: design.id, data: design })
+  await expect(preview.locator('h1')).toHaveText('已归档但仍可预览')
+  await expect(preview).toBeVisible()
+  await expect(page.locator('.tab.preview')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
 test('middle click closes inactive, active and other-pane tabs while preserving drafts and focus', async () => {
   await page.getByTestId('session-design').click()
   const draft = '中键关闭后保留的草稿\n第二行'
@@ -3557,7 +4062,7 @@ test('closing other tabs keeps the context target and other pane, with bulk rest
   const draft = '关闭其他标签后可恢复的草稿'
   const designInput = page.getByTestId('chat-design').locator('.composer textarea')
   await designInput.fill(draft)
-  for (const id of ['review', 'history']) await page.getByTestId(`session-${id}`).click()
+  for (const id of ['review', 'history']) await page.getByTestId(`session-${id}`).dblclick()
   const firstPane = page.locator('.chat-pane').first()
   const originalOrder = await firstPane.getByRole('tab').allTextContents()
   const reviewTab = firstPane.getByRole('tab', { name: '审查连接与恢复流程' })
@@ -3621,7 +4126,7 @@ test('closing other tabs keeps the context target and other pane, with bulk rest
 })
 
 test('tab context operations, keyboard restore, dragging and sidebar preferences', async () => {
-  for (const id of ['design', 'review', 'history']) await page.getByTestId(`session-${id}`).click()
+  for (const id of ['design', 'review', 'history']) await page.getByTestId(`session-${id}`).dblclick()
   const firstPane = page.locator('.chat-pane').first()
   const reviewTab = firstPane.getByRole('tab', { name: '审查连接与恢复流程' })
   await reviewTab.click({ button: 'right' })

@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { emptyWorkspace, loadWorkspace, reduceWorkspace, type Workspace } from '../src/renderer/lib/workspace'
+import {
+  emptyWorkspace,
+  isHistoryGroupCollapsed,
+  loadDraft,
+  loadWorkspace,
+  reduceWorkspace,
+  saveDraft,
+  saveWorkspace,
+  type Workspace,
+} from '../src/renderer/lib/workspace'
 import { selectSessionList } from '../src/renderer/lib/sessionList'
+import { markSessionArchived, queries, sessionKey, sessionsKey } from '../src/renderer/lib/sync'
 import { fixtureSession, fixtureMessage } from './fake-server'
 import { toSessionSummary } from '@hapi/protocol'
 import { hubRequestSchema, remoteFileSchema } from '../src/shared/policy'
@@ -12,7 +22,10 @@ import {
   saveQueueEdit,
 } from '../src/renderer/lib/queueEdit'
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  queries.clear()
+})
 function workspace(): Workspace {
   let state = structuredClone(emptyWorkspace)
   for (const id of ['a', 'b', 'c', 'd']) state = reduceWorkspace(state, { type: 'open', id })
@@ -102,6 +115,186 @@ describe('tab management', () => {
     localStorage.setItem('desktop:workspace:alice', JSON.stringify(state))
     expect(loadWorkspace('alice')).toMatchObject({ sidebarWidth: 480, sidebarCollapsed: true })
     expect(loadWorkspace('bob').sidebarCollapsed).toBe(false)
+  })
+})
+
+describe('historical tab previews', () => {
+  it('applies a confirmed archive before a delayed list response can reopen it as active', async () => {
+    const session = fixtureSession('archiving', 'Archive now', 'codex')
+    const other = fixtureSession('other', 'Keep open', 'claude')
+    const rows = [session, other].map(toSessionSummary)
+    queries.setQueryData(sessionsKey, rows)
+    queries.setQueryData(sessionKey(session.id), session)
+    saveDraft('alice', session.id, { text: 'keep this draft', scrollTop: 10, expanded: [] })
+    let finish!: (value: typeof rows) => void
+    const refresh = queries
+      .fetchQuery({
+        queryKey: sessionsKey,
+        staleTime: 0,
+        queryFn: () =>
+          new Promise<typeof rows>((resolve) => {
+            finish = resolve
+          }),
+      })
+      .catch(() => undefined)
+    await markSessionArchived(session.id)
+    finish(rows)
+    await refresh
+    expect(queries.getQueryData<typeof rows>(sessionsKey)?.[0]).toMatchObject({
+      active: false,
+      thinking: false,
+      metadata: { lifecycleState: 'archived' },
+    })
+    expect(queries.getQueryData<typeof rows>(sessionsKey)?.[1]).toEqual(rows[1])
+    expect(queries.getQueryData<typeof session>(sessionKey(session.id))?.active).toBe(false)
+    expect(loadDraft('alice', session.id).text).toBe('keep this draft')
+    expect(session.active).toBe(true)
+  })
+
+  it('replaces only the same-pane preview while retaining saved tabs and drafts', () => {
+    const initial = reduceWorkspace(workspace(), { type: 'open', id: 'first', pane: 0, preview: true })
+    saveDraft('alice', 'first', { text: 'unfinished thought', scrollTop: 23, expanded: [] })
+    const next = reduceWorkspace(initial, { type: 'open', id: 'second', pane: 0, preview: true })
+    expect(next.panes[0]).toMatchObject({ tabs: ['a', 'b', 'c', 'd', 'second'], preview: 'second' })
+    expect(next.panes[1]).toEqual(initial.panes[1])
+    expect(initial.panes[0].preview).toBe('first')
+    expect(next.closedTabs).toEqual([])
+    expect(loadDraft('alice', 'first').text).toBe('unfinished thought')
+    const other = reduceWorkspace(next, { type: 'open', id: 'third', pane: 1, preview: true })
+    expect(other.panes.map((pane) => pane.preview)).toEqual(['second', 'third'])
+  })
+
+  it('focuses an existing tab across panes without duplicating or demoting it', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'past', pane: 0, preview: true })
+    state = reduceWorkspace(state, { type: 'open', id: 'past', pane: 1, preview: true })
+    expect(state.focused).toBe(0)
+    expect(state.panes[0].preview).toBe('past')
+    state = reduceWorkspace(state, { type: 'open', id: 'a' })
+    state = reduceWorkspace(state, { type: 'open', id: 'past' })
+    expect(state.panes[0].preview).toBe('past')
+    state = reduceWorkspace(state, { type: 'open', id: 'other', pane: 0, preview: true })
+    expect(state.focused).toBe(1)
+    expect(state.panes[1]).toEqual({ tabs: ['other'], active: 'other' })
+    expect(state.panes.flatMap((pane) => pane.tabs).filter((id) => id === 'past')).toHaveLength(1)
+  })
+
+  it('keeps a preview explicitly without changing focus and saves it across reloads', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'past', pane: 0, preview: true })
+    state = reduceWorkspace(state, { type: 'focus', pane: 1 })
+    state = reduceWorkspace(state, { type: 'keep-tab', id: 'past' })
+    expect(state.focused).toBe(1)
+    expect(state.panes[0].preview).toBeUndefined()
+    saveWorkspace('alice', state)
+    expect(loadWorkspace('alice').panes[0].tabs).toContain('past')
+    expect(reduceWorkspace(state, { type: 'keep-tab', id: 'missing' })).toBe(state)
+    state = reduceWorkspace(state, { type: 'open', id: 'next', preview: true })
+    state = reduceWorkspace(state, { type: 'open', id: 'next', preview: false })
+    expect(state.panes[1].preview).toBeUndefined()
+  })
+
+  it('does not persist previews or their active selection, including old serialized preview state', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'a' })
+    state = reduceWorkspace(state, { type: 'open', id: 'preview-left', preview: true })
+    state = reduceWorkspace(state, { type: 'open', id: 'preview-right', pane: 1, preview: true })
+    saveWorkspace('alice', state)
+    expect(localStorage.getItem('desktop:workspace:alice')).not.toContain('preview-')
+    expect(loadWorkspace('alice').panes).toEqual([
+      { tabs: ['a', 'b', 'c', 'd'], active: 'a' },
+      { tabs: ['other'], active: 'other' },
+    ])
+    expect(state.panes[0].preview).toBe('preview-left')
+    expect(loadWorkspace('bob')).toEqual(emptyWorkspace)
+    localStorage.setItem('desktop:workspace:old', JSON.stringify(state))
+    expect(loadWorkspace('old').panes).toEqual(loadWorkspace('alice').panes)
+    const onlyPreview = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'only', preview: true })
+    saveWorkspace('preview-only', onlyPreview)
+    expect(loadWorkspace('preview-only').panes[0]).toEqual({ tabs: [], active: null })
+  })
+
+  it('excludes replaced and closed previews from recently closed tabs', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'past', pane: 0, preview: true })
+    const closed = reduceWorkspace(state, { type: 'close', id: 'past' })
+    expect(closed.panes[0]).toEqual(workspace().panes[0])
+    expect(closed.closedTabs).toEqual([])
+    expect(reduceWorkspace(state, { type: 'remove', id: 'past' }).panes[0].preview).toBeUndefined()
+    state = reduceWorkspace(state, { type: 'close-tabs', pane: 0, id: 'b', range: 'others' })
+    expect(state.panes[0]).toEqual({ tabs: ['b'], active: 'b' })
+    expect(state.closedTabs.map((record) => record.id)).toEqual(['d', 'c', 'a'])
+    state = reduceWorkspace(state, { type: 'restore', available: ['a', 'past'] })
+    expect(state.panes[0].active).toBe('a')
+  })
+
+  it('keeps previews when explicitly moved or reordered without displacing the destination preview', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'left', pane: 0, preview: true })
+    state = reduceWorkspace(state, { type: 'open', id: 'right', pane: 1, preview: true })
+    const placed = reduceWorkspace(state, { type: 'place', id: 'left', pane: 1, index: 0 })
+    expect(placed.panes[0].preview).toBeUndefined()
+    expect(placed.panes[1]).toEqual({ tabs: ['left', 'other', 'right'], active: 'left', preview: 'right' })
+    const moved = reduceWorkspace(state, { type: 'move', id: 'left', pane: 1 })
+    expect(moved.panes[0].preview).toBeUndefined()
+    expect(moved.panes[1].preview).toBe('right')
+    expect(moved.panes[1].active).toBe('left')
+    const reordered = reduceWorkspace(state, { type: 'place', id: 'left', pane: 0, index: 0 })
+    expect(reordered.panes[0].preview).toBeUndefined()
+  })
+
+  it('retains at most one preview when merging panes and preserves all saved tabs', () => {
+    let state = reduceWorkspace(workspace(), { type: 'open', id: 'left', pane: 0, preview: true })
+    state = reduceWorkspace(state, { type: 'open', id: 'right', pane: 1, preview: true })
+    const merged = reduceWorkspace(state, { type: 'split' })
+    expect(merged.panes[0]).toEqual({
+      tabs: ['a', 'b', 'c', 'd', 'other', 'right'],
+      active: 'right',
+      preview: 'right',
+    })
+    expect(merged.panes[1]).toEqual({ tabs: [], active: null })
+    expect(merged.closedTabs).toEqual([])
+    state = reduceWorkspace(state, { type: 'focus', pane: 0 })
+    expect(reduceWorkspace(state, { type: 'split' }).panes[0].preview).toBe('left')
+  })
+
+  it('shows the remaining preview when merging from an empty focused pane', () => {
+    let state = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'past', pane: 1, preview: true })
+    state = reduceWorkspace(state, { type: 'focus', pane: 0 })
+    state = reduceWorkspace(state, { type: 'split' })
+    expect(state.panes[0]).toEqual({ tabs: ['past'], active: 'past', preview: 'past' })
+    expect(state.focused).toBe(0)
+    saveWorkspace('alice', state)
+    expect(loadWorkspace('alice').panes[0]).toEqual({ tabs: [], active: null })
+  })
+
+  it('promotes resumed IDs and clears preview markers when removing duplicate destinations', () => {
+    let state = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'old', preview: true })
+    const sameId = reduceWorkspace(state, { type: 'replace', from: 'old', to: 'old' })
+    expect(sameId.panes[0]).toEqual({ tabs: ['old'], active: 'old' })
+    state = reduceWorkspace(state, { type: 'open', id: 'new', pane: 1, preview: true })
+    state = reduceWorkspace(state, { type: 'replace', from: 'old', to: 'new' })
+    expect(state.panes).toEqual([
+      { tabs: ['new'], active: 'new' },
+      { tabs: [], active: null },
+    ])
+  })
+})
+
+describe('bulk workspace expansion', () => {
+  it('overrides defaults for selected groups, deduplicates keys and preserves hidden-group choices', () => {
+    let state = reduceWorkspace(emptyWorkspace, { type: 'toggle-history-group', key: 'hidden' })
+    state = reduceWorkspace(state, {
+      type: 'set-history-groups',
+      keys: ['live', 'past', 'live'],
+      collapsed: false,
+    })
+    expect(isHistoryGroupCollapsed(state, 'live', false)).toBe(false)
+    expect(isHistoryGroupCollapsed(state, 'past', true)).toBe(false)
+    expect(isHistoryGroupCollapsed(state, 'hidden', false)).toBe(true)
+    expect(state.expandedHistoryGroups).toEqual(['live', 'past'])
+    state = reduceWorkspace(state, { type: 'set-history-groups', keys: ['live', 'past'], collapsed: true })
+    expect(isHistoryGroupCollapsed(state, 'live', false)).toBe(true)
+    expect(isHistoryGroupCollapsed(state, 'past', true)).toBe(true)
+    expect(state.expandedHistoryGroups).toEqual([])
+    saveWorkspace('alice', state)
+    expect(loadWorkspace('alice').collapsedHistoryGroups).toEqual(['hidden', 'live', 'past'])
+    expect(isHistoryGroupCollapsed(loadWorkspace('bob'), 'live', false)).toBe(false)
   })
 })
 

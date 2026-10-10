@@ -1,23 +1,58 @@
 import { useEffect, useRef, useState, type Dispatch } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { ArrowRightLeft, X } from 'lucide-react'
+import {
+  ArrowRightLeft,
+  BellRing,
+  CheckCircle2,
+  Circle,
+  Eye,
+  LoaderCircle,
+  Timer,
+  WifiOff,
+  X,
+} from 'lucide-react'
 import type { SessionSummary } from '@hapi/protocol'
 import { getSessionTitle } from '@/lib/sessionTitle'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import type { PaneId, Workspace, WorkspaceAction } from '../lib/workspace'
+
+function tabActivity(session: SessionSummary | undefined, connected: boolean) {
+  // Match the composer: cached work cannot override connectivity or a request.
+  if (!connected) return 'disconnected'
+  if (!session) return 'loading'
+  if (!session.active) return 'offline'
+  if (session.pendingRequestsCount > 0) return 'pending'
+  if (session.thinking) return 'processing'
+  if ((session.backgroundTaskCount ?? 0) > 0) return 'background'
+  return 'idle'
+}
+
+const activityIcons = {
+  disconnected: WifiOff,
+  loading: LoaderCircle,
+  offline: Circle,
+  pending: BellRing,
+  processing: LoaderCircle,
+  background: Timer,
+  idle: CheckCircle2,
+}
 
 export function Tabs(props: {
   pane: PaneId
   workspace: Workspace
   dispatch: Dispatch<WorkspaceAction>
   byId: Map<string, SessionSummary>
+  machineNames: ReadonlyMap<string, string>
+  connected: boolean
+  unreadIds: ReadonlySet<string>
+  onLocate: (id: string) => void
   dragging: string | null
   onDrag: (id: string | null) => void
 }) {
   const { t } = useTranslation()
   const { pane, workspace, dispatch, byId } = props
-  const { tabs, active } = workspace.panes[pane]
+  const { tabs, active, preview } = workspace.panes[pane]
   const bar = useRef<HTMLDivElement>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -64,6 +99,9 @@ export function Tabs(props: {
   const index = menu ? tabs.indexOf(menu.id) : -1
   const items: { label: string; disabled?: boolean; focusActivePane?: boolean; run: () => void }[] = menu
     ? [
+        ...(menu.id === preview
+          ? [{ label: 'Keep tab open', run: () => dispatch({ type: 'keep-tab', id: menu.id }) }]
+          : []),
         { label: 'Close tab', run: () => dispatch({ type: 'close', id: menu.id }) },
         {
           label: 'Close other tabs',
@@ -151,58 +189,100 @@ export function Tabs(props: {
           setDropIndex(null)
         }}
       >
-        {tabs.map((id, tabIndex) => (
-          <div
-            className={`tab ${active === id ? 'active' : ''} ${dropIndex === tabIndex ? 'drop-before' : ''}`}
-            key={id}
-            draggable
-            onAuxClick={(event) => {
-              if (event.button !== 1) return
-              event.preventDefault()
-              event.stopPropagation()
-              dispatch({ type: 'close', id })
-            }}
-            onDragStart={(event) => {
-              event.dataTransfer.setData('application/x-hapi-tab', id)
-              event.dataTransfer.effectAllowed = 'move'
-              props.onDrag(id)
-              setMenu(null)
-            }}
-            onDragEnd={() => props.onDrag(null)}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              rememberFocus()
-              trigger.current = event.currentTarget.querySelector('[role="tab"]')
-              setMenu({ id, x: event.clientX, y: event.clientY })
-            }}
-          >
-            <button
-              role="tab"
-              aria-selected={active === id}
-              title={getSessionTitle(byId.get(id) ?? ({ id } as SessionSummary))}
-              onClick={() => dispatch({ type: 'open', id, pane })}
-              onKeyDown={(event) => {
-                if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
-                  event.preventDefault()
-                  rememberFocus()
-                  trigger.current = event.currentTarget
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  setMenu({ id, x: rect.left, y: rect.bottom })
-                }
+        {tabs.map((id, tabIndex) => {
+          const session = byId.get(id)
+          const machineId = session?.metadata?.machineId
+          const activity = tabActivity(session, props.connected)
+          const ActivityIcon = activityIcons[activity]
+          const unread = props.unreadIds.has(id)
+          const labels = {
+            disconnected: t('disconnected'),
+            loading: t('Loading…'),
+            offline: t('Offline'),
+            pending: `${t('Pending')} (${session?.pendingRequestsCount ?? 0})`,
+            processing: t('Processing…'),
+            background: t('Background tasks: {{count}}', { count: session?.backgroundTaskCount ?? 0 }),
+            idle: t('Idle'),
+          }
+          const description = [
+            labels[activity],
+            ...(unread ? [t('Unread')] : []),
+            ...(preview === id ? [t('Temporary preview · Double-click to keep')] : []),
+            t('Double-click to locate in the session list'),
+          ]
+          return (
+            <div
+              className={`tab ${active === id ? 'active' : ''} ${preview === id ? 'preview' : ''} ${dropIndex === tabIndex ? 'drop-before' : ''}`}
+              key={id}
+              draggable
+              onAuxClick={(event) => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                event.stopPropagation()
+                dispatch({ type: 'close', id })
+              }}
+              onDragStart={(event) => {
+                event.dataTransfer.setData('application/x-hapi-tab', id)
+                event.dataTransfer.effectAllowed = 'move'
+                props.onDrag(id)
+                setMenu(null)
+              }}
+              onDragEnd={() => props.onDrag(null)}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                rememberFocus()
+                trigger.current = event.currentTarget.querySelector('[role="tab"]')
+                setMenu({ id, x: event.clientX, y: event.clientY })
               }}
             >
-              {byId.has(id) ? getSessionTitle(byId.get(id)!) : id.slice(0, 8)}
-            </button>
-            <button
-              className="tab-close"
-              aria-label={t('Close tab')}
-              onClick={() => dispatch({ type: 'close', id })}
-            >
-              <X size={12} />
-            </button>
-          </div>
-        ))}
+              <button
+                role="tab"
+                aria-selected={active === id}
+                aria-description={description.join(' · ')}
+                title={[
+                  getSessionTitle(session ?? ({ id } as SessionSummary)),
+                  machineId ? props.machineNames.get(machineId) || machineId : undefined,
+                  session?.metadata?.path,
+                  ...description,
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+                onClick={() => dispatch({ type: 'open', id, pane })}
+                onDoubleClick={() => {
+                  dispatch({ type: 'keep-tab', id })
+                  props.onLocate(id)
+                }}
+                onKeyDown={(event) => {
+                  if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+                    event.preventDefault()
+                    rememberFocus()
+                    trigger.current = event.currentTarget
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setMenu({ id, x: rect.left, y: rect.bottom })
+                  }
+                }}
+              >
+                <ActivityIcon
+                  size={13}
+                  className={`tab-activity ${activity}`}
+                  data-status={activity}
+                  aria-hidden="true"
+                />
+                {preview === id && <Eye size={12} className="tab-preview-icon" aria-hidden="true" />}
+                <span className="tab-title">{session ? getSessionTitle(session) : id.slice(0, 8)}</span>
+                {unread && <span className="tab-unread" aria-hidden="true" />}
+              </button>
+              <button
+                className="tab-close"
+                aria-label={t('Close tab')}
+                onClick={() => dispatch({ type: 'close', id })}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )
+        })}
         {dropIndex === tabs.length && <span className="tab-drop-end" />}
         {active && (
           <button

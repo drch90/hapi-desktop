@@ -1,8 +1,10 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Copy, Folder, Plus, Server } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { basename } from '@/utils/path'
 
 export function SessionWorkspaceGroup(props: {
@@ -17,12 +19,43 @@ export function SessionWorkspaceGroup(props: {
   canCreate: boolean
   onNewSession: () => void
   onToggle: () => void
+  onSetAllCollapsed: (collapsed: boolean) => void
   children: ReactNode
 }) {
   const { t } = useTranslation()
   const id = useId()
   const { copied, copy } = useCopyToClipboard()
   const [copyFailed, setCopyFailed] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
+  const headingRef = useRef<HTMLDivElement>(null)
+  const closeMenu = () => {
+    const element = menuRef.current
+    setMenu(null)
+    requestAnimationFrame(() => {
+      const focused = document.activeElement
+      if (focused && focused !== document.body && !element?.contains(focused)) return
+      if (previousFocus.current?.isConnected && previousFocus.current !== document.body)
+        previousFocus.current.focus()
+      else headingRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+  }
+  const { menuRef, menuStyle } = useAnchoredMenu({
+    isOpen: Boolean(menu),
+    onClose: closeMenu,
+    anchorPoint: menu ?? { x: 0, y: 0 },
+    align: 'start',
+  })
+  const openMenu = (point: { x: number; y: number }) => {
+    if (!props.collapsible) return
+    if (document.activeElement instanceof HTMLElement) previousFocus.current = document.activeElement
+    setMenu(point)
+  }
+  useEffect(() => {
+    if (!menu || !props.filtering) return
+    const frame = requestAnimationFrame(() => menuRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [Boolean(menu), props.filtering])
   const heading = (
     <span className="workspace-group-label">
       <span className="workspace-group-title">
@@ -43,7 +76,25 @@ export function SessionWorkspaceGroup(props: {
   return (
     <section className="session-group">
       {props.showHeading && (
-        <div className="workspace-group-heading">
+        <div
+          className="workspace-group-heading"
+          ref={headingRef}
+          onPointerDown={(event) => {
+            if (event.button !== 0) event.preventDefault()
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            openMenu({ x: event.clientX, y: event.clientY })
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+              event.preventDefault()
+              const rect = event.currentTarget.getBoundingClientRect()
+              openMenu({ x: rect.left, y: rect.bottom })
+            }
+          }}
+        >
           {props.collapsible ? (
             <Button
               variant="secondary"
@@ -100,6 +151,58 @@ export function SessionWorkspaceGroup(props: {
       <div id={id} hidden={props.collapsed}>
         {props.children}
       </div>
+      {menu &&
+        createPortal(
+          <div
+            className="tab-menu workspace-group-menu"
+            role="menu"
+            tabIndex={-1}
+            aria-label={t('Workspace groups')}
+            ref={menuRef}
+            style={menuStyle}
+            onKeyDown={(event) => {
+              if (event.key === 'Tab') {
+                closeMenu()
+                return
+              }
+              if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const buttons = [
+                ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+              ]
+              if (!buttons.length) return
+              const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? buttons.length - 1
+                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+              buttons[next]?.focus()
+            }}
+          >
+            {[
+              { label: 'Expand all groups', collapsed: false },
+              { label: 'Collapse all groups', collapsed: true },
+            ].map((item) => (
+              <button
+                key={item.label}
+                role="menuitem"
+                disabled={props.filtering}
+                onClick={() => {
+                  props.onSetAllCollapsed(item.collapsed)
+                  closeMenu()
+                }}
+              >
+                {t(item.label)}
+              </button>
+            ))}
+            {props.filtering && (
+              <p className="workspace-group-menu-hint">{t('Clear search to expand or collapse groups.')}</p>
+            )}
+          </div>,
+          document.body,
+        )}
     </section>
   )
 }

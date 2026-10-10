@@ -71,6 +71,30 @@ export function forgetSession(id: string) {
   clearMessageWindow(id)
 }
 
+export async function markSessionArchived(id: string) {
+  // Apply the confirmed result before the next list refresh, so reopening
+  // immediately uses a preview even when the Hub does not send an SSE event.
+  await Promise.all([
+    queries.cancelQueries({ queryKey: sessionsKey }),
+    queries.cancelQueries({ queryKey: sessionKey(id) }),
+  ])
+  queries.setQueryData<SessionSummary[]>(sessionsKey, (rows) =>
+    rows?.map((row) =>
+      row.id === id
+        ? {
+            ...row,
+            active: false,
+            thinking: false,
+            metadata: row.metadata ? { ...row.metadata, lifecycleState: 'archived' } : null,
+          }
+        : row,
+    ),
+  )
+  queries.setQueryData<Session>(sessionKey(id), (session) =>
+    session ? { ...session, active: false, thinking: false } : session,
+  )
+}
+
 // Exactly one bridge subscription feeds every pane. Per-session hooks only
 // subscribe to the already normalized in-memory message window.
 export function applyDesktopEvent(event: DesktopEvent) {

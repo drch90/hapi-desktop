@@ -62,6 +62,13 @@ export function errorKey(error: unknown): string {
   }
 }
 
+export function operationErrorKey(error: unknown): string {
+  const key = errorKey(error)
+  return key === 'Delivery is unconfirmed. Check before sending again.'
+    ? 'The operation could not be confirmed. Refresh the session before retrying.'
+    : key
+}
+
 export function fileErrorKey(error: unknown): string {
   const code = error instanceof ApiError ? error.code : error instanceof Error ? error.message : ''
   if (code === 'HTTP_404' || code === 'FILE_UNAVAILABLE')
