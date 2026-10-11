@@ -170,7 +170,7 @@ export function QueuedMessages({
                           if (result.status === 'cancelled')
                             saveQueueEdit(scope, sessionId, { ...recovery, state: 'ready' }, generation)
                           else {
-                            saveQueueEdit(scope, sessionId, null, generation)
+                            saveQueueEdit(scope, sessionId, null, generation, recovery.localId)
                             setError(
                               result.status === 'invoked'
                                 ? 'This message was already received by the agent.'

@@ -26,17 +26,20 @@ export function UsageDialog({ scope, close }: { scope: string; close: () => void
       }}
     >
       <DialogContent className="desktop-dialog usage-dialog">
-        <DialogHeader>
-          <DialogTitle>{t('Usage statistics')}</DialogTitle>
-        </DialogHeader>
-        <Button
-          variant="outline"
-          onClick={() =>
-            void queries.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'usage-summary' })
-          }
-        >
-          {t('Refresh')}
-        </Button>
+        <div className="usage-toolbar">
+          <DialogHeader>
+            <DialogTitle>{t('Usage statistics')}</DialogTitle>
+          </DialogHeader>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              void queries.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'usage-summary' })
+            }
+          >
+            {t('Refresh')}
+          </Button>
+        </div>
         <div className="usage-content">
           <AppContextProvider value={value}>
             <SettingsUsagePage />

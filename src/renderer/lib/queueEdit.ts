@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { AttachmentMetadataSchema } from '@hapi/protocol/schemas'
 import type { DecryptedMessage } from '@/types/api'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
+import { mergeRecoveryQueues, readRecoveryQueue, updateRecoveryQueue, writeRecoveryQueue } from './recovery'
 const schema = z.object({
   messageId: z.string(),
   localId: z.string(),
@@ -33,16 +34,27 @@ function key(scope: string, id: string) {
   return `desktop:queue-edit:${scope}:${id}`
 }
 export function loadQueueEdit(scope: string, id: string): QueueEdit | null {
-  try {
-    return schema.parse(JSON.parse(localStorage.getItem(key(scope, id)) ?? 'null'))
-  } catch {
-    return null
-  }
+  return readRecoveryQueue(key(scope, id), schema)[0] ?? null
 }
-export function saveQueueEdit(scope: string, id: string, value: QueueEdit | null, generation = epoch) {
+export function saveQueueEdit(
+  scope: string,
+  id: string,
+  value: QueueEdit | null,
+  generation = epoch,
+  localId?: string,
+) {
   if (generation !== epoch || !editSessionExists(scope, id)) return
-  if (value) localStorage.setItem(key(scope, id), JSON.stringify(value))
-  else localStorage.removeItem(key(scope, id))
+  writeRecoveryQueue(
+    key(scope, id),
+    updateRecoveryQueue(readRecoveryQueue(key(scope, id), schema), value, localId),
+  )
+  window.dispatchEvent(new Event(eventName))
+}
+export function migrateQueueEdits(scope: string, from: string, to: string) {
+  const source = readRecoveryQueue(key(scope, from), schema)
+  if (!source.length) return
+  writeRecoveryQueue(key(scope, to), mergeRecoveryQueues(readRecoveryQueue(key(scope, to), schema), source))
+  localStorage.removeItem(key(scope, from))
   window.dispatchEvent(new Event(eventName))
 }
 export function beginQueueEdit(

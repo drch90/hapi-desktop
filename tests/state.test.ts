@@ -4,6 +4,7 @@ import { SseDecoder } from '../src/main/sse'
 import {
   emptyWorkspace,
   loadWorkspace,
+  saveWorkspace,
   reduceWorkspace,
   loadDraft,
   saveDraft,
@@ -12,6 +13,7 @@ import {
 } from '../src/renderer/lib/workspace'
 import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery } from '../src/renderer/lib/outbox'
 import { ApiError, type ApiClient } from '@/api/client'
+import { loadQueueEdit, saveQueueEdit, type QueueEdit } from '../src/renderer/lib/queueEdit'
 import { toIntlLocale } from '../src/shared/i18n'
 
 import {
@@ -268,6 +270,24 @@ describe('SSE wire framing', () => {
 })
 
 describe('session workspace and drafts', () => {
+  it('preserves more than 60 tabs across reload and merging split panes', () => {
+    let state = structuredClone(emptyWorkspace)
+    const ids = Array.from({ length: 122 }, (_, index) => `session-${index}`)
+    for (const [index, id] of ids.entries())
+      state = reduceWorkspace(state, { type: 'open', id, pane: index < 61 ? 0 : 1 })
+    state = reduceWorkspace(state, { type: 'ratio', ratio: 0.6 })
+    saveWorkspace('hub', state)
+    expect(loadWorkspace('hub')).toEqual(state)
+
+    state = reduceWorkspace(loadWorkspace('hub'), { type: 'split' })
+    saveWorkspace('hub', state)
+    const restored = loadWorkspace('hub')
+    expect(restored.panes[0].tabs).toEqual(ids)
+    expect(restored.panes[0].active).toBe(ids.at(-1))
+    expect(restored.split).toBe(false)
+    expect(restored.ratio).toBe(0.6)
+  })
+
   it('upgrades existing tabs without a file width and keeps widths scoped to the account', () => {
     const { filePanelWidth: _, ...legacy } = reduceWorkspace(emptyWorkspace, { type: 'open', id: 'a' })
     localStorage.setItem('desktop:workspace:hub:alice', JSON.stringify({ ...legacy, ratio: 0.6 }))
@@ -316,6 +336,83 @@ describe('session workspace and drafts', () => {
     expect(loadDraft('hub', 'other').text).toBe('separate')
     expect(loadDraft('another-hub', 'new').text).toBe('')
     expect(loadAttempt('hub', 'new')?.status).toBe('unconfirmed')
+  })
+  it('merges destination drafts and keeps every independent delivery and cancellation receipt recoverable', () => {
+    saveDraft('hub', 'old', { text: 'source draft', scrollTop: 42, expanded: ['source-tool'] })
+    saveDraft('hub', 'new', { text: 'target draft', scrollTop: 80, expanded: ['target-tool'] })
+    const oldAttempt = {
+      localId: 'old-send',
+      text: 'source submitted',
+      createdAt: 1,
+      status: 'absent' as const,
+    }
+    const newAttempt = {
+      localId: 'new-send',
+      text: 'target submitted',
+      createdAt: 2,
+      status: 'indeterminate' as const,
+    }
+    storeAttempt('hub', 'old', oldAttempt)
+    storeAttempt('hub', 'new', newAttempt)
+    const oldEdit: QueueEdit = {
+      messageId: 'old-message',
+      localId: 'old-edit',
+      text: 'source edit',
+      draftText: 'source draft',
+      scheduledAt: 42,
+      attachments: [],
+      state: 'checking',
+    }
+    const newEdit: QueueEdit = {
+      ...oldEdit,
+      messageId: 'new-message',
+      localId: 'new-edit',
+      text: 'target edit',
+      state: 'ready',
+    }
+    saveQueueEdit('hub', 'old', oldEdit)
+    saveQueueEdit('hub', 'new', newEdit)
+    migrateSessionLocalState('hub', 'old', 'new')
+    expect(loadDraft('hub', 'new')).toEqual({
+      text: 'target draft\nsource draft',
+      scrollTop: 80,
+      expanded: ['target-tool', 'source-tool'],
+    })
+    expect(loadAttempt('hub', 'new')).toEqual({ ...newAttempt, status: 'unconfirmed' })
+    expect(loadQueueEdit('hub', 'new')).toEqual(newEdit)
+    for (const family of ['draft', 'outbox', 'queue-edit'])
+      expect(localStorage.getItem(`desktop:${family}:hub:old`)).toBeNull()
+
+    // Re-checking or updating one record must leave the others intact.
+    storeAttempt('hub', 'new', { ...newAttempt, status: 'absent' })
+    storeAttempt('hub', 'new', null, newAttempt.localId)
+    expect(loadAttempt('hub', 'new')).toEqual({ ...oldAttempt, status: 'unconfirmed' })
+    storeAttempt('hub', 'new', null, newAttempt.localId)
+    expect(loadAttempt('hub', 'new')?.localId).toBe(oldAttempt.localId)
+    storeAttempt('hub', 'new', null, oldAttempt.localId)
+    expect(loadAttempt('hub', 'new')).toBeNull()
+    saveQueueEdit('hub', 'new', { ...oldEdit, state: 'ready' })
+    saveQueueEdit('hub', 'new', null, undefined, newEdit.localId)
+    expect(loadQueueEdit('hub', 'new')).toEqual({ ...oldEdit, state: 'ready' })
+    saveQueueEdit('hub', 'new', null, undefined, newEdit.localId)
+    expect(loadQueueEdit('hub', 'new')?.localId).toBe(oldEdit.localId)
+    saveQueueEdit('hub', 'new', null, undefined, oldEdit.localId)
+    expect(loadQueueEdit('hub', 'new')).toBeNull()
+  })
+
+  it('does not duplicate identical drafts or receipt identities on repeated migrations', () => {
+    const draft = { text: 'same draft', scrollTop: -1, expanded: [] }
+    const attempt = { localId: 'same-send', text: 'same send', createdAt: 1, status: 'unconfirmed' as const }
+    saveDraft('hub', 'new', draft)
+    storeAttempt('hub', 'new', attempt)
+    for (let index = 0; index < 2; index++) {
+      saveDraft('hub', 'old', draft)
+      storeAttempt('hub', 'old', attempt)
+      migrateSessionLocalState('hub', 'old', 'new')
+    }
+    expect(loadDraft('hub', 'new').text).toBe('same draft')
+    storeAttempt('hub', 'new', null)
+    expect(loadAttempt('hub', 'new')).toBeNull()
   })
   it('repairs invalid restored tab selections', () => {
     localStorage.setItem(

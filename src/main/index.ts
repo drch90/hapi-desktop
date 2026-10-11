@@ -53,22 +53,24 @@ let visibleSessions = new Set<string>()
 const tracker = new NotificationTracker()
 const notifications = new Set<Notification>()
 const hub = new HubConnection(handleEvent)
-let priming = false
+let priming: ReturnType<NotificationTracker['beginSnapshot']> | null = null
 
 function handleEvent(event: DesktopEvent) {
   if (event.type === 'resync' && !priming) {
-    priming = true
+    const snapshot = tracker.beginSnapshot()
+    priming = snapshot
     const lifetime = hub.signal
     void hub
       .request({ path: '/api/sessions', method: 'GET' })
       .then((value) => {
         if (lifetime.aborted) return
-        tracker.prime(value)
+        tracker.prime(value, snapshot)
         updateTray()
       })
       .catch(() => {})
       .finally(() => {
-        priming = false
+        tracker.cancelSnapshot(snapshot)
+        if (priming === snapshot) priming = null
       })
   }
   if (
@@ -79,6 +81,7 @@ function handleEvent(event: DesktopEvent) {
     notifications.clear()
     visibleSessions.clear()
     tracker.reset()
+    priming = null
   }
   if (window && !window.isDestroyed()) window.webContents.send('desktop:event', event)
   if (event.type === 'sync') {

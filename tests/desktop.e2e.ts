@@ -1313,6 +1313,156 @@ test('uncertain delivery stays local until checked; resumed IDs migrate; closing
   expect(errors).toEqual([])
 })
 
+test('sending snapshots text and schedule before resume while preserving the next draft', async () => {
+  const scheduledAt = Date.now() + 120_000
+  await page.evaluate((scheduledAt) => {
+    const scope = Object.keys(localStorage)
+      .find((key) => key.startsWith('desktop:workspace:'))!
+      .slice('desktop:workspace:'.length)
+    localStorage.setItem(
+      `desktop:draft:${scope}:history`,
+      JSON.stringify({ text: 'FIRST submitted message', scheduledAt, scrollTop: -1, expanded: [] }),
+    )
+  }, scheduledAt)
+  let release!: () => void
+  server.resumeGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    await page.getByTestId('session-history').click()
+    const chat = page.getByTestId('chat-history')
+    const input = chat.locator('.composer textarea')
+    await expect(input).toHaveValue('FIRST submitted message')
+    await chat.getByRole('button', { name: '发送', exact: true }).click()
+    await expect.poll(() => server.requests.some((r) => r.path === '/api/sessions/history/resume')).toBe(true)
+    await input.fill('SECOND unsent draft')
+    await chat.getByRole('button', { name: '清除定时', exact: true }).click()
+    release()
+    const resumed = page.getByTestId('chat-resumed')
+    await expect(resumed.locator('.composer textarea')).toHaveValue('SECOND unsent draft')
+    const sends = server.requests.filter(
+      (r) => r.path === '/api/sessions/resumed/messages' && r.method === 'POST',
+    )
+    expect(sends).toHaveLength(1)
+    expect(sends[0].body).toMatchObject({ text: 'FIRST submitted message', scheduledAt })
+    await page.reload()
+    await expect(resumed.locator('.composer textarea')).toHaveValue('SECOND unsent draft')
+    expect(errors).toEqual([])
+  } finally {
+    release()
+  }
+})
+
+for (const submitted of ['/clear', 'ordinary submitted message']) {
+  test(`native clear uses the submitted snapshot during resume (${submitted})`, async () => {
+    server.sessions.get('history')!.metadata!.capabilities = { concurrentClients: true }
+    let release!: () => void
+    server.resumeGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    try {
+      await page.getByTestId('session-history').click()
+      const chat = page.getByTestId('chat-history')
+      await chat.locator('.composer textarea').fill(submitted)
+      await chat.getByRole('button', { name: '发送', exact: true }).click()
+      await expect
+        .poll(() => server.requests.some((r) => r.path === '/api/sessions/history/resume'))
+        .toBe(true)
+      const nextDraft = submitted === '/clear' ? 'next unsent draft' : '/clear'
+      await chat.locator('.composer textarea').fill(nextDraft)
+      release()
+      const target = submitted === '/clear' ? 'cleared' : 'resumed'
+      await expect(page.getByTestId(`chat-${target}`).locator('.composer textarea')).toHaveValue(nextDraft)
+      expect(server.requests.filter((r) => r.path.endsWith('/clear'))).toHaveLength(
+        submitted === '/clear' ? 1 : 0,
+      )
+      const sends = server.requests.filter((r) => r.path.endsWith('/messages') && r.method === 'POST')
+      expect(sends).toHaveLength(submitted === '/clear' ? 0 : 1)
+      if (sends.length) expect(sends[0].body.text).toBe(submitted)
+      expect(errors).toEqual([])
+    } finally {
+      release()
+    }
+  })
+}
+
+test('resuming into the other pane merges its live draft and survives cleanup and reload', async () => {
+  server.resumeTarget = 'design'
+  for (const id of ['design', 'history']) {
+    server.sessions.get(id)!.metadata = {
+      ...server.sessions.get(id)!.metadata!,
+      flavor: 'opencode',
+      opencodeSessionId: 'shared-remote-conversation',
+    }
+  }
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('chat-design').locator('.composer textarea').fill('original target draft')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-history').click()
+  const source = page.getByTestId('chat-history')
+  await source.locator('.composer textarea').fill('SOURCE draft')
+  let release!: () => void
+  server.resumeGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    await source.getByRole('button', { name: '恢复会话', exact: true }).click()
+    await expect.poll(() => server.requests.some((r) => r.path === '/api/sessions/history/resume')).toBe(true)
+    await page.getByTestId('chat-design').locator('.composer textarea').fill('TARGET draft to preserve')
+    release()
+    await expect(source).toHaveCount(0)
+    await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue(
+      'TARGET draft to preserve\nSOURCE draft',
+    )
+    await page.reload()
+    await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue(
+      'TARGET draft to preserve\nSOURCE draft',
+    )
+    expect(errors).toEqual([])
+  } finally {
+    release()
+  }
+})
+
+test('resumed sessions retain independent uncertain sends and resolve each receipt before retry', async () => {
+  await page.getByTestId('session-design').click()
+  const target = page.getByTestId('chat-design')
+  await target.locator('.composer textarea').fill('TARGET submitted message')
+  server.failSend = 'accepted'
+  await target.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(target.getByRole('button', { name: '检查送达状态' })).toBeEnabled()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-history').click()
+  const source = page.getByTestId('chat-history')
+  await source.locator('.composer textarea').fill('SOURCE submitted message')
+  server.resumeTarget = 'design'
+  server.failSend = 'absent'
+  await source.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(source).toHaveCount(0)
+  await expect(target.locator('.send-alert .queue-text')).toHaveText('TARGET submitted message')
+  await page.reload()
+  await target.getByRole('button', { name: '检查送达状态' }).click()
+  await expect(target.locator('.send-alert .queue-text')).toHaveText('SOURCE submitted message')
+  await expect(target.getByRole('button', { name: '重试发送', exact: true })).toHaveCount(0)
+  await target.getByRole('button', { name: '检查送达状态' }).click()
+  server.failSend = 'none'
+  await target.getByRole('button', { name: '重试发送', exact: true }).click()
+  await expect(target.getByRole('button', { name: '检查送达状态' })).toHaveCount(0)
+  const sends = server.requests.filter(
+    (r) => r.path === '/api/sessions/design/messages' && r.method === 'POST',
+  )
+  expect(sends.map((r) => r.body.text)).toEqual([
+    'TARGET submitted message',
+    'SOURCE submitted message',
+    'SOURCE submitted message',
+  ])
+  expect(sends[1].body.localId).toBe(sends[2].body.localId)
+  expect(sends[0].body.localId).not.toBe(sends[1].body.localId)
+  expect(errors).toEqual([])
+})
+
 test('HAPI interactive questions preserve each provider answer contract', async () => {
   await page.getByTestId('session-design').click()
   await page.getByTestId('chat-design').getByRole('textbox').fill('回答后继续发送的草稿')
@@ -4570,6 +4720,52 @@ test('scratchlist stores and edits Hub entries, retries idempotently, and sends 
   expect(errors).toEqual([])
 })
 
+for (const previous of ['cleanup-failed', 'accepted', 'absent', 'indeterminate'] as const) {
+  test(`edited scratchlist content gets its own send after resolving the old receipt (${previous})`, async () => {
+    await page.getByTestId('session-design').click()
+    const chat = page.getByTestId('chat-design')
+    await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+    const panel = chat.locator('.scratchlist-panel')
+    await panel.getByRole('textbox', { name: '新增暂存消息' }).fill('ORIGINAL stored message')
+    await panel.getByRole('button', { name: '保存到暂存列表' }).click()
+    await expect(panel.getByTestId('scratchlist-entry')).toHaveCount(1)
+    server.failScratchDelete = previous === 'cleanup-failed'
+    server.failSend = previous === 'cleanup-failed' ? 'none' : previous === 'absent' ? 'absent' : 'accepted'
+    await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
+    await expect(panel.getByRole('alert')).toBeVisible()
+    if (previous === 'indeterminate') {
+      const message = server.messages.get('design')!.at(-1)!
+      message.invokedAt = null
+      message.deliveryState = 'indeterminate'
+    }
+    await panel.getByRole('button', { name: '复制到输入框', exact: true }).click()
+    await page.getByRole('textbox', { name: '编辑暂存消息' }).fill('EDITED unsent message')
+    await page.getByRole('button', { name: '保存修改' }).click()
+    await expect(panel).toContainText('EDITED unsent message')
+    server.failScratchDelete = false
+    server.failSend = 'none'
+    await page.reload()
+    await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+    await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
+    if (previous === 'absent' || previous === 'indeterminate') {
+      await expect(panel.getByRole('alert')).toBeVisible()
+      expect(server.scratchlists.get('design')?.size).toBe(1)
+      expect(
+        server.requests.filter((r) => r.path === '/api/sessions/design/messages' && r.method === 'POST'),
+      ).toHaveLength(1)
+      if (previous === 'indeterminate') server.messages.get('design')!.at(-1)!.invokedAt = Date.now()
+      await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
+    }
+    await expect.poll(() => server.scratchlists.get('design')?.size).toBe(0)
+    const sent = server.requests.filter(
+      (r) => r.path === '/api/sessions/design/messages' && r.method === 'POST',
+    )
+    expect(sent.map((r) => r.body.text)).toEqual(['ORIGINAL stored message', 'EDITED unsent message'])
+    expect(sent[0].body.localId).not.toBe(sent[1].body.localId)
+    expect(errors).toEqual([])
+  })
+}
+
 test('scratchlist attachments cross the authenticated bridge and stay independent in both panes', async () => {
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
@@ -4618,10 +4814,14 @@ test('context usage and Hub usage statistics provide range changes and retry', a
   await page.getByTestId('chat-design').locator('.context-usage').click()
   await expect(page.locator('.context-popover')).toContainText('8k')
   await page.keyboard.press('Escape')
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1480, 940))
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('button', { name: '用量统计', exact: true }).click()
   const usage = page.locator('.usage-dialog')
   await expect(usage).toContainText('codex')
+  expect((await usage.boundingBox())!.width).toBeGreaterThan(1000)
+  expect((await usage.locator('.usage-content > div').boundingBox())!.width).toBeGreaterThan(900)
+  await page.screenshot({ path: 'build/usage-desktop-preview.png', animations: 'disabled' })
   await usage.getByRole('radio').nth(1).click()
   await expect(usage).toContainText('gpt-5')
   server.failUsage = true
@@ -4632,6 +4832,26 @@ test('context usage and Hub usage statistics provide range changes and retry', a
   server.failUsage = false
   await usage.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(usage).toContainText('codex')
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await expect(usage.getByRole('button', { name: '刷新', exact: true })).toBeInViewport()
+  await expect(usage.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
+  const dimensions = await usage.evaluate((dialog) => {
+    const bounds = dialog.getBoundingClientRect()
+    const content = dialog.querySelector('.usage-content')!
+    return {
+      width: bounds.width,
+      bottom: bounds.bottom,
+      viewportHeight: innerHeight,
+      overflows: content.scrollWidth > content.clientWidth,
+    }
+  })
+  expect(dimensions.width).toBeGreaterThan(800)
+  expect(dimensions.bottom).toBeLessThan(dimensions.viewportHeight)
+  expect(dimensions.overflows).toBe(false)
+  await usage.locator('.usage-content').evaluate((content) => {
+    content.scrollTop = content.scrollHeight
+  })
+  await expect(usage.getByText('gpt-5', { exact: true })).toBeInViewport()
   expect(errors).toEqual([])
 })
 

@@ -41,6 +41,25 @@ const receiptSchema = attemptSchema.extend({ accepted: z.boolean().optional() })
 const operations = new Set<string>()
 const operationEvent = 'desktop:scratchlist-operation'
 
+function matchesReceipt(entry: ScratchlistEntry, receipt: Receipt) {
+  const attachments = entry.attachments ?? []
+  const sent = receipt.attachments ?? []
+  return (
+    receipt.text === entry.text &&
+    attachments.length === sent.length &&
+    attachments.every((item, index) => {
+      const previous = sent[index]
+      // Staging changes the path, but preserves the Hub attachment's identity.
+      return (
+        item.id === previous.id &&
+        item.filename === previous.filename &&
+        item.mimeType === previous.mimeType &&
+        item.size === previous.size
+      )
+    })
+  )
+}
+
 export function Scratchlist(props: {
   scope: string
   sessionId: string
@@ -66,6 +85,7 @@ export function Scratchlist(props: {
   const locked = useRef(false)
   const mounted = useRef(true)
   const generation = useRef(queueEditEpoch())
+  const checkedAbsent = useRef(new Set<string>())
   const [error, setError] = useState('')
   const [edit, setEdit] = useState<ScratchlistEntry | null>(null)
   const [editText, setEditText] = useState('')
@@ -176,7 +196,10 @@ export function Scratchlist(props: {
   const receiptKey = (id: string) => `desktop:scratch-send:${scope}:${sessionId}:${id}`
   function readReceipt(id: string): Receipt | null {
     try {
-      return receiptSchema.parse(JSON.parse(localStorage.getItem(receiptKey(id)) ?? 'null'))
+      const receipt = receiptSchema.parse(JSON.parse(localStorage.getItem(receiptKey(id)) ?? 'null'))
+      return receipt.status === 'absent' && !checkedAbsent.current.has(receipt.localId)
+        ? { ...receipt, status: 'unconfirmed' }
+        : receipt
     } catch {
       return null
     }
@@ -204,22 +227,30 @@ export function Scratchlist(props: {
     let accepted = false
     await run(async () => {
       let receipt = readReceipt(entry.id)
-      if (receipt?.accepted) {
+      if (receipt?.accepted && matchesReceipt(entry, receipt)) {
         accepted = true
         return
       }
       if (!props.active) throw new Error('SCRATCH_RESTORE_FIRST')
-      if (receipt && receipt.status !== 'absent') {
+      if (receipt && !receipt.accepted && receipt.status !== 'absent') {
         const status = await checkDelivery(client, sessionId, receipt)
         if (!current()) return
         if (status === 'accepted') {
-          writeReceipt(entry.id, { ...receipt, accepted: true })
-          accepted = true
-          return
+          receipt = { ...receipt, accepted: true }
+          writeReceipt(entry.id, receipt)
+          if (matchesReceipt(entry, receipt)) {
+            accepted = true
+            return
+          }
+        } else {
+          if (status === 'absent') checkedAbsent.current.add(receipt.localId)
+          writeReceipt(entry.id, { ...receipt, status })
+          throw new Error(status === 'absent' ? 'SCRATCH_RETRY_SEND' : 'SCRATCH_SEND_UNKNOWN')
         }
-        writeReceipt(entry.id, { ...receipt, status })
-        throw new Error(status === 'absent' ? 'SCRATCH_RETRY_SEND' : 'SCRATCH_SEND_UNKNOWN')
       }
+      // An edit is a new intent only after the previous delivery is resolved.
+      // Never delete the edited entry on the strength of its old receipt.
+      if (receipt && !matchesReceipt(entry, receipt)) receipt = null
       if (!receipt) {
         const attachments = await stageScratchlistAttachmentsForComposeSend(
           client,
@@ -249,8 +280,10 @@ export function Scratchlist(props: {
         writeReceipt(entry.id, { ...receipt, accepted: true })
         accepted = true
       } catch (error) {
-        if (!uncertainDelivery(error)) writeReceipt(entry.id, { ...receipt, status: 'absent' })
-        else throw new Error('SCRATCH_SEND_UNKNOWN')
+        if (!uncertainDelivery(error)) {
+          checkedAbsent.current.add(receipt.localId)
+          writeReceipt(entry.id, { ...receipt, status: 'absent' })
+        } else throw new Error('SCRATCH_SEND_UNKNOWN')
         throw error
       }
     })

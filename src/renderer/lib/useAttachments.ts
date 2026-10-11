@@ -241,10 +241,17 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     }
   }
 
-  async function prepare(target: string): Promise<AttachmentMetadata[]> {
+  function select(ids?: string[]): UploadItem[] {
+    const selected = state.items.filter((item) => !ids || ids.includes(item.value?.id ?? item.id))
+    // Pin the submitted selection before resume or upload yields. Closing the
+    // tab during that wait must not cancel files that belong to this send.
+    for (const item of selected) item.sending = true
+    return selected
+  }
+
+  async function prepare(target: string, selected: UploadItem[]): Promise<AttachmentMetadata[]> {
     if (state.epoch !== runtimeEpoch) throw new Error('CONNECTION_CHANGED')
     if (loading || error) throw new Error('ATTACHMENTS_NOT_READY')
-    const selected = [...state.items]
     const metadata: AttachmentMetadata[] = []
     for (const item of selected) {
       await upload(item, target, true)
@@ -312,6 +319,7 @@ export function useAttachments(scope: string, sessionId: string, active: boolean
     error,
     add,
     restore,
+    select,
     prepare,
     transfer,
     clearSent,

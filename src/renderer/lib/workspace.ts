@@ -1,7 +1,9 @@
 import { z } from 'zod'
+import { migrateAttempts } from './outbox'
+import { migrateQueueEdits } from './queueEdit'
 
 const paneSchema = z.object({
-  tabs: z.array(z.string().max(256)).max(60),
+  tabs: z.array(z.string().max(256)),
   active: z.string().nullable(),
   preview: z.string().max(256).optional(),
 })
@@ -289,12 +291,19 @@ export function loadWorkspace(scope: string): Workspace {
   }
 }
 
-export type Draft = { text: string; scrollTop: number; expanded: string[]; scheduledAt?: number | null }
+export type Draft = {
+  text: string
+  scrollTop: number
+  expanded: string[]
+  scheduledAt?: number | null
+  revision?: string
+}
 const draftSchema = z.object({
   text: z.string(),
   scrollTop: z.number(),
   expanded: z.array(z.string()),
   scheduledAt: z.number().nullable().optional(),
+  revision: z.string().optional(),
 })
 export function loadDraft(scope: string, id: string): Draft {
   try {
@@ -307,14 +316,48 @@ export function saveDraft(scope: string, id: string, draft: Draft) {
   localStorage.setItem(`desktop:draft:${scope}:${id}`, JSON.stringify(draft))
 }
 
+export const sessionLocalStateEvent = 'desktop:session-local-state'
+export type SessionLocalStateChange = { scope: string; from: string; to: string; phase: 'flush' | 'migrated' }
+
 export function migrateSessionLocalState(scope: string, from: string, to: string) {
   if (from === to) return
-  for (const family of ['draft', 'outbox', 'queue-edit']) {
-    const key = `desktop:${family}:${scope}:`
-    const source = localStorage.getItem(key + from)
-    if (source !== null) {
-      localStorage.setItem(key + to, source)
-      localStorage.removeItem(key + from)
-    }
+  const notify = (phase: SessionLocalStateChange['phase']) =>
+    window.dispatchEvent(new CustomEvent(sessionLocalStateEvent, { detail: { scope, from, to, phase } }))
+  // A destination in the other pane may still have a debounced draft write.
+  notify('flush')
+  const sourceKey = `desktop:draft:${scope}:${from}`
+  if (localStorage.getItem(sourceKey) !== null) {
+    const source = loadDraft(scope, from)
+    const target = loadDraft(scope, to)
+    const hasTarget = localStorage.getItem(`desktop:draft:${scope}:${to}`) !== null
+    saveDraft(
+      scope,
+      to,
+      hasTarget
+        ? {
+            ...target,
+            text:
+              target.text === source.text
+                ? target.text
+                : [target.text, source.text].filter(Boolean).join('\n'),
+            expanded: [...new Set([...target.expanded, ...source.expanded])],
+            scheduledAt: target.text ? target.scheduledAt : source.scheduledAt,
+            ...(target.revision || source.revision
+              ? {
+                  revision:
+                    target.text && source.text
+                      ? crypto.randomUUID()
+                      : target.text
+                        ? target.revision
+                        : source.revision,
+                }
+              : {}),
+          }
+        : source,
+    )
+    localStorage.removeItem(sourceKey)
   }
+  migrateAttempts(scope, from, to)
+  migrateQueueEdits(scope, from, to)
+  notify('migrated')
 }

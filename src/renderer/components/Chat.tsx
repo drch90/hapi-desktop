@@ -59,8 +59,14 @@ import { api, createApi, errorKey, operationErrorKey, unwrap } from '../lib/api'
 import { useAttachments } from '../lib/useAttachments'
 import { AttachmentTray } from './AttachmentTray'
 import { queries, refreshSessions, sessionKey, watchSession } from '../lib/sync'
-import { loadDraft, saveDraft, type Draft } from '../lib/workspace'
-import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery, type SendAttempt } from '../lib/outbox'
+import {
+  loadDraft,
+  saveDraft,
+  sessionLocalStateEvent,
+  type Draft,
+  type SessionLocalStateChange,
+} from '../lib/workspace'
+import { checkDelivery, useAttempt, storeAttempt, uncertainDelivery, type SendAttempt } from '../lib/outbox'
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { MessageActions } from './MessageActions'
 import { ToolExecutionTimes } from './ToolExecutionTimes'
@@ -168,7 +174,7 @@ export function Chat({
   )
   const queueEdit = useQueueEdit(scope, id)
   const [editWorking, setEditWorking] = useState(false)
-  const [attempt, setAttempt] = useState(() => loadAttempt(scope, id))
+  const attempt = useAttempt(scope, id)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [rename, setRename] = useState(false)
@@ -183,21 +189,33 @@ export function Chat({
   const outlineContainer = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
   const latestDraft = useRef(draft)
+  const draftRevision = useRef(0)
   const migrated = useRef(false)
   const alive = useRef(true)
   useEffect(() => {
     registerComposer(id, (path) => {
       const previous = latestDraft.current.text.trimEnd()
       const text = previous ? `${previous}\n${formatFileReference(path)}` : formatFileReference(path)
-      const next = { ...latestDraft.current, text }
-      latestDraft.current = next
-      setDraft(next)
-      saveDraft(scope, id, next)
+      updateDraft({ text })
+      saveDraft(scope, id, latestDraft.current)
       setQuestionsExpanded(false)
       requestAnimationFrame(() => composer.current?.focus())
     })
     return () => registerComposer(id, null)
   }, [id, scope, registerComposer])
+  useEffect(() => {
+    const update = (event: Event) => {
+      const change = (event as CustomEvent<SessionLocalStateChange>).detail
+      if (change.scope !== scope) return
+      if (change.phase === 'flush' && change.to === id) saveDraft(scope, id, latestDraft.current)
+      if (change.phase === 'migrated') {
+        if (change.from === id) migrated.current = true
+        if (change.to === id) updateDraft(loadDraft(scope, id))
+      }
+    }
+    window.addEventListener(sessionLocalStateEvent, update)
+    return () => window.removeEventListener(sessionLocalStateEvent, update)
+  }, [id, scope])
   useEffect(() => {
     alive.current = true
     const unwatch = watchSession(id)
@@ -290,7 +308,14 @@ export function Chat({
   )
 
   function updateDraft(update: Partial<Draft>) {
-    const value = { ...latestDraft.current, ...update }
+    if ('text' in update || 'scheduledAt' in update) draftRevision.current++
+    const value = {
+      ...latestDraft.current,
+      ...update,
+      ...('text' in update || 'scheduledAt' in update
+        ? { revision: update.revision ?? crypto.randomUUID() }
+        : {}),
+    }
     latestDraft.current = value
     setDraft(value)
   }
@@ -343,12 +368,21 @@ export function Chat({
       (deliveryMode === 'steer' && !canSteer) ||
       !session ||
       !connected ||
-      (!latestDraft.current.text.trim() && !attachments.items.length && !attempt?.attachments?.length) ||
+      (retry
+        ? !attempt?.text && !attempt?.attachments?.length
+        : !latestDraft.current.text.trim() && !attachments.items.length) ||
       attachments.loading ||
       (session.active && !attachments.ready && !retry) ||
       (attempt && (!retry || attempt.status !== 'absent'))
     )
       return
+    if (!latestDraft.current.revision) updateDraft({ revision: crypto.randomUUID() })
+    const submitted = { ...latestDraft.current }
+    const revision = draftRevision.current
+    const submittedAt = Date.now()
+    const selectedAttachments = attachments.select(
+      retry ? (attempt?.attachments ?? []).map((item) => item.id) : undefined,
+    )
     // Sending turns a historical preview into work in progress. Keep the tab
     // even if the request needs a retry or its delivery receipt is uncertain.
     keepSession(id)
@@ -364,20 +398,19 @@ export function Chat({
       // Shared Codex threads use HAPI's native clear endpoint, which creates
       // and returns the new conversation. Other CLI commands stay verbatim.
       if (
+        !retry &&
         session.metadata?.capabilities?.concurrentClients &&
-        !attachments.items.length &&
-        /^\/(clear|new)\s*$/.test(latestDraft.current.text.trim())
+        !selectedAttachments.length &&
+        /^\/(clear|new)\s*$/.test(submitted.text.trim())
       ) {
-        const commandText = latestDraft.current.text
         const result = await scopedApi.clearConversation(target)
         if (typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId.length > 256)
           throw new Error('INVALID_RESPONSE')
         target = result.sessionId
-        if (latestDraft.current.text === commandText)
-          updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+        if (draftRevision.current === revision) updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
         return
       }
-      const uploaded = await attachments.prepare(target)
+      const uploaded = await attachments.prepare(target, selectedAttachments)
       if (retry && target !== id && uploaded.length !== (attempt?.attachments?.length ?? 0))
         throw new Error('UPLOAD_FAILED')
       outgoing =
@@ -394,19 +427,19 @@ export function Chat({
             }
           : {
               localId: crypto.randomUUID(),
-              text: latestDraft.current.text.trim(),
-              createdAt: Date.now(),
+              text: submitted.text.trim(),
+              createdAt: submittedAt,
               status: 'unconfirmed',
               ...(uploaded.length ? { attachments: uploaded } : {}),
               deliveryMode,
-              ...(latestDraft.current.scheduledAt && latestDraft.current.scheduledAt > Date.now()
-                ? { scheduledAt: latestDraft.current.scheduledAt }
+              draftRevision: submitted.revision,
+              ...(submitted.scheduledAt && submitted.scheduledAt > submittedAt
+                ? { scheduledAt: submitted.scheduledAt }
                 : {}),
             }
       // Persist before the network request; a crash or window reload cannot
       // turn an uncertain send into a fresh attempt with another localId.
       storeAttempt(scope, id, outgoing)
-      setAttempt(outgoing)
       await scopedApi.sendMessage(
         target,
         outgoing.text,
@@ -416,17 +449,19 @@ export function Chat({
         outgoing.deliveryMode ?? deliveryMode,
       )
       await attachments.clearSent(outgoing.attachments?.map((item) => item.id) ?? [])
-      storeAttempt(scope, id, null)
-      setAttempt(null)
-      if (latestDraft.current.text.trim() === outgoing.text)
+      storeAttempt(scope, id, null, outgoing.localId)
+      if (
+        draftRevision.current === revision &&
+        latestDraft.current.text.trim() === outgoing.text &&
+        (!outgoing.draftRevision || latestDraft.current.revision === outgoing.draftRevision)
+      )
         updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
       navigation.followLatest()
       if (target === id) await messages.refetch()
     } catch (error) {
       setError(errorKey(error))
       if (outgoing && !uncertainDelivery(error)) {
-        storeAttempt(scope, id, null)
-        setAttempt(null)
+        storeAttempt(scope, id, null, outgoing.localId)
       }
     } finally {
       // Resume can create a new session. Move tab, draft and uncertain send
@@ -455,12 +490,14 @@ export function Chat({
       const status = await checkDelivery(scopedApi, id, attempt)
       if (status === 'accepted') {
         await attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
-        if (latestDraft.current.text.trim() === attempt.text) updateDraft({ text: '' })
-        setAttempt(null)
-        storeAttempt(scope, id, null)
+        if (
+          latestDraft.current.text.trim() === attempt.text &&
+          (!attempt.draftRevision || latestDraft.current.revision === attempt.draftRevision)
+        )
+          updateDraft({ text: '', scheduledAt: null })
+        storeAttempt(scope, id, null, attempt.localId)
       } else {
         const next = { ...attempt, status }
-        setAttempt(next)
         storeAttempt(scope, id, next)
       }
       await messages.refetch()
@@ -480,14 +517,14 @@ export function Chat({
         const state = await scopedApi.getQueuedState(id, [queueEdit.localId])
         if (generation !== queueEditEpoch()) return
         if (state.invokedLocalMessages.some((message) => message.localId === queueEdit.localId)) {
-          saveQueueEdit(scope, id, null)
+          saveQueueEdit(scope, id, null, generation, queueEdit.localId)
           throw new Error('QUEUE_ALREADY_INVOKED')
         }
         if (
           state.queuedLocalIds.includes(queueEdit.localId) ||
           state.indeterminateLocalIds?.includes(queueEdit.localId)
         ) {
-          saveQueueEdit(scope, id, null)
+          saveQueueEdit(scope, id, null, generation, queueEdit.localId)
           throw new Error('QUEUE_STILL_PENDING')
         }
         saveQueueEdit(scope, id, { ...queueEdit, state: 'ready' })
@@ -511,7 +548,7 @@ export function Chat({
           queueEdit.scheduledAt && queueEdit.scheduledAt > Date.now() ? queueEdit.scheduledAt : null,
       })
       saveDraft(scope, id, latestDraft.current)
-      saveQueueEdit(scope, id, null)
+      saveQueueEdit(scope, id, null, generation, queueEdit.localId)
       composer.current?.focus()
     } catch (error) {
       if (alive.current)
@@ -951,7 +988,7 @@ export function Chat({
               size="sm"
               variant="outline"
               disabled={editWorking}
-              onClick={() => saveQueueEdit(scope, id, null)}
+              onClick={() => saveQueueEdit(scope, id, null, undefined, queueEdit.localId)}
             >
               {t('Cancel')}
             </Button>
@@ -970,6 +1007,7 @@ export function Chat({
           {(error || attempt) && (
             <div className="send-alert" role="status">
               <span>{t(error || 'Delivery is unconfirmed. Check before sending again.')}</span>
+              {attempt?.text && <p className="queue-text">{attempt.text}</p>}
               {attempt && (
                 <div className="inline-actions">
                   <Button

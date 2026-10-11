@@ -11,6 +11,13 @@ export type Notice = {
   kind: 'Approval needed' | 'Reply needed' | 'Agent ready' | 'Task completed' | 'Task failed'
 }
 
+type NotificationSnapshot = {
+  changed: Set<string>
+  removed: Set<string>
+  requests: Set<string>
+  metadata: Set<string>
+}
+
 export class NotificationTracker {
   private readonly seen = new Set<string>()
   private readonly sessions = new Map<
@@ -25,17 +32,36 @@ export class NotificationTracker {
     }
   >()
   private startedAt = Date.now()
+  private snapshot: NotificationSnapshot | null = null
 
   reset() {
     this.seen.clear()
     this.sessions.clear()
     this.startedAt = Date.now()
+    this.snapshot = null
   }
   get pendingCount() {
     return [...this.sessions.values()].reduce((n, s) => n + s.count, 0)
   }
 
-  prime(value: unknown) {
+  beginSnapshot() {
+    const snapshot: NotificationSnapshot = {
+      changed: new Set(),
+      removed: new Set(),
+      requests: new Set(),
+      metadata: new Set(),
+    }
+    this.snapshot = snapshot
+    return snapshot
+  }
+
+  cancelSnapshot(snapshot: NotificationSnapshot) {
+    if (this.snapshot === snapshot) this.snapshot = null
+  }
+
+  prime(value: unknown, snapshot = this.beginSnapshot()) {
+    if (this.snapshot !== snapshot) return
+    this.snapshot = null
     const result = z
       .object({
         sessions: z.array(
@@ -58,21 +84,32 @@ export class NotificationTracker {
       })
       .safeParse(value)
     if (!result.success) return
+    const present = new Set(result.data.sessions.map((row) => row.id))
+    for (const id of this.sessions.keys()) {
+      if (!present.has(id) && !snapshot.changed.has(id)) this.sessions.delete(id)
+    }
     for (const row of result.data.sessions) {
+      if (snapshot.removed.has(row.id)) continue
       const current = this.sessions.get(row.id)
-      if (current && (current.version > row.agentStateVersion || current.updatedAt > row.updatedAt)) continue
-      const requests = new Set(row.pendingRequests.map((r) => r.id))
+      // Merge independent fields: a live rename must not prevent REST from
+      // supplying request counts, while a live approval/end must win over REST.
+      const keepRequests =
+        current && (snapshot.requests.has(row.id) || current.version > row.agentStateVersion)
+      const keepMetadata =
+        current && (snapshot.metadata.has(row.id) || current.metadataVersion > row.metadataVersion)
+      const requests = keepRequests ? current.requests : new Set(row.pendingRequests.map((r) => r.id))
       this.sessions.set(row.id, {
-        title:
-          row.metadata?.name ||
-          row.metadata?.summary?.text ||
-          row.metadata?.path.split('/').pop() ||
-          row.id.slice(0, 8),
+        title: keepMetadata
+          ? current.title
+          : row.metadata?.name ||
+            row.metadata?.summary?.text ||
+            row.metadata?.path.split('/').pop() ||
+            row.id.slice(0, 8),
         requests,
-        count: row.pendingRequestsCount,
-        version: row.agentStateVersion,
-        metadataVersion: row.metadataVersion,
-        updatedAt: row.updatedAt,
+        count: keepRequests ? current.count : row.pendingRequestsCount,
+        version: keepRequests ? current.version : row.agentStateVersion,
+        metadataVersion: keepMetadata ? current.metadataVersion : row.metadataVersion,
+        updatedAt: Math.max(current?.updatedAt ?? 0, row.updatedAt),
       })
       for (const id of requests) this.seen.add(`${row.id}:request:${id}`)
     }
@@ -81,7 +118,9 @@ export class NotificationTracker {
   handle(event: SyncEvent, replay: boolean): Notice[] {
     if (!('sessionId' in event)) return []
     const sessionId = event.sessionId
+    this.snapshot?.changed.add(sessionId)
     if (event.type === 'session-removed') {
+      this.snapshot?.removed.add(sessionId)
       this.sessions.delete(sessionId)
       return []
     }
@@ -98,6 +137,7 @@ export class NotificationTracker {
     if (event.type === 'session-added' || event.type === 'session-updated') {
       const full = SessionSchema.safeParse(event.data)
       const patch = SessionPatchSchema.safeParse(event.data)
+      if (full.success || patch.success) this.snapshot?.removed.delete(sessionId)
       const metadata = full.success ? full.data.metadata : patch.success ? patch.data.metadata?.value : null
       const metadataVersion = full.success
         ? full.data.metadataVersion
@@ -105,6 +145,7 @@ export class NotificationTracker {
           ? patch.data.metadata?.version
           : undefined
       if (metadata && metadataVersion !== undefined && metadataVersion > session.metadataVersion) {
+        this.snapshot?.metadata.add(sessionId)
         session.title =
           metadata.name || metadata.summary?.text || metadata.path?.split('/').pop() || session.title
         session.metadataVersion = metadataVersion
@@ -124,6 +165,7 @@ export class NotificationTracker {
         full.success ? full.data.updatedAt : patch.success ? (patch.data.updatedAt ?? 0) : 0,
       )
       if (version !== undefined && version > session.version && agentState !== undefined) {
+        this.snapshot?.requests.add(sessionId)
         const firstSnapshot = session.version < 0
         const hadBaseline = session.version >= 0 && session.requests.size >= session.count
         session.version = version
@@ -165,6 +207,7 @@ export class NotificationTracker {
       this.seen.add(key)
     }
     if (event.type === 'session-ended') {
+      this.snapshot?.requests.add(sessionId)
       session.requests.clear()
       session.count = 0
       const key = `${sessionId}:ended:${session.updatedAt}:${event.reason}`

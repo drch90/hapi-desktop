@@ -2,7 +2,108 @@ import { describe, expect, it } from 'vitest'
 import { NotificationTracker } from '../src/main/notifications'
 import type { SyncEvent } from '@hapi/protocol/schemas'
 
+const summary = (id: string, count = 1) => ({
+  id,
+  updatedAt: 1,
+  metadataVersion: 1,
+  agentStateVersion: 1,
+  pendingRequestsCount: count,
+  pendingRequests: Array.from({ length: count }, (_, index) => ({ id: `request-${index}` })),
+  metadata: { path: '/project', name: id },
+})
+
 describe('notification state', () => {
+  it('removes sessions missing from a complete resync snapshot without notifying', () => {
+    const tracker = new NotificationTracker()
+    tracker.prime({ sessions: [summary('removed'), summary('kept', 2)] })
+    tracker.prime({ sessions: [summary('kept', 2)] })
+    expect(tracker.pendingCount).toBe(2)
+    tracker.prime({ sessions: [] })
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  it('preserves live changes during resync and does not resurrect removed or ended sessions', () => {
+    const tracker = new NotificationTracker()
+    tracker.prime({ sessions: [summary('old'), summary('updated'), summary('removed'), summary('ended')] })
+    const snapshot = tracker.beginSnapshot()
+    for (const sessionId of ['updated', 'added']) {
+      tracker.handle(
+        {
+          type: 'session-updated',
+          sessionId,
+          data: {
+            agentState: {
+              version: 2,
+              value: {
+                requests: {
+                  first: { tool: 'Bash', arguments: {} },
+                  second: { tool: 'Bash', arguments: {} },
+                },
+              },
+            },
+          },
+        },
+        false,
+      )
+    }
+    tracker.handle({ type: 'session-removed', sessionId: 'removed' }, false)
+    tracker.handle({ type: 'session-removed', sessionId: 'removed-before-baseline' }, false)
+    tracker.handle({ type: 'session-ended', sessionId: 'ended', reason: 'completed' }, false)
+    tracker.prime(
+      { sessions: [summary('removed'), summary('removed-before-baseline'), summary('ended')] },
+      snapshot,
+    )
+    expect(tracker.pendingCount).toBe(4)
+    // The next full snapshot can remove previously protected entries normally.
+    tracker.prime({ sessions: [] })
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  it('ignores malformed snapshots and snapshots from a previous connection or cancelled request', () => {
+    const tracker = new NotificationTracker()
+    tracker.prime({ sessions: [summary('existing')] })
+    tracker.prime({ sessions: [{}] })
+    expect(tracker.pendingCount).toBe(1)
+    const obsolete = tracker.beginSnapshot()
+    tracker.reset()
+    tracker.prime({ sessions: [summary('obsolete')] }, obsolete)
+    expect(tracker.pendingCount).toBe(0)
+    const cancelled = tracker.beginSnapshot()
+    tracker.cancelSnapshot(cancelled)
+    tracker.prime({ sessions: [summary('cancelled')] }, cancelled)
+    expect(tracker.pendingCount).toBe(0)
+  })
+
+  it('fills request counts from REST when only metadata changed during the snapshot', () => {
+    const tracker = new NotificationTracker()
+    const snapshot = tracker.beginSnapshot()
+    tracker.handle(
+      {
+        type: 'session-updated',
+        sessionId: 'renamed',
+        data: {
+          updatedAt: 2,
+          metadata: { version: 2, value: { path: '/project', host: 'runner', name: 'Live title' } },
+        },
+      },
+      false,
+    )
+    tracker.prime({ sessions: [summary('renamed')] }, snapshot)
+    expect(tracker.pendingCount).toBe(1)
+    expect(
+      tracker.handle(
+        {
+          type: 'session-updated',
+          sessionId: 'renamed',
+          data: {
+            agentState: { version: 2, value: { requests: { new: { tool: 'Bash', arguments: {} } } } },
+          },
+        },
+        false,
+      ),
+    ).toEqual([{ sessionId: 'renamed', title: 'Live title', kind: 'Approval needed' }])
+  })
+
   it('counts capped summary requests and emits only new request IDs, with monotonic versions', () => {
     const tracker = new NotificationTracker()
     tracker.prime({

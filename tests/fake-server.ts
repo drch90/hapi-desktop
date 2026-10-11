@@ -108,6 +108,8 @@ export class FixtureHub {
   uploadDeletes: string[] = []
   failUpload = false
   uploadGate: Promise<void> | null = null
+  resumeGate: Promise<void> | null = null
+  resumeTarget: string | null = null
   resumeRemovesSource = false
   failFileSearch = false
   failGitNumstat = false
@@ -630,6 +632,11 @@ export class FixtureHub {
       return
     }
     if (action === '/resume') {
+      await this.resumeGate
+      if (this.resumeTarget) {
+        reply({ sessionId: this.resumeTarget })
+        return
+      }
       const nextId = session.active || session.metadata?.flavor === 'hermes' ? id : 'resumed'
       const next = {
         ...session,
