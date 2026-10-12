@@ -328,18 +328,40 @@ describe('session workspace and drafts', () => {
     ])
     expect(reduceWorkspace(state, { type: 'replace', from: 'missing', to: 'new' })).toEqual(state)
     expect(reduceWorkspace(state, { type: 'replace', from: 'new', to: 'new' })).toEqual(state)
-    saveDraft('hub', 'old', { text: 'hello', scrollTop: 42, expanded: ['tool-1'] })
+    saveDraft('hub', 'old', {
+      text: 'hello',
+      scrollTop: 42,
+      expanded: ['tool-1'],
+      continuedPlanId: 'source-plan',
+    })
     saveDraft('hub', 'other', { text: 'separate', scrollTop: 100, expanded: [] })
     storeAttempt('hub', 'old', { localId: 'local-1', text: 'hello', createdAt: 1, status: 'absent' })
     migrateSessionLocalState('hub', 'old', 'new')
-    expect(loadDraft('hub', 'new')).toEqual({ text: 'hello', scrollTop: 42, expanded: ['tool-1'] })
+    expect(loadDraft('hub', 'new')).toEqual({
+      text: 'hello',
+      scrollTop: 42,
+      expanded: ['tool-1'],
+      continuedPlanId: 'source-plan',
+    })
     expect(loadDraft('hub', 'other').text).toBe('separate')
+    expect(loadDraft('hub', 'other').continuedPlanId).toBeUndefined()
     expect(loadDraft('another-hub', 'new').text).toBe('')
+    expect(loadDraft('another-hub', 'new').continuedPlanId).toBeUndefined()
     expect(loadAttempt('hub', 'new')?.status).toBe('unconfirmed')
   })
   it('merges destination drafts and keeps every independent delivery and cancellation receipt recoverable', () => {
-    saveDraft('hub', 'old', { text: 'source draft', scrollTop: 42, expanded: ['source-tool'] })
-    saveDraft('hub', 'new', { text: 'target draft', scrollTop: 80, expanded: ['target-tool'] })
+    saveDraft('hub', 'old', {
+      text: 'source draft',
+      scrollTop: 42,
+      expanded: ['source-tool'],
+      continuedPlanId: 'source-plan',
+    })
+    saveDraft('hub', 'new', {
+      text: 'target draft',
+      scrollTop: 80,
+      expanded: ['target-tool'],
+      continuedPlanId: 'target-plan',
+    })
     const oldAttempt = {
       localId: 'old-send',
       text: 'source submitted',
@@ -377,6 +399,7 @@ describe('session workspace and drafts', () => {
       text: 'target draft\nsource draft',
       scrollTop: 80,
       expanded: ['target-tool', 'source-tool'],
+      continuedPlanId: 'target-plan',
     })
     expect(loadAttempt('hub', 'new')).toEqual({ ...newAttempt, status: 'unconfirmed' })
     expect(loadQueueEdit('hub', 'new')).toEqual(newEdit)

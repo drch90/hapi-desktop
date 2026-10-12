@@ -297,6 +297,7 @@ export type Draft = {
   expanded: string[]
   scheduledAt?: number | null
   revision?: string
+  continuedPlanId?: string
 }
 const draftSchema = z.object({
   text: z.string(),
@@ -304,6 +305,7 @@ const draftSchema = z.object({
   expanded: z.array(z.string()),
   scheduledAt: z.number().nullable().optional(),
   revision: z.string().optional(),
+  continuedPlanId: z.string().optional(),
 })
 export function loadDraft(scope: string, id: string): Draft {
   try {
@@ -342,6 +344,7 @@ export function migrateSessionLocalState(scope: string, from: string, to: string
                 : [target.text, source.text].filter(Boolean).join('\n'),
             expanded: [...new Set([...target.expanded, ...source.expanded])],
             scheduledAt: target.text ? target.scheduledAt : source.scheduledAt,
+            continuedPlanId: target.continuedPlanId ?? source.continuedPlanId,
             ...(target.revision || source.revision
               ? {
                   revision:

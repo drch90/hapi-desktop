@@ -182,7 +182,6 @@ export function Chat({
   const [deleting, setDeleting] = useState(false)
   const [configuration, setConfiguration] = useState(false)
   const [questionsExpanded, setQuestionsExpanded] = useState(true)
-  const [dismissedPlan, setDismissedPlan] = useState('')
   const [scratchlistOpen, setScratchlistOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const outlineButton = useRef<HTMLButtonElement>(null)
@@ -924,7 +923,7 @@ export function Chat({
           })}
         </div>
         {session?.agentState?.codexPlanProposalId &&
-          dismissedPlan !== session.agentState.codexPlanProposalId && (
+          draft.continuedPlanId !== session.agentState.codexPlanProposalId && (
             <div className="plan-actions">
               <Button
                 size="sm"
@@ -941,7 +940,8 @@ export function Chat({
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  setDismissedPlan(session.agentState!.codexPlanProposalId!)
+                  updateDraft({ continuedPlanId: session.agentState!.codexPlanProposalId! })
+                  saveDraft(scope, id, latestDraft.current)
                   composer.current?.focus()
                 }}
               >

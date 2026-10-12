@@ -794,6 +794,72 @@ test('plans show their proposal and progress without opening a tool disclosure, 
   expect(errors).toEqual([])
 })
 
+test('continuing a Codex plan survives session switches and reloads without sending a message', async () => {
+  const planId = 'codex-proposed-plan:continue'
+  for (const id of ['design', 'review']) {
+    const session = server.sessions.get(id)!
+    session.metadata!.flavor = 'codex'
+    session.collaborationMode = 'plan'
+    session.agentState!.codexPlanProposalId = planId
+    server.messages.set(id, [
+      fixtureCodexEvent('proposal', 1, {
+        type: 'tool-call',
+        name: 'ExitPlanMode',
+        callId: planId,
+        input: { plan: '# 继续讨论的计划\n\n确认需求后再实施。' },
+      }),
+      fixtureCodexEvent('proposal-result', 2, {
+        type: 'tool-call-result',
+        callId: planId,
+        output: null,
+      }),
+    ])
+  }
+
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const actions = chat.locator('.plan-actions')
+  const input = chat.getByRole('textbox', { name: '发送消息…' })
+  await chat.getByRole('button', { name: '继续讨论计划', exact: true }).click()
+  await expect(actions).toHaveCount(0)
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('')
+
+  // An identical proposal ID in another session must remain actionable.
+  await page.getByTestId('session-review').click()
+  await expect(
+    page.getByTestId('chat-review').getByRole('button', { name: '继续讨论计划', exact: true }),
+  ).toBeVisible()
+  await page.getByTestId('session-design').click()
+  await expect(chat.getByRole('heading', { name: '继续讨论的计划' })).toBeVisible()
+  await expect(actions).toHaveCount(0)
+  await expect(input).toHaveValue('')
+
+  await page.reload()
+  await expect(chat.getByRole('heading', { name: '继续讨论的计划' })).toBeVisible()
+  await expect(actions).toHaveCount(0)
+  await expect(input).toHaveValue('')
+
+  await input.fill('先补充边界条件，再实施。')
+  const session = server.sessions.get('design')!
+  session.agentState!.codexPlanProposalId = 'codex-proposed-plan:revised'
+  session.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: 'design', data: session })
+  await expect(chat.getByRole('button', { name: '实施计划', exact: true })).toBeVisible()
+  await chat.getByRole('button', { name: '继续讨论计划', exact: true }).click()
+  await page.reload()
+  await expect(chat.getByRole('heading', { name: '继续讨论的计划' })).toBeVisible()
+  await expect(actions).toHaveCount(0)
+  await expect(input).toHaveValue('先补充边界条件，再实施。')
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'POST' && request.path.startsWith('/api/sessions/'),
+    ),
+  ).toHaveLength(0)
+  expect(session.collaborationMode).toBe('plan')
+  expect(errors).toEqual([])
+})
+
 test('outline navigation and live message following stay independent between panes', async () => {
   for (const id of ['design', 'review']) {
     server.messages.set(
