@@ -969,7 +969,7 @@ function Workbench({
               aria-label={t(workspace.split ? 'Single view' : 'Split view')}
               onClick={() => dispatch({ type: 'split' })}
             >
-              <Columns2 size={18} />
+              <Columns2 size={16} />
             </button>
             <button
               className={`icon-button ${workspace.sidePanel ? 'selected' : ''}`}
@@ -977,7 +977,7 @@ function Workbench({
               title={t('Files')}
               onClick={() => dispatch({ type: 'side-panel' })}
             >
-              <PanelRight size={18} />
+              <PanelRight size={16} />
             </button>
           </div>
         </header>

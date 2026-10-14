@@ -1312,6 +1312,8 @@ test('two panes, isolated drafts, read-only files, approvals, rename and secure 
     server.messages.get('review')!.push(message)
     server.emit({ type: 'message-received', sessionId: 'review', message })
   }
+  await expect(second.locator('.tool-duration-tag')).toContainText('5.0s')
+  await second.locator('button.disclosure').click()
   await expect(second.getByTestId('tool-execution-times')).toContainText('5.0s')
   await page.screenshot({ path: 'build/desktop-preview.png', animations: 'disabled' })
   await page.getByRole('button', { name: '设置', exact: true }).click()

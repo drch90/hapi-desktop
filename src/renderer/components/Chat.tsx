@@ -15,12 +15,16 @@ import {
   ArrowDownToLine,
   Paperclip,
   NotebookPen,
+  Calendar,
+  Clock,
+  Shield,
+  Brain,
 } from 'lucide-react'
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
-import { ToolCard } from '@/components/ToolCard/ToolCard'
+import { ToolCard, getToolTimingDetails } from '@/components/ToolCard/ToolCard'
 import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { MessageAttachments } from '@/components/AssistantChat/messages/MessageAttachments'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
@@ -52,7 +56,7 @@ import { formatSessionHeaderTimestamp } from '@/lib/sessionHeaderTimestamp'
 import { getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
 import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
-import { getEventPresentation } from '@/chat/presentation'
+import { getEventPresentation, formatDuration } from '@/chat/presentation'
 import type { ChatBlock, ToolCallBlock } from '@/chat/types'
 import { useQueueEdit, saveQueueEdit, queueEditEpoch } from '../lib/queueEdit'
 import { api, createApi, errorKey, operationErrorKey, unwrap } from '../lib/api'
@@ -82,6 +86,19 @@ import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
 import { formatFileReference } from '@/lib/file-composer'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
+
+function formatShortDate(timestamp: number, locale?: string): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '—'
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return '—'
+  return new Intl.DateTimeFormat(locale, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date)
+}
 
 type ChatProps = {
   id: string
@@ -615,7 +632,7 @@ export function Chat({
       >
         <header className="chat-header">
           <div className="agent-avatar">
-            <Bot size={18} />
+            <Bot size={15} />
           </div>
           <div className="chat-heading">
             <h1>{title}</h1>
@@ -624,6 +641,27 @@ export function Chat({
               {session?.model || session?.metadata?.path || t('Loading…')}
             </span>
           </div>
+          {session && (
+            <div className="session-timestamps">
+              {(['createdAt', 'updatedAt'] as const).map((field) => {
+                const formatted = formatShortDate(session[field], locale)
+                const fullIso = session[field] ? new Date(session[field]).toISOString() : undefined
+                const fullLocale = session[field]
+                  ? new Date(session[field]).toLocaleString(locale)
+                  : undefined
+                const Icon = field === 'createdAt' ? Calendar : Clock
+                const label = t(field === 'createdAt' ? 'Created at' : 'Updated at')
+                return (
+                  <span key={field} className="session-timestamp" title={`${label}: ${fullLocale ?? '—'}`}>
+                    <Icon size={12} className="session-timestamp-icon" aria-hidden="true" />
+                    <time data-testid={field} dateTime={fullIso}>
+                      {formatted}
+                    </time>
+                  </span>
+                )
+              })}
+            </div>
+          )}
           <div className="chat-actions">
             <Button
               ref={outlineButton}
@@ -689,54 +727,6 @@ export function Chat({
               </button>
             )}
           </div>
-          {session && (
-            <div className="session-metadata">
-              <button
-                className="session-mode-summary"
-                onClick={() => setConfiguration(true)}
-                title={t('Session settings')}
-              >
-                {session.metadata?.flavor === 'codex' && (
-                  <span>
-                    {t('Mode')}: {t(getCodexCollaborationModeLabel(session.collaborationMode ?? 'default'))}
-                  </span>
-                )}
-                <span>
-                  {t('Permission mode')}:{' '}
-                  {session.permissionMode ? t(getPermissionModeLabel(session.permissionMode)) : '—'}
-                </span>
-                {session.metadata?.flavor !== 'hermes' && (
-                  <span>
-                    {t('Reasoning effort')}:{' '}
-                    {(session.metadata?.flavor === 'claude'
-                      ? session.effort
-                      : getReasoningEffortForFlavor(
-                          session.metadata?.flavor,
-                          session.modelReasoningEffort,
-                          session.effort,
-                        )) || t('Default')}
-                  </span>
-                )}
-              </button>
-              <div className="session-timestamps">
-                {(['createdAt', 'updatedAt'] as const).map((field) => {
-                  const formatted = formatSessionHeaderTimestamp(session[field], locale)
-                  return (
-                    <span key={field}>
-                      {t(field === 'createdAt' ? 'Created at' : 'Updated at')}:{' '}
-                      <time
-                        data-testid={field}
-                        dateTime={formatted ? new Date(session[field]).toISOString() : undefined}
-                        title={formatted ? new Date(session[field]).toLocaleString(locale) : undefined}
-                      >
-                        {formatted || '—'}
-                      </time>
-                    </span>
-                  )
-                })}
-              </div>
-            </div>
-          )}
         </header>
         {session && configuration && (
           <SessionConfiguration
@@ -1186,14 +1176,76 @@ export function Chat({
               </button>
             </div>
             <div className="composer-toolbar">
-              <span className="small muted">
-                {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}
-                {t(
-                  enterBehavior === 'send'
-                    ? 'Enter sends · Shift+Enter adds a line'
-                    : 'Enter adds a line · Ctrl+Enter sends',
+              <div className="composer-toolbar-left">
+                {session && (
+                  <div className="session-mode-summary composer-pill-group">
+                    {session.model && (
+                      <button
+                        type="button"
+                        className="composer-pill"
+                        onClick={() => setConfiguration(true)}
+                        title={t('Session settings')}
+                      >
+                        <Bot size={12} aria-hidden="true" />
+                        <span className="composer-pill-label">{session.model}</span>
+                      </button>
+                    )}
+                    {session.metadata?.flavor === 'codex' && (
+                      <button
+                        type="button"
+                        className="composer-pill"
+                        onClick={() => setConfiguration(true)}
+                        title={t('Session settings')}
+                      >
+                        <span className="composer-pill-label">
+                          {t('Mode')}:{' '}
+                          {t(getCodexCollaborationModeLabel(session.collaborationMode ?? 'default'))}
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="composer-pill"
+                      onClick={() => setConfiguration(true)}
+                      title={t('Session settings')}
+                    >
+                      <Shield size={12} aria-hidden="true" />
+                      <span className="composer-pill-label">
+                        {t('Permission mode')}:{' '}
+                        {session.permissionMode ? t(getPermissionModeLabel(session.permissionMode)) : '—'}
+                      </span>
+                    </button>
+                    {session.metadata?.flavor !== 'hermes' && (
+                      <button
+                        type="button"
+                        className="composer-pill"
+                        onClick={() => setConfiguration(true)}
+                        title={t('Session settings')}
+                      >
+                        <Brain size={12} aria-hidden="true" />
+                        <span className="composer-pill-label">
+                          {t('Reasoning effort')}:{' '}
+                          {(session.metadata?.flavor === 'claude'
+                            ? session.effort
+                            : getReasoningEffortForFlavor(
+                                session.metadata?.flavor,
+                                session.modelReasoningEffort,
+                                session.effort,
+                              )) || t('Default')}
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 )}
-              </span>
+                <span className="small muted composer-enter-hint">
+                  {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}
+                  {t(
+                    enterBehavior === 'send'
+                      ? 'Enter sends · Shift+Enter adds a line'
+                      : 'Enter adds a line · Ctrl+Enter sends',
+                  )}
+                </span>
+              </div>
               <div className="inline-actions">
                 <Button
                   type="button"
@@ -1362,6 +1414,17 @@ function MessageBlock({
   const source = useRef<HTMLElement>(null)
   const { t: web } = useHapiTranslation()
   if (block.kind === 'tool-call') {
+    const [now, setNow] = useState(Date.now)
+    const isRunning = block.tool.state === 'running'
+    useEffect(() => {
+      if (!isRunning) return
+      setNow(Date.now())
+      const timer = setInterval(() => setNow(Date.now()), 1000)
+      return () => clearInterval(timer)
+    }, [isRunning, block.tool.startedAt])
+    const timing = getToolTimingDetails(block.tool, now)
+    const durationLabel = timing.durationMs != null ? formatDuration(timing.durationMs) : null
+
     const presentation = getToolPresentation(
       {
         toolName: block.tool.name,
@@ -1385,39 +1448,40 @@ function MessageBlock({
     return (
       <div className="message-tool">
         {!isPlan && (
-          <>
-            <button className="disclosure" onClick={toggle} aria-expanded={expanded}>
-              {presentation.icon}
-              <span className="tool-operation" title={block.tool.name}>
-                <span>{presentation.title}</span>
-                {presentation.subtitle && <small>{presentation.subtitle}</small>}
-              </span>
-              <span className="muted">
-                {t(
-                  block.tool.state === 'running'
-                    ? 'Working…'
-                    : block.tool.state === 'completed'
-                      ? 'Task completed'
-                      : block.tool.state === 'error'
-                        ? 'Task failed'
-                        : 'Pending',
-                )}
-              </span>
-              <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
-            </button>
-            <ToolExecutionTimes tool={block.tool} />
-          </>
+          <button className="disclosure" onClick={toggle} aria-expanded={expanded}>
+            {presentation.icon}
+            <span className="tool-operation" title={block.tool.name}>
+              <span>{presentation.title}</span>
+              {presentation.subtitle && <small>{presentation.subtitle}</small>}
+            </span>
+            <span className="muted">
+              {t(
+                block.tool.state === 'running'
+                  ? 'Working…'
+                  : block.tool.state === 'completed'
+                    ? 'Task completed'
+                    : block.tool.state === 'error'
+                      ? 'Task failed'
+                      : 'Pending',
+              )}
+            </span>
+            {durationLabel && <span className="tool-duration-tag">{durationLabel}</span>}
+            <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
+          </button>
         )}
         {(isPlan || expanded) && session && (
-          <ToolCard
-            api={api}
-            sessionId={session.id}
-            metadata={session.metadata}
-            terminalToolDisplayMode="detailed"
-            disabled={disabled}
-            onDone={done}
-            block={block}
-          />
+          <div className="tool-expanded-details">
+            <ToolCard
+              api={api}
+              sessionId={session.id}
+              metadata={session.metadata}
+              terminalToolDisplayMode="detailed"
+              disabled={disabled}
+              onDone={done}
+              block={block}
+            />
+            <ToolExecutionTimes tool={block.tool} />
+          </div>
         )}
       </div>
     )
