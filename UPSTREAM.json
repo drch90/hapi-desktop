@@ -25,7 +25,8 @@
     "MachineSelector optional placeholder when a preselected workspace runner becomes unavailable",
     "Extend shared syntax highlighting with lazy common grammars, aliases and file-name detection",
     "Expose cached slash-command filtering and avoid scrolling unchanged autocomplete selections",
-    "Desktop tool detail dialog sizing hooks and expanded subagent traces with full content"
+    "Desktop tool detail dialog sizing hooks and expanded subagent traces with full content",
+    "Enable Claude steering capability for the companion CLI and Hub patch"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -51,6 +52,15 @@
         "web/src/components/HermesModelPicker.tsx": "1f07eb0c9f30316be58c82363889402a6d35bf566776c9f2828c62ef9394f158",
         "web/src/hooks/queries/useHermesModels.ts": "149557df36cc56dfb01689f22c0f02766a2e7b030ca5026a1ce601b3c6cd763b",
         "web/src/components/HermesModelPicker.test.tsx": "68d1db3f5e002085e1113eecb8c8c178845e9bce1ebd17ba8e27511777ad5fe4"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "b99102b4650cc499b56c854498f8c07a30b9791f",
+      "state": "Uncommitted Claude steer adaptation; patches/hapi-claude-steer.patch records the CLI/Hub change after the model persistence prerequisite",
+      "files": {
+        "shared/src/modes.ts": "ae812126cfbf42af4343c1e8fb60e19d52549845cfe69b93c28b2ba52e3e4e6e",
+        "shared/src/modes.test.ts": "1d38846bb10d2f31b5eba9666c7230ad353d40ec48b407437f275e96175dc1c4"
       }
     }
   ]

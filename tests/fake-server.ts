@@ -139,7 +139,7 @@ export class FixtureHub {
   historyGate: Promise<void> | null = null
   failHistory = false
   messagePageRequests: { sessionId: string; beforeSeq: number | null; afterSeq: number | null }[] = []
-  steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' = 'steered'
+  steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' | 'pending' = 'steered'
   emitQueueEvents = true
   commandEvents = false
   slashCommandsGate: Promise<void> | null = null
@@ -681,6 +681,13 @@ export class FixtureHub {
         return
       }
       if (queueAction[2] === 'steer') {
+        if (this.steerOutcome === 'pending') {
+          // The real hub exposes durable dispatching as unconfirmed until the
+          // CLI receives the native echo. A successful RPC alone is not an ACK.
+          message.deliveryState = 'indeterminate'
+          reply({ status: 'steered', localId: message.localId })
+          return
+        }
         if (this.steerOutcome === 'failed') {
           reply({ status: 'failed', error: 'Turn already ended', localId: message.localId })
           return
@@ -749,6 +756,7 @@ export class FixtureHub {
           reply({ error: 'Wrong attachment session' }, 400)
           return
         }
+        const pendingSteer = body.deliveryMode === 'steer' && this.steerOutcome === 'pending'
         const message = {
           ...fixtureMessage(
             `sent-${Date.now()}`,
@@ -759,9 +767,11 @@ export class FixtureHub {
           content: {
             role: 'user',
             content: { type: 'text', text: String(body.text), ...(attachments ? { attachments } : {}) },
+            meta: { deliveryMode: body.deliveryMode === 'steer' ? 'steer' : 'queue' },
           },
           localId: String(body.localId),
-          invokedAt: this.holdMessages && body.deliveryMode !== 'steer' ? null : Date.now(),
+          invokedAt: pendingSteer || (this.holdMessages && body.deliveryMode !== 'steer') ? null : Date.now(),
+          ...(pendingSteer ? { deliveryState: 'indeterminate' as const } : {}),
         }
         if (this.failSend !== 'absent') {
           this.messages.set(id, [...(this.messages.get(id) ?? []), message])

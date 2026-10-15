@@ -1,0 +1,1512 @@
+diff --git a/cli/src/claude/claudeRemote.steering.test.ts b/cli/src/claude/claudeRemote.steering.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a51053373763287623544f359097620ae7ef46d
+--- /dev/null
++++ b/cli/src/claude/claudeRemote.steering.test.ts
+@@ -0,0 +1,130 @@
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import * as sdk from './sdk';
++import type { SDKMessage, SDKUserMessage } from './sdk';
++import { PushableAsyncIterable } from '@/utils/PushableAsyncIterable';
++import type { ClaudeSteerTarget } from './steering';
++
++vi.mock('./utils/claudeCheckSession', () => ({ claudeCheckSession: () => true }));
++vi.mock('@/modules/watcher/awaitFileExist', () => ({ awaitFileExist: async () => true }));
++vi.mock('./sdk/utils', () => ({ getDefaultClaudeCodePath: () => '/usr/bin/claude' }));
++
++import { claudeRemote } from './claudeRemote';
++
++afterEach(() => vi.restoreAllMocks());
++
++async function harness() {
++    const output = new PushableAsyncIterable<SDKMessage>();
++    const prompts: SDKMessage[] = [];
++    const writes: SDKUserMessage[] = [];
++    let promptReader: Promise<void> | undefined;
++    const query = vi.spyOn(sdk, 'query').mockImplementation(({ prompt }) => {
++        promptReader = (async () => {
++            for await (const message of prompt as AsyncIterable<SDKMessage>) prompts.push(message);
++        })();
++        return {
++            [Symbol.asyncIterator]: () => output[Symbol.asyncIterator](),
++            sendUserMessage: (message: SDKUserMessage) => { writes.push(message); return true; }
++        } as ReturnType<typeof sdk.query>;
++    });
++    const controller = new AbortController();
++    const onReady = vi.fn();
++    const onResult = vi.fn();
++    const onSteerEcho = vi.fn();
++    const targets: Array<ClaudeSteerTarget | null> = [];
++    const onThinkingChange = vi.fn();
++    let finishQueue!: () => void;
++    const nextQueued = new Promise<null>(resolve => { finishQueue = () => resolve(null); });
++    const nextMessage = vi.fn()
++        .mockResolvedValueOnce({ message: 'start foreground tool', mode: { permissionMode: 'default' } })
++        .mockImplementation(() => nextQueued);
++    const run = claudeRemote({
++        sessionId: null, path: '/tmp/steering', allowedTools: [], hookSettingsPath: '/tmp/hooks.json',
++        signal: controller.signal, canCallTool: async () => ({ behavior: 'allow', updatedInput: {} }),
++        nextMessage, onReady, onResult, onSteerEcho, onThinkingChange,
++        onSteeringTarget: target => { targets.push(target); },
++        isAborted: () => false, onSessionFound: () => {}, onMessage: () => {}
++    });
++    await vi.waitFor(() => expect(prompts).toHaveLength(1));
++    expect(targets.some(Boolean)).toBe(false);
++    output.push({ type: 'system', subtype: 'init' });
++    output.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'foreground', name: 'Bash', input: { command: 'sleep 12' } }] } });
++    await vi.waitFor(() => expect(targets.at(-1)).toBeTruthy());
++    const target = targets.at(-1)!;
++    const steer: SDKUserMessage = { type: 'user', uuid: 'bc5a895d-d7cc-4943-8bb0-40156990895b', message: { role: 'user', content: 'change the next action' } };
++    const finish = async () => {
++        controller.abort();
++        finishQueue();
++        output.end();
++        await run;
++        await promptReader;
++    };
++    return { output, prompts, writes, query, target, targets, steer, nextMessage, onReady, onResult, onSteerEcho, onThinkingChange, controller, finish };
++}
++
++describe('Claude active-turn stdin injection', () => {
++    it('injects before result, waits for the UUID echo and leaves normal messages behind the turn', async () => {
++        const h = await harness();
++        try {
++            expect(h.query.mock.calls[0][0].options?.replayUserMessages).toBe(true);
++            expect(h.target.send(h.steer)).toBe(true);
++            expect(h.writes).toEqual([h.steer]);
++            expect(h.nextMessage).toHaveBeenCalledOnce();
++            expect(h.onReady).not.toHaveBeenCalled();
++            expect(h.onSteerEcho).not.toHaveBeenCalled();
++            h.output.push({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'foreground', content: 'completed normally' }] } });
++            h.output.push({ ...h.steer, isReplay: true });
++            await vi.waitFor(() => expect(h.onSteerEcho).toHaveBeenCalledExactlyOnceWith(h.steer.uuid));
++            expect(h.nextMessage).toHaveBeenCalledOnce();
++            h.output.push({ type: 'result', subtype: 'success' });
++            await vi.waitFor(() => expect(h.onReady).toHaveBeenCalledOnce());
++            expect(h.nextMessage).toHaveBeenCalledTimes(2);
++            expect(h.targets.at(-1)).toBeNull();
++            expect(h.target.send(h.steer)).toBe(false);
++            expect(h.writes).toHaveLength(1);
++        } finally { await h.finish(); }
++    });
++
++    it('does not announce ready or drain the queue when a write races the result', async () => {
++        const h = await harness();
++        try {
++            h.target.send(h.steer);
++            h.output.push({ type: 'result', subtype: 'success' });
++            await vi.waitFor(() => expect(h.onResult).toHaveBeenCalledOnce());
++            expect(h.targets.at(-1)).toBeNull();
++            expect(h.onReady).not.toHaveBeenCalled();
++            expect(h.nextMessage).toHaveBeenCalledOnce();
++            expect(h.onThinkingChange).not.toHaveBeenCalledWith(false);
++            h.output.push({ ...h.steer, isReplay: true });
++            await vi.waitFor(() => expect(h.onSteerEcho).toHaveBeenCalledOnce());
++            expect(h.onReady).not.toHaveBeenCalled();
++            h.output.push({ type: 'result', subtype: 'success' });
++            await vi.waitFor(() => expect(h.onReady).toHaveBeenCalledOnce());
++            expect(h.nextMessage).toHaveBeenCalledTimes(2);
++        } finally { await h.finish(); }
++    });
++
++    it('does not accept unrelated/synthetic/sidechain user output as consumption', async () => {
++        const h = await harness();
++        try {
++            h.target.send(h.steer);
++            h.output.push({ ...h.steer, isSynthetic: true });
++            h.output.push({ ...h.steer, isReplay: true, isSynthetic: true });
++            h.output.push({ ...h.steer, isReplay: true, isMeta: true });
++            h.output.push({ ...h.steer, isReplay: true, parent_tool_use_id: 'child' });
++            h.output.push({ type: 'result', subtype: 'success' });
++            await vi.waitFor(() => expect(h.onResult).toHaveBeenCalledOnce());
++            expect(h.onSteerEcho).not.toHaveBeenCalled();
++            expect(h.onReady).not.toHaveBeenCalled();
++        } finally { await h.finish(); }
++    });
++
++    it('invalidates the turn synchronously when the user aborts', async () => {
++        const h = await harness();
++        try {
++            h.controller.abort();
++            expect(h.target.send(h.steer)).toBe(false);
++            expect(h.targets.at(-1)).toBeNull();
++            expect(h.writes).toHaveLength(0);
++        } finally { await h.finish(); }
++    });
++});
+diff --git a/cli/src/claude/claudeRemote.ts b/cli/src/claude/claudeRemote.ts
+index e2494ccc951b68a59ff80c5c0ac49693921d292c..edf0349b01fdbf475957ce0e690f9cc55120b26e 100644
+--- a/cli/src/claude/claudeRemote.ts
++++ b/cli/src/claude/claudeRemote.ts
+@@ -12,6 +12,7 @@ import { PermissionResult } from "./sdk/types";
+ import { getHapiBlobsDir } from "@/constants/uploadPaths";
+ import { getDefaultClaudeCodePath } from "./sdk/utils";
+ import { filterCatalogAffectingClaudeArgs } from "./sdk/metadataExtractor";
++import type { ClaudeSteerTarget } from './steering';
+
+ export async function claudeRemote(opts: {
+
+@@ -39,7 +40,10 @@ export async function claudeRemote(opts: {
+     onMessage: (message: SDKMessage) => void,
+     onFirstResult?: (initialMessage: string) => void,
+     onCompletionEvent?: (message: string) => void,
+-    onSessionReset?: () => void
++    onSessionReset?: () => void,
++    onSteeringTarget?: (target: ClaudeSteerTarget | null) => void,
++    onSteerEcho?: (uuid: string) => void | Promise<void>,
++    onResult?: () => void,
+ }) {
+     const debugPrefix = '[claudeRemote][async-debug]';
+
+@@ -183,6 +187,7 @@ export async function claudeRemote(opts: {
+         pathToClaudeCodeExecutable: getDefaultClaudeCodePath(),
+         settingsPath: opts.hookSettingsPath,
+         additionalDirectories: [getHapiBlobsDir()],
++        replayUserMessages: true,
+     }
+
+     if (!awaitingForkInit) {
+@@ -225,6 +230,32 @@ export async function claudeRemote(opts: {
+         options: sdkOptions,
+     });
+
++    let processInitialized = false;
++    let turnOpen = initial !== null;
++    let steeringTarget: ClaudeSteerTarget | null = null;
++    const pendingSteers = new Set<string>();
++    const publishSteeringTarget = () => {
++        if (!processInitialized || !turnOpen || isCompactCommand || opts.signal?.aborted) return;
++        const target: ClaudeSteerTarget = {
++            mode,
++            send: (message) => {
++                if (steeringTarget !== target || !turnOpen || opts.signal?.aborted || !message.uuid) return false;
++                pendingSteers.add(message.uuid);
++                const sent = response.sendUserMessage(message);
++                if (!sent) pendingSteers.delete(message.uuid);
++                return sent;
++            }
++        };
++        steeringTarget = target;
++        opts.onSteeringTarget?.(target);
++    };
++    const closeSteeringTarget = () => {
++        turnOpen = false;
++        steeringTarget = null;
++        opts.onSteeringTarget?.(null);
++    };
++    opts.signal?.addEventListener('abort', closeSteeringTarget, { once: true });
++
+     let nextMessageFetchInFlight = false;
+     let inputEnded = false;
+     let nextMessageFetchSeq = 0;
+@@ -257,6 +288,9 @@ export async function claudeRemote(opts: {
+                 }
+                 mode = next.mode;
+                 messages.push({ type: 'user', message: { role: 'user', content: next.message } });
++                turnOpen = true;
++                updateThinking(true);
++                publishSteeringTarget();
+                 logger.debug(
+                     `${debugPrefix} nextMessage resolved fetchId=${fetchId} elapsedMs=${Date.now() - startedAt} ` +
+                     `messageLength=${next.message.length} permissionMode=${next.mode.permissionMode}`
+@@ -289,6 +323,16 @@ export async function claudeRemote(opts: {
+             );
+             logger.debugLargeJson(`[claudeRemote] Message ${message.type}`, message);
+
++            if (message.type === 'result') {
++                closeSteeringTarget();
++                opts.onResult?.();
++            }
++            if (message.type === 'user' && message.isReplay === true && !message.isSynthetic && !message.isMeta
++                && !message.parent_tool_use_id && typeof message.uuid === 'string') {
++                await opts.onSteerEcho?.(message.uuid);
++                pendingSteers.delete(message.uuid);
++            }
++
+             // Handle messages
+             opts.onMessage(message);
+
+@@ -310,6 +354,7 @@ export async function claudeRemote(opts: {
+                     return;
+                 }
+                 initial = first;
++                turnOpen = true;
+             }
+
+             if (message.type === 'system' && message.subtype === 'init') {
+@@ -339,7 +384,10 @@ export async function claudeRemote(opts: {
+                         return;
+                     }
+                     initial = first;
++                    turnOpen = true;
+                 }
++                processInitialized = true;
++                publishSteeringTarget();
+             }
+
+             // Capture the /compact outcome. Only a reported failure is recorded:
+@@ -359,7 +407,6 @@ export async function claudeRemote(opts: {
+             // Handle result messages
+             if (message.type === 'result') {
+                 resultSeq += 1;
+-                updateThinking(false);
+                 logger.debug(
+                     `${debugPrefix} result #${resultSeq} received; scheduling next user message ` +
+                     `(nextInFlight=${nextMessageFetchInFlight}, inputEnded=${inputEnded})`
+@@ -379,6 +426,15 @@ export async function claudeRemote(opts: {
+                     compactFailure = null;
+                 }
+
++                // A write can race the native result and become its next turn.
++                // Keep reading echoes/results without starting another queued
++                // prompt or announcing ready while that input is unresolved.
++                if (pendingSteers.size > 0) {
++                    logger.debug('[claudeRemote] Waiting for dispatched steer input after result');
++                    continue;
++                }
++                updateThinking(false);
++
+                 // Flush the result carrier before completion, then announce ready.
+                 await opts.onReady(completionEvent);
+                 logger.debug(`${debugPrefix} onReady emitted for result #${resultSeq}`);
+@@ -413,6 +469,10 @@ export async function claudeRemote(opts: {
+             throw e;
+         }
+     } finally {
++        closeSteeringTarget();
++        opts.signal?.removeEventListener('abort', closeSteeringTarget);
++        inputEnded = true;
++        messages.end();
+         logger.debug(
+             `${debugPrefix} finally ` +
+             `(streamMessages=${streamMessageSeq}, results=${resultSeq}, nextFetches=${nextMessageFetchSeq}, inputEnded=${inputEnded})`
+diff --git a/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts b/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
+index 4a0f2e355d889db74bea4086e88f623e7fe0ce32..89e8f01c6b4a2ba8ebde82c32f518b0233b87729 100644
+--- a/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
++++ b/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
+@@ -101,6 +101,7 @@ function createClientStub() {
+         },
+         rpcHandlers,
+         keepAlive: () => {},
++        updateAgentState: () => {},
+         updateMetadata: (mutator: (metadata: any) => any) => { mutator({}) },
+         emitMessagesConsumed: () => {},
+         sendClaudeSessionMessage: () => {},
+diff --git a/cli/src/claude/claudeRemoteLauncher.test.ts b/cli/src/claude/claudeRemoteLauncher.test.ts
+index ec8f6417f4222fd00e323d852ef04df2e2c01e52..90508b88b868e3b2bed524d23f4c4cc818d6dfb3 100644
+--- a/cli/src/claude/claudeRemoteLauncher.test.ts
++++ b/cli/src/claude/claudeRemoteLauncher.test.ts
+@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
+ import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
+ import { MessageQueue2 } from '@/utils/MessageQueue2'
+ import type { EnhancedMode } from './loop'
++import type { SDKUserMessage } from './sdk'
+
+ // These tests cover the one-time --resume flag's lifetime across the relaunch
+ // loop. The flag lives in session.claudeArgs and is the only resume anchor a
+@@ -13,7 +14,9 @@ const harness = vi.hoisted(() => ({
+     claudeArgsPerCall: [] as (string[] | undefined)[],
+     initialMessages: [] as string[],
+     triggerSwitch: null as (() => void) | null,
+-    switchAfterCall: 2
++    switchAfterCall: 2,
++    exercise: null as null | ((opts: any) => Promise<void>),
++    convert: vi.fn((_message: unknown) => null)
+ }))
+
+ vi.mock('./claudeRemote', () => ({
+@@ -44,6 +47,7 @@ vi.mock('./claudeRemote', () => ({
+         // Mirrors a launch that actually spawns Claude and observes the
+         // session id via the SDK's system/init message.
+         opts.onSessionFound('captured-session-id')
++        await harness.exercise?.(opts)
+
+         if (harness.callCount === harness.switchAfterCall && harness.triggerSwitch) {
+             // Stop the runMainLoop() while-loop so the test doesn't hang
+@@ -70,7 +74,7 @@ vi.mock('./utils/sdkToLogConverter', () => ({
+     SDKToLogConverter: class {
+         updateSessionId(): void {}
+         resetParentChain(): void {}
+-        convert(): null { return null }
++        convert(message: unknown): null { return harness.convert(message) }
+         convertSidechainUserMessage(): null { return null }
+         updateSelectedModel(): void {}
+         generateInterruptedToolResult(): null { return null }
+@@ -90,7 +94,7 @@ import { claudeRemoteLauncher } from './claudeRemoteLauncher'
+ import { Session } from './session'
+
+ function createClientStub() {
+-    const rpcHandlers = new Map<string, () => void | Promise<void>>()
++    const rpcHandlers = new Map<string, (...args: any[]) => any>()
+     return {
+         rpcHandlerManager: {
+             registerHandler: (method: string, handler: () => void | Promise<void>) => {
+@@ -98,9 +102,13 @@ function createClientStub() {
+             }
+         },
+         rpcHandlers,
++        sessionId: 'hub-session',
+         keepAlive: () => {},
++        updateAgentState: vi.fn(),
+         updateMetadata: (mutator: (metadata: any) => any) => { mutator({}) },
+-        emitMessagesConsumed: () => {},
++        emitMessagesConsumed: vi.fn(),
++        setSteerDeliveryState: vi.fn(async () => true),
++        emitSteerIndeterminate: vi.fn(),
+         sendClaudeSessionMessage: () => {},
+         sendSessionEvent: () => {},
+         notePendingHubPromptEcho: () => {},
+@@ -147,9 +155,77 @@ describe('claudeRemoteLauncher resume anchor', () => {
+         harness.initialMessages = []
+         harness.triggerSwitch = null
+         harness.switchAfterCall = 2
++        harness.exercise = null
+         vi.clearAllMocks()
+     })
+
++    it('wires direct and queued steer to one live transport and suppresses replay transcript rows', async () => {
++        const client = createClientStub()
++        const { session, queue } = createSession(client, undefined)
++        const send = vi.fn((_message: SDKUserMessage) => true)
++        harness.switchAfterCall = 1
++        harness.triggerSwitch = () => { void client.rpcHandlers.get(RPC_METHODS.Switch)?.() }
++        harness.exercise = async opts => {
++            const mode = { permissionMode: 'default' as const }
++            opts.onSteeringTarget({ mode, send })
++            client.emitMessagesConsumed.mockClear()
++            queue.push('new direction', mode, 'guidance')
++            expect(await client.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!({ localId: 'guidance' })).toEqual({ steered: true })
++            expect(await session.steerQueuedMessage!('guidance')).toEqual({ steered: true })
++            expect(send).toHaveBeenCalledOnce()
++            expect(opts.signal.aborted).toBe(false)
++            expect(client.emitMessagesConsumed).not.toHaveBeenCalled()
++            const message = send.mock.calls[0]![0]
++            const replay = { ...message, isReplay: true }
++            opts.onMessage(replay)
++            expect(harness.convert).not.toHaveBeenCalled()
++            await opts.onSteerEcho(message.uuid)
++            expect(client.emitMessagesConsumed).toHaveBeenCalledExactlyOnceWith(['guidance'], { steered: true })
++            opts.onSteeringTarget(null)
++            opts.onResult()
++            await opts.onReady()
++        }
++        try {
++            queue.push('start', { permissionMode: 'default' }, 'initial')
++            await claudeRemoteLauncher(session)
++            expect(session.steerQueuedMessage).toBeNull()
++            expect(await client.rpcHandlers.get(RPC_METHODS.SteerQueuedMessage)!({ localId: 'guidance' })).toMatchObject({ steered: false })
++            expect(client.emitSteerIndeterminate).not.toHaveBeenCalled()
++        } finally {
++            session.stopKeepAlive()
++        }
++    })
++
++    it('does not replay the original task after a transport failure following live input', async () => {
++        const client = createClientStub()
++        const { session, queue } = createSession(client, undefined)
++        const send = vi.fn((_message: SDKUserMessage) => true)
++        const previousBackoff = process.env.CLAUDE_REMOTE_RESPAWN_BACKOFF_MS
++        process.env.CLAUDE_REMOTE_RESPAWN_BACKOFF_MS = '0'
++        harness.triggerSwitch = () => { void client.rpcHandlers.get(RPC_METHODS.Switch)?.() }
++        harness.exercise = async opts => {
++            if (harness.callCount !== 1) return
++            const mode = { permissionMode: 'default' as const }
++            opts.onSteeringTarget({ mode, send })
++            queue.push('live guidance', mode, 'guidance')
++            await session.steerQueuedMessage!('guidance')
++            queue.push('later task', mode, 'later')
++            throw new Error('transport failed after the steer write')
++        }
++        try {
++            queue.push('original task with side effects', { permissionMode: 'default' }, 'original')
++            await claudeRemoteLauncher(session)
++            expect(harness.initialMessages).toEqual(['original task with side effects', 'later task'])
++            expect(send).toHaveBeenCalledOnce()
++            expect(client.emitSteerIndeterminate).toHaveBeenCalledWith(['guidance'])
++            expect(client.emitMessagesConsumed).not.toHaveBeenCalledWith(['guidance'], { steered: true })
++        } finally {
++            session.stopKeepAlive()
++            if (previousBackoff === undefined) delete process.env.CLAUDE_REMOTE_RESPAWN_BACKOFF_MS
++            else process.env.CLAUDE_REMOTE_RESPAWN_BACKOFF_MS = previousBackoff
++        }
++    })
++
+     it('keeps --resume available for the launch that actually captures the session id', async () => {
+         const client = createClientStub()
+         const { session, queue } = createSession(client, [...RESUME_ARGS])
+diff --git a/cli/src/claude/claudeRemoteLauncher.ts b/cli/src/claude/claudeRemoteLauncher.ts
+index 4a99e556b4af410618354aa3f2df80e7d83d26a7..5bc93a610687523c9f44587eb7f0b84abce2ec0c 100644
+--- a/cli/src/claude/claudeRemoteLauncher.ts
++++ b/cli/src/claude/claudeRemoteLauncher.ts
+@@ -13,6 +13,8 @@ import { EnhancedMode } from "./loop";
+ import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
+ import type { ClaudePermissionMode } from "@hapi/protocol/types";
+ import { applySessionTitleFallback } from './utils/sessionTitleFallback';
++import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
++import { ClaudeSteering } from './steering';
+ import {
+     RemoteLauncherBase,
+     type RemoteLauncherDisplayContext,
+@@ -51,6 +53,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+     private abortFuture: Future<void> | null = null;
+     private permissionHandler: PermissionHandler | null = null;
+     private handleSessionFound: ((sessionId: string) => void) | null = null;
++    private steering: ClaudeSteering | null = null;
+
+     constructor(session: Session) {
+         super(process.env.DEBUG ? session.logPath : undefined);
+@@ -62,6 +65,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+     }
+
+     private async abort(): Promise<void> {
++        this.steering?.setTarget(null);
+         if (this.abortController && !this.abortController.signal.aborted) {
+             this.abortController.abort();
+         }
+@@ -139,6 +143,12 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+         const messageQueue = new OutgoingMessageQueue(
+             (logMessage) => session.client.sendClaudeSessionMessage(logMessage)
+         );
++        const steering = new ClaudeSteering(session, () => messageQueue.flush());
++        this.steering = steering;
++        steering.setTarget(null);
++        session.steerQueuedMessage = localId => steering.steer(localId);
++        session.client.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, (data: { localId?: string } | null) =>
++            steering.steer(data?.localId ?? ''));
+
+         permissionHandler.setOnPermissionRequest((toolCallId: string) => {
+             messageQueue.releaseToolCall(toolCallId);
+@@ -161,6 +171,15 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+         let ongoingToolCalls = new Map<string, { parentToolCallId: string | null }>();
+
+         function onMessage(message: SDKMessage) {
++            // --replay-user-messages acknowledges input already stored by the
++            // hub. Do not create a second transcript/user row for its echo.
++            if (message.type === 'user' && message.isReplay === true && !message.parent_tool_use_id) {
++                const content = (message as SDKUserMessage).message.content;
++                const text = typeof content === 'string' ? content : content
++                    .filter(block => block.type === 'text').map(block => block.text ?? '').join('\n');
++                session.client.discardPendingHubPromptEchoText(text);
++                return;
++            }
+             formatClaudeMessageForInk(message, messageBuffer);
+             permissionHandler.onMessage(message);
+
+@@ -486,6 +505,27 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+                             session.consumeOneTimeFlags();
+                         },
+                         onThinkingChange: session.onThinkingChange,
++                        onSteeringTarget: target => steering.setTarget(target && {
++                            mode: target.mode,
++                            send: message => {
++                                try {
++                                    const sent = target.send(message);
++                                    // The original task may already have side effects.
++                                    // After live input is written, a transport failure
++                                    // must not replay that task as a startup retry.
++                                    if (sent) inFlightMessage = null;
++                                    return sent;
++                                } catch (error) {
++                                    inFlightMessage = null;
++                                    throw error;
++                                }
++                            }
++                        }),
++                        onSteerEcho: uuid => steering.acknowledge(uuid),
++                        onResult: () => {
++                            reachedReadyThisAttempt = true;
++                            inFlightMessage = null;
++                        },
+                         claudeEnvVars: session.claudeEnvVars,
+                         claudeArgs: session.claudeArgs,
+                         onMessage,
+@@ -515,6 +555,8 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+                             reachedReadyThisAttempt = true;
+                             inFlightMessage = null;
+
++                            await steering.drain();
++
+                             await messageQueue.flush();
+
+                             if (completionEvent) {
+@@ -642,6 +684,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+                     }
+                 } finally {
+                     logger.debug('[remote]: launch finally');
++                    await steering.closeProcess();
+
+                     for (let [toolCallId, { parentToolCallId }] of ongoingToolCalls) {
+                         const converted = sdkToLogConverter.generateInterruptedToolResult(toolCallId, parentToolCallId);
+@@ -674,6 +717,11 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+     }
+
+     protected async cleanup(): Promise<void> {
++        this.session.steerQueuedMessage = null;
++        await this.steering?.closeProcess();
++        this.session.client.rpcHandlerManager.registerHandler(RPC_METHODS.SteerQueuedMessage, async () => ({
++            steered: false, error: 'No active remote Claude turn'
++        }));
+         this.clearAbortHandlers(this.session.client.rpcHandlerManager);
+
+         if (this.handleSessionFound) {
+diff --git a/cli/src/claude/runClaude.model.test.ts b/cli/src/claude/runClaude.model.test.ts
+index bc6c8964b54a9c2c991886e690d97199f4dc2194..60fc8577a0666b24306f942dc24464b36653856a 100644
+--- a/cli/src/claude/runClaude.model.test.ts
++++ b/cli/src/claude/runClaude.model.test.ts
+@@ -17,6 +17,7 @@ type RunningSession = {
+     pushKeepAlive: () => void
+     setNativeSkillNames: () => void
+     expandSkillReference: (text: string) => string
++    steerQueuedMessage: (localId: string) => Promise<{ steered: boolean; error?: string }>
+ }
+
+ const harness = vi.hoisted(() => ({
+@@ -27,6 +28,8 @@ const harness = vi.hoisted(() => ({
+     events: vi.fn(),
+     keepAlive: vi.fn(),
+     loop: vi.fn(),
++    steer: vi.fn(),
++    beforeSessionReady: null as null | (() => void),
+ }))
+
+ vi.mock('@/ui/logger', () => ({ logger: {
+@@ -80,6 +83,8 @@ beforeEach(() => {
+     vi.clearAllMocks()
+     harness.handlers.clear()
+     harness.receive = null
++    harness.beforeSessionReady = null
++    harness.steer.mockResolvedValue({ steered: true })
+     harness.loop.mockImplementation(async (options) => {
+         const session: RunningSession = {
+             model: options.model, effort: options.effort, permissionMode: 'default',
+@@ -92,7 +97,11 @@ beforeEach(() => {
+             pushKeepAlive() { harness.keepAlive({ model: this.model, permissionMode: this.permissionMode }) },
+             setNativeSkillNames() {},
+             expandSkillReference(text) { return text },
++            steerQueuedMessage(localId) {
++                return harness.steer(localId, options.messageQueue.peekByLocalId(localId))
++            },
+         }
++        harness.beforeSessionReady?.()
+         options.onSessionReady(session)
+         // Startup holds messages until both the session and catalog are ready.
+         await new Promise<void>((resolve) => setImmediate(resolve))
+@@ -101,6 +110,33 @@ beforeEach(() => {
+ })
+
+ describe('Claude /model persistence', () => {
++    it('reserves explicit direct steer only after formatting and enqueueing the message', async () => {
++        harness.exercise = async (_session, queue) => {
++            send('ordinary follow-up', 'ordinary')
++            expect(harness.steer).not.toHaveBeenCalled()
++            harness.receive!({ content: { type: 'text', text: 'new direction' }, meta: { deliveryMode: 'steer' } }, 'guidance')
++            expect(harness.steer).toHaveBeenCalledExactlyOnceWith('guidance', expect.objectContaining({
++                localId: 'guidance', message: 'new direction', mode: expect.objectContaining({ permissionMode: 'default' })
++            }))
++            expect(queue.peekByLocalId('ordinary')).not.toBeNull()
++            harness.receive!({ content: { type: 'text', text: '/model custom-model' }, meta: { deliveryMode: 'steer' } }, 'model')
++            expect(harness.steer).toHaveBeenCalledOnce()
++            expect(harness.consumed).toHaveBeenCalledWith(['model'])
++        }
++        await runClaude({ workingDirectory: '/tmp', startedBy: 'runner' })
++    })
++
++    it('downgrades steer intent received during initialization to ordinary queue delivery', async () => {
++        harness.beforeSessionReady = () => {
++            harness.receive!({ content: { type: 'text', text: 'startup guidance' }, meta: { deliveryMode: 'steer' } }, 'startup')
++        }
++        harness.exercise = async (_session, queue) => {
++            expect(harness.steer).not.toHaveBeenCalled()
++            expect(queue.peekByLocalId('startup')?.message).toBe('startup guidance')
++        }
++        await runClaude({ workingDirectory: '/tmp', startedBy: 'runner' })
++    })
++
+     it.each(['acceptEdits', 'plan', 'bypassPermissions'])('keeps a custom model when changing permission mode to %s', async (permissionMode) => {
+         harness.exercise = async (session, queue) => {
+             send('/model provider/custom-model', 'model-command')
+diff --git a/cli/src/claude/runClaude.ts b/cli/src/claude/runClaude.ts
+index b83071e40a7a7361188e2a26533ed10e31a45451..cdca9d4adbf35b34af9186c3c5f876e208242406 100644
+--- a/cli/src/claude/runClaude.ts
++++ b/cli/src/claude/runClaude.ts
+@@ -59,7 +59,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
+         // throw new Error('Runner-spawned sessions cannot use local/interactive mode');
+     }
+
+-    const initialState: AgentState = {};
++    const initialState: AgentState = { steeringActive: false };
+     const initialModel = normalizeClaudeSessionModel(options.model);
+     const initialEffort = normalizeClaudeSessionEffort(options.effort);
+     const bootstrap = options.existingSessionId
+@@ -494,11 +494,21 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
+             disallowedTools: messageDisallowedTools
+         };
+         messageQueue.push(formattedText, enhancedMode, localId);
++        if (message.meta?.deliveryMode === 'steer' && localId) {
++            void currentSessionRef.current?.steerQueuedMessage?.(localId).then(result => {
++                if (!result.steered && result.error) {
++                    session.sendSessionEvent({ type: 'message', message: `Claude steer: ${result.error}` });
++                }
++            });
++        }
+         logger.debugLargeJson('User message pushed to queue:', message)
+     };
+     session.onUserMessage((...args) => {
+         if (!messagePipelineReady) {
+-            deferredMessages.push(args);
++            const [message, localId] = args;
++            // Initialization cannot preserve the identity of the turn that
++            // was active at receipt; delayed input follows ordinary FIFO.
++            deferredMessages.push([{ ...message, meta: { ...message.meta, deliveryMode: 'queue' } }, localId]);
+             return;
+         }
+         handleUserMessage(...args);
+diff --git a/cli/src/claude/sdk/query.test.ts b/cli/src/claude/sdk/query.test.ts
+index df6517945f8e171125fe48ee66cffad19d40fc90..00e3d28d39b418b64d9e584218f79953d867df97 100644
+--- a/cli/src/claude/sdk/query.test.ts
++++ b/cli/src/claude/sdk/query.test.ts
+@@ -50,6 +50,65 @@ afterEach(() => {
+ })
+
+ describe('Query', () => {
++    it('writes a UUID user message without interrupting the process', async () => {
++        const { Query } = await import('./query')
++        const stdin = new PassThrough()
++        const stdout = new PassThrough()
++        const sent: string[] = []
++        stdin.on('data', chunk => sent.push(chunk.toString()))
++        const query = new Query(stdin, stdout, Promise.resolve())
++        const message = { type: 'user' as const, uuid: 'a3a8eafd-3cef-4618-a591-2b5bbff488cf', message: { role: 'user' as const, content: 'new direction' } }
++        expect(query.sendUserMessage(message)).toBe(true)
++        expect(sent.map(line => JSON.parse(line))).toEqual([message])
++        stdin.end()
++        expect(query.sendUserMessage(message)).toBe(false)
++        stdout.end()
++    })
++
++    it('reads replay echoes and permission cancellation while approval is pending', async () => {
++        const { Query } = await import('./query')
++        const stdin = new PassThrough()
++        const stdout = new PassThrough()
++        let permissionSignal: AbortSignal | undefined
++        const canCallTool = vi.fn(async (_name, _input, options) => {
++            permissionSignal = options.signal
++            await new Promise<void>(resolve => options.signal.addEventListener('abort', () => resolve(), { once: true }))
++            return { behavior: 'deny' as const, message: 'cancelled' }
++        })
++        const query = new Query(stdin, stdout, Promise.resolve(), canCallTool)
++        stdout.write(JSON.stringify({ type: 'control_request', request_id: 'approval', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: {} } }) + '\n')
++        await vi.waitFor(() => expect(canCallTool).toHaveBeenCalledOnce())
++        const replay = { type: 'user', uuid: 'echo-id', isReplay: true, message: { role: 'user', content: 'guidance' } }
++        stdout.write(JSON.stringify(replay) + '\n')
++        expect(await query.next()).toEqual({ done: false, value: replay })
++        expect(permissionSignal?.aborted).toBe(false)
++        stdout.write(JSON.stringify({ type: 'control_cancel_request', request_id: 'approval' }) + '\n')
++        await vi.waitFor(() => expect(permissionSignal?.aborted).toBe(true))
++        stdout.end()
++    })
++
++    it('enables native user replay for the streaming remote transport', async () => {
++        const child = createFakeChild()
++        spawnMock.mockReturnValueOnce(child)
++        process.env.HAPI_CLAUDE_PATH = 'claude'
++        const { query } = await import('./query')
++        query({ prompt: { async *[Symbol.asyncIterator]() {} }, options: { replayUserMessages: true } })
++        expect(spawnMock.mock.calls[0][1]).toContain('--replay-user-messages')
++        child.stdout.end()
++        child.emit('close', 0)
++    })
++
++    it('surfaces an asynchronous broken stdin pipe through the response stream', async () => {
++        const child = createFakeChild()
++        spawnMock.mockReturnValueOnce(child)
++        process.env.HAPI_CLAUDE_PATH = 'claude'
++        const { query } = await import('./query')
++        const response = query({ prompt: { async *[Symbol.asyncIterator]() {} } })
++        child.stdin.emit('error', new Error('broken stdin pipe'))
++        await expect(response.next()).rejects.toThrow('broken stdin pipe')
++        expect(child.killed).toBe(true)
++    })
++
+     it('preserves externally set errors even if the process exits cleanly', async () => {
+         const { Query } = await import('./query')
+         const stdout = new PassThrough()
+diff --git a/cli/src/claude/sdk/query.ts b/cli/src/claude/sdk/query.ts
+index f8d43348830fa47c0aa3fc00e8c18ad054cdeda5..fc24890c2c13380622db50e1c29ef8ecc507e4fe 100644
+--- a/cli/src/claude/sdk/query.ts
++++ b/cli/src/claude/sdk/query.ts
+@@ -11,6 +11,7 @@ import {
+     type QueryOptions,
+     type QueryPrompt,
+     type SDKMessage,
++    type SDKUserMessage,
+     type ControlResponseHandler,
+     type SDKControlRequest,
+     type ControlRequest,
+@@ -128,7 +129,10 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
+                             }
+                             continue
+                         } else if (message.type === 'control_request') {
+-                            await this.handleControlRequest(message as unknown as CanUseToolControlRequest)
++                            // Keep reading replay echoes and cancellation while a
++                            // permission dialog waits for the user.
++                            void this.handleControlRequest(message as unknown as CanUseToolControlRequest)
++                                .catch(error => this.setError(error instanceof Error ? error : new Error(String(error))))
+                             continue
+                         } else if (message.type === 'control_cancel_request') {
+                             this.handleControlCancelRequest(message as unknown as ControlCancelRequest)
+@@ -178,6 +182,15 @@ export class Query implements AsyncIterableIterator<SDKMessage> {
+         }, this.childStdin)
+     }
+
++    /** Soft input: preserves the current tool/process and never sends interrupt. */
++    sendUserMessage(message: SDKUserMessage): boolean {
++        if (!this.childStdin?.writable || this.childStdin.destroyed || this.childStdin.writableEnded || this.promptFailure) {
++            return false
++        }
++        this.childStdin.write(JSON.stringify(message) + '\n')
++        return true
++    }
++
+     /**
+      * Send control request to Claude process
+      */
+@@ -317,6 +330,7 @@ export function query(config: {
+             settingsPath,
+             strictMcpConfig,
+             canCallTool,
++            replayUserMessages,
+             promptFailureCleanupTimeoutMs = DEFAULT_PROMPT_FAILURE_CLEANUP_TIMEOUT_MS
+         } = {}
+     } = config
+@@ -364,6 +378,7 @@ export function query(config: {
+         args.push('--print', stripNewlinesForWindowsShellArg(prompt.trim()))
+     } else {
+         args.push('--input-format', 'stream-json')
++        if (replayUserMessages) args.push('--replay-user-messages')
+     }
+
+     // Determine how to spawn Claude Code
+@@ -448,6 +463,12 @@ export function query(config: {
+     // to avoid temporal dependency on `query` variable
+     const query = new Query(childStdin, child.stdout, processExitPromise, canCallTool)
+
++    child.stdin.on('error', (error) => {
++        query.setError(error)
++        rejectExit(error)
++        void cleanup()
++    })
++
+     if (typeof prompt !== 'string') {
+         void streamToStdin(prompt, child.stdin, config.options?.abort).catch(async (error) => {
+             const err = error instanceof Error ? error : new Error(String(error))
+diff --git a/cli/src/claude/sdk/types.ts b/cli/src/claude/sdk/types.ts
+index a05bbf6694840af281339ff20ad83bae559056a7..d3f78aafd91c01a30f2b226adfb3d0a16978c4fa 100644
+--- a/cli/src/claude/sdk/types.ts
++++ b/cli/src/claude/sdk/types.ts
+@@ -16,6 +16,9 @@ export interface SDKMessage {
+
+ export interface SDKUserMessage extends SDKMessage {
+     type: 'user'
++    uuid?: string
++    /** Native acknowledgement of a stdin user message, not another human turn. */
++    isReplay?: boolean
+     parent_tool_use_id?: string
+     /**
+      * Set by Claude Code on user-role messages it injects itself (skill bodies,
+@@ -206,6 +209,7 @@ export interface QueryOptions {
+     settingsPath?: string
+     strictMcpConfig?: boolean
+     canCallTool?: CanCallToolCallback
++    replayUserMessages?: boolean
+     promptFailureCleanupTimeoutMs?: number
+ }
+
+diff --git a/cli/src/claude/session.ts b/cli/src/claude/session.ts
+index f0cc938bd7c2e9b0f3d4056bc67f920b6532ed64..86c020d5242d942727e412ef80bf960ea9f28030 100644
+--- a/cli/src/claude/session.ts
++++ b/cli/src/claude/session.ts
+@@ -7,6 +7,7 @@ import type { SessionEffort, SessionModel } from '@/api/types';
+ import type { EnhancedMode } from './loop';
+ import type { PermissionMode } from './loop';
+ import type { LocalLaunchExitReason } from '@/agent/localLaunchPolicy';
++import type { ClaudeSteerResult } from './steering';
+
+ type LocalLaunchFailure = {
+     message: string;
+@@ -26,6 +27,8 @@ export class Session extends AgentSessionBase<EnhancedMode> {
+     readonly startingMode: 'local' | 'remote';
+     localLaunchFailure: LocalLaunchFailure | null = null;
+     private nativeSkillNames = new Set<string>();
++    /** Installed only by the active remote launcher. */
++    steerQueuedMessage: ((localId: string) => Promise<ClaudeSteerResult>) | null = null;
+
+     constructor(opts: {
+         api: ApiClient;
+diff --git a/cli/src/claude/steering.test.ts b/cli/src/claude/steering.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..b12b552e0fcc4eb64c007f34ace51b13433f9328
+--- /dev/null
++++ b/cli/src/claude/steering.test.ts
+@@ -0,0 +1,215 @@
++import { describe, expect, it, vi } from 'vitest';
++import { MessageQueue2 } from '@/utils/MessageQueue2';
++import type { EnhancedMode } from './loop';
++import type { Session } from './session';
++import { ClaudeSteering } from './steering';
++
++function deferred<T>() {
++    let resolve!: (value: T) => void;
++    const promise = new Promise<T>(done => { resolve = done; });
++    return { promise, resolve };
++}
++
++function harness() {
++    const mode: EnhancedMode = { permissionMode: 'default' };
++    const queue = new MessageQueue2<EnhancedMode>(value => JSON.stringify(value));
++    const client = {
++        sessionId: 'hub-session',
++        updateAgentState: vi.fn(),
++        setSteerDeliveryState: vi.fn(async () => true),
++        emitSteerIndeterminate: vi.fn(),
++        emitMessagesConsumed: vi.fn()
++    };
++    const settings = { ...mode };
++    const session = {
++        queue, client,
++        getPermissionMode: () => settings.permissionMode,
++        getModel: () => settings.model,
++        getEffort: () => settings.effort,
++        expandSkillReference: (text: string) => text.replace(/^\$review\b/, '/review')
++    } as unknown as Session;
++    const flush = vi.fn(async () => {});
++    const steering = new ClaudeSteering(session, flush);
++    const send = vi.fn(() => true);
++    const target = { mode, send };
++    steering.setTarget(target);
++    queue.push('use the new direction', mode, 'guidance');
++    const uuid = () => (send.mock.calls[0] as unknown as [{ uuid: string }])[0].uuid;
++    return { queue, client, settings, steering, send, target, flush, uuid };
++}
++
++describe('Claude steer reservations', () => {
++    it('returns after dispatch but consumes once only after the matching UUID echo and output flush', async () => {
++        const h = harness();
++        expect(await h.steering.steer('guidance')).toEqual({ steered: true });
++        expect(h.client.setSteerDeliveryState).toHaveBeenCalledWith(['guidance'], 'dispatching');
++        expect(h.send).toHaveBeenCalledExactlyOnceWith({
++            type: 'user', uuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
++            message: { role: 'user', content: 'use the new direction' }
++        });
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++        expect(h.queue.cancelByLocalId('guidance')).toBe('in-flight');
++        expect(await h.steering.steer('guidance')).toEqual({ steered: true });
++        expect(h.send).toHaveBeenCalledOnce();
++        await h.steering.acknowledge('unrelated-uuid');
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++
++        const flushed = deferred<void>();
++        h.flush.mockReturnValueOnce(flushed.promise);
++        const acknowledged = h.steering.acknowledge(h.uuid());
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++        flushed.resolve();
++        await acknowledged;
++        await h.steering.acknowledge(h.uuid());
++        expect(h.client.emitMessagesConsumed).toHaveBeenCalledExactlyOnceWith(['guidance'], { steered: true });
++        expect(h.queue.cancelByLocalId('guidance')).toBe('consumed');
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.send).toHaveBeenCalledOnce();
++    });
++
++    it('does not resend or restore when a long tool delays its echo beyond the RPC timeout', async () => {
++        vi.useFakeTimers();
++        try {
++            const h = harness();
++            await h.steering.steer('guidance');
++            await vi.advanceTimersByTimeAsync(120_000);
++            expect(h.send).toHaveBeenCalledOnce();
++            expect(h.queue.size()).toBe(0);
++            expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++            expect(h.client.emitSteerIndeterminate).not.toHaveBeenCalled();
++            await h.steering.acknowledge(h.uuid());
++            expect(h.client.emitMessagesConsumed).toHaveBeenCalledOnce();
++        } finally {
++            vi.useRealTimers();
++        }
++    });
++
++    it('reserves synchronously so concurrent clicks cannot dispatch the same item twice', async () => {
++        const h = harness();
++        const persisted = deferred<boolean>();
++        h.client.setSteerDeliveryState.mockReturnValueOnce(persisted.promise);
++        const request = h.steering.steer('guidance');
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        persisted.resolve(true);
++        expect(await request).toEqual({ steered: true });
++        expect(h.send).toHaveBeenCalledOnce();
++        await h.steering.closeProcess();
++    });
++
++    it.each(['turn', 'model', 'permission', 'effort'] as const)('restores FIFO if %s changes before the write', async change => {
++        const h = harness();
++        h.queue.push('ordinary follow-up', h.target.mode, 'ordinary');
++        h.client.setSteerDeliveryState.mockImplementationOnce(async () => {
++            if (change === 'turn') h.steering.setTarget({ ...h.target });
++            if (change === 'model') h.settings.model = 'another-model';
++            if (change === 'permission') h.settings.permissionMode = 'plan';
++            if (change === 'effort') h.settings.effort = 'high';
++            return true;
++        });
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.send).not.toHaveBeenCalled();
++        expect(h.queue.queue.map(item => item.localId)).toEqual(['guidance', 'ordinary']);
++        expect(h.client.setSteerDeliveryState).toHaveBeenLastCalledWith(['guidance'], 'queued');
++    });
++
++    it('restores a definite pre-write refusal without consuming it', async () => {
++        const h = harness();
++        h.send.mockReturnValueOnce(false);
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.queue.size()).toBe(1);
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++    });
++
++    it.each(['persist', 'write', 'restore'] as const)('holds ambiguous %s failure outside normal draining', async failure => {
++        const h = harness();
++        if (failure === 'persist') h.client.setSteerDeliveryState.mockResolvedValueOnce(false);
++        if (failure === 'write') h.send.mockImplementationOnce(() => { throw new Error('broken pipe'); });
++        if (failure === 'restore') {
++            h.send.mockReturnValueOnce(false);
++            h.client.setSteerDeliveryState.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
++        }
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        await h.steering.closeProcess();
++        h.steering.setTarget({ ...h.target });
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.queue.size()).toBe(0);
++        expect(h.client.emitSteerIndeterminate).toHaveBeenCalledExactlyOnceWith(['guidance']);
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++        expect(h.send).toHaveBeenCalledTimes(failure === 'persist' ? 0 : 1);
++    });
++
++    it('holds input on process exit and does not replay it into the replacement process', async () => {
++        const h = harness();
++        await h.steering.steer('guidance');
++        h.queue.reset({ preserveDispatchingReservations: true });
++        await h.steering.closeProcess();
++        h.steering.setTarget({ ...h.target });
++        await h.steering.steer('guidance');
++        expect(h.send).toHaveBeenCalledOnce();
++        expect(h.queue.size()).toBe(0);
++        expect(h.client.emitSteerIndeterminate).toHaveBeenCalledWith(['guidance']);
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++        expect(h.queue.cancelByLocalId('guidance')).toBe(true);
++    });
++
++    it('can accept a late echo after disabling steer at the result boundary', async () => {
++        const h = harness();
++        await h.steering.steer('guidance');
++        h.steering.setTarget(null);
++        await h.steering.acknowledge(h.uuid());
++        expect(h.client.emitMessagesConsumed).toHaveBeenCalledOnce();
++        await h.steering.closeProcess();
++        expect(h.client.emitSteerIndeterminate).not.toHaveBeenCalled();
++    });
++
++    it('does not strand a durable dispatch when /clear drops its local reservation before writing', async () => {
++        const h = harness();
++        h.client.setSteerDeliveryState.mockImplementationOnce(async () => {
++            h.queue.pushIsolateAndClear('/clear', h.target.mode, 'clear');
++            return true;
++        });
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.send).not.toHaveBeenCalled();
++        expect(h.client.emitSteerIndeterminate).toHaveBeenCalledWith(['guidance']);
++        expect(h.queue.queue.map(item => item.localId)).toEqual(['clear']);
++    });
++
++    it('settles a written input echoed after /clear was queued without replaying it', async () => {
++        const h = harness();
++        await h.steering.steer('guidance');
++        h.queue.pushIsolateAndClear('/clear', h.target.mode, 'clear');
++        await h.steering.acknowledge(h.uuid());
++        expect(h.client.emitMessagesConsumed).toHaveBeenCalledOnce();
++        expect(h.queue.queue.map(item => item.localId)).toEqual(['clear']);
++        expect(h.send).toHaveBeenCalledOnce();
++    });
++
++    it('keeps a message held when /clear races the queued-state restore acknowledgement', async () => {
++        const h = harness();
++        h.send.mockReturnValueOnce(false);
++        h.client.setSteerDeliveryState.mockResolvedValueOnce(true).mockImplementationOnce(async () => {
++            h.queue.pushIsolateAndClear('/clear', h.target.mode, 'clear');
++            return true;
++        });
++        expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
++        expect(h.queue.queue.map(item => item.localId)).toEqual(['clear']);
++        expect(h.client.emitSteerIndeterminate).toHaveBeenCalledWith(['guidance']);
++        expect(h.client.emitMessagesConsumed).not.toHaveBeenCalled();
++    });
++
++    it.each(['/model foo', '/clear', '/compact', '/plan', '$review code', '  '])('keeps control/empty input %j queued', async text => {
++        const h = harness();
++        h.queue.push(text, h.target.mode, 'command');
++        expect(await h.steering.steer('command')).toMatchObject({ steered: false });
++        expect(h.send).not.toHaveBeenCalled();
++        expect(h.queue.peekByLocalId('command')?.message).toBe(text);
++    });
++
++    it('requires the queued item to match the active process configuration', async () => {
++        const h = harness();
++        h.queue.push('different context', { ...h.target.mode, customSystemPrompt: 'changed' }, 'different');
++        expect(await h.steering.steer('different')).toMatchObject({ steered: false });
++        expect(h.queue.peekByLocalId('different')).not.toBeNull();
++        expect(h.send).not.toHaveBeenCalled();
++    });
++});
+diff --git a/cli/src/claude/steering.ts b/cli/src/claude/steering.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f8bde2b9a20c6e3a8a516543f422c27eee31e6f5
+--- /dev/null
++++ b/cli/src/claude/steering.ts
+@@ -0,0 +1,165 @@
++import { createHash } from 'node:crypto';
++import type { QueueReservation } from '@/utils/MessageQueue2';
++import type { EnhancedMode } from './loop';
++import type { SDKUserMessage } from './sdk';
++import type { Session } from './session';
++
++export type ClaudeSteerResult = { steered: boolean; error?: string };
++
++/** A new identity for each turn; send returns false only before writing anything. */
++export type ClaudeSteerTarget = {
++    mode: EnhancedMode;
++    send: (message: SDKUserMessage) => boolean;
++};
++
++type Delivery = {
++    reservation: QueueReservation<EnhancedMode>;
++    uuid: string;
++    sent: boolean;
++};
++
++function messageUuid(sessionId: string, localId: string): string {
++    // RFC 4122 v5: the durable hub identity also identifies a native stdin message.
++    const bytes = createHash('sha1')
++        .update(Buffer.from('55a58a27bb1c5f598d66920497a1cb9b', 'hex'))
++        .update(JSON.stringify([sessionId, localId])).digest().subarray(0, 16);
++    bytes[6] = (bytes[6] & 0x0f) | 0x50;
++    bytes[8] = (bytes[8] & 0x3f) | 0x80;
++    const hex = bytes.toString('hex');
++    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
++}
++
++/** Keeps unacknowledged input out of the normal queue, including across aborts. */
++export class ClaudeSteering {
++    private target: ClaudeSteerTarget | null = null;
++    private active: boolean | undefined;
++    private readonly deliveries = new Map<string, Delivery>();
++    private readonly dispatches = new Set<Promise<ClaudeSteerResult>>();
++
++    constructor(private readonly session: Session, private readonly flush: () => Promise<void>) {}
++
++    setTarget(target: ClaudeSteerTarget | null): void {
++        this.target = target;
++        const active = target !== null;
++        if (this.active === active) return;
++        this.active = active;
++        this.session.client.updateAgentState(state => ({ ...state, steeringActive: active }));
++    }
++
++    private matches(target: ClaudeSteerTarget): boolean {
++        return this.target === target
++            && (this.session.getPermissionMode() ?? 'default') === target.mode.permissionMode
++            && (this.session.getModel() ?? undefined) === target.mode.model
++            && (this.session.getEffort() ?? undefined) === target.mode.effort;
++    }
++
++    steer(localId: string): Promise<ClaudeSteerResult> {
++        const { session, target } = this;
++        const existing = this.deliveries.get(localId);
++        if (existing) {
++            const steered = existing.sent && existing.reservation.state === 'dispatching';
++            return Promise.resolve({ steered, ...(!steered ? { error: 'Steer is already pending or its delivery is uncertain' } : {}) });
++        }
++        if (!localId || !target || !this.matches(target)) {
++            return Promise.resolve({ steered: false, error: 'No active Claude turn with matching settings' });
++        }
++        const reservation = session.queue.takeByLocalId(localId);
++        if (!reservation) {
++            return Promise.resolve({ steered: false, error: 'Message is no longer queued or is already being steered' });
++        }
++        const guidance = session.expandSkillReference(reservation.item.message);
++        if (reservation.originIndeterminate) {
++            session.queue.restoreReservation(reservation);
++            return Promise.resolve({ steered: false, error: 'Previous delivery is uncertain; resolve it with Cancel or Retry in the queue' });
++        }
++        if (reservation.item.isolate || /^\s*\//.test(guidance) || !guidance.trim()
++            || reservation.item.modeHash !== session.queue.modeHasher(target.mode)) {
++            session.queue.restoreReservation(reservation);
++            return Promise.resolve({ steered: false, error: 'Steer requires guidance with the current turn settings; commands stay queued' });
++        }
++        if (!session.queue.beginReservationDispatch(reservation)) {
++            return Promise.resolve({ steered: false, error: 'Steer was cancelled' });
++        }
++        const delivery: Delivery = { reservation, uuid: messageUuid(session.client.sessionId, localId), sent: false };
++        this.deliveries.set(localId, delivery);
++
++        const work = this.dispatch(localId, delivery, target, guidance);
++        this.dispatches.add(work);
++        void work.finally(() => this.dispatches.delete(work));
++        return work;
++    }
++
++    private hold(localId: string, delivery: Delivery): void {
++        if (this.session.queue.markReservationIndeterminate(delivery.reservation)
++            || (delivery.reservation.state === 'cancelled' && delivery.reservation.cancelReason === 'queue-reset')) {
++            this.session.client.emitSteerIndeterminate([localId]);
++        }
++    }
++
++    private async restore(localId: string, delivery: Delivery): Promise<void> {
++        if (delivery.reservation.state !== 'dispatching') {
++            this.hold(localId, delivery);
++            return;
++        }
++        if (await this.session.client.setSteerDeliveryState([localId], 'queued')) {
++            if (!this.session.queue.restoreReservation(delivery.reservation)) this.hold(localId, delivery);
++        } else {
++            this.hold(localId, delivery);
++        }
++    }
++
++    private async dispatch(localId: string, delivery: Delivery, target: ClaudeSteerTarget, guidance: string): Promise<ClaudeSteerResult> {
++        try {
++            if (!await this.session.client.setSteerDeliveryState([localId], 'dispatching')) {
++                this.hold(localId, delivery);
++                return { steered: false, error: 'Could not confirm steer delivery state; check the queue before retrying' };
++            }
++            if (delivery.reservation.state !== 'dispatching' || !this.matches(target)) {
++                await this.restore(localId, delivery);
++                return { steered: false, error: 'The active Claude turn or its settings changed before dispatch' };
++            }
++            // Once a write is attempted, failure is ambiguous. Only a matching
++            // --replay-user-messages echo may stamp the hub row consumed.
++            delivery.sent = true;
++            const sent = target.send({ type: 'user', uuid: delivery.uuid, message: { role: 'user', content: guidance } });
++            if (!sent) {
++                delivery.sent = false;
++                await this.restore(localId, delivery);
++                return { steered: false, error: 'The active Claude turn ended before dispatch' };
++            }
++            // Return promptly: a tool can delay the native echo beyond the RPC
++            // timeout. This acknowledges dispatch, never model consumption.
++            return { steered: true };
++        } catch (error) {
++            this.hold(localId, delivery);
++            return { steered: false, error: error instanceof Error ? error.message : 'Claude steer failed' };
++        } finally {
++            if (!delivery.sent) this.deliveries.delete(localId);
++        }
++    }
++
++    async acknowledge(uuid: string): Promise<void> {
++        const match = [...this.deliveries].find(([, delivery]) => delivery.sent && delivery.uuid === uuid);
++        if (!match) return;
++        const [localId, delivery] = match;
++        this.deliveries.delete(localId);
++        // Preserve transcript order: earlier tool output precedes the inserted
++        // user row, and subsequent assistant output follows its consumed ACK.
++        await this.flush();
++        if (this.session.queue.commitReservation(delivery.reservation)) {
++            this.session.client.emitMessagesConsumed([localId], { steered: true });
++        }
++    }
++
++    /** Wait for pre-dispatch/restore work, never for a native echo. */
++    async drain(): Promise<void> {
++        while (this.dispatches.size) await Promise.all([...this.dispatches]);
++    }
++
++    async closeProcess(): Promise<void> {
++        this.setTarget(null);
++        await this.drain();
++        for (const [localId, delivery] of this.deliveries) this.hold(localId, delivery);
++        this.deliveries.clear();
++    }
++}
+diff --git a/docs/guide/agents.md b/docs/guide/agents.md
+index 24deb57c60e3adfaaef6b4301c931db2d4e7ae90..e468971328a574374561d3ce88f6f6a4b05e6700 100644
+--- a/docs/guide/agents.md
++++ b/docs/guide/agents.md
+@@ -336,7 +336,7 @@ overall permission policy.
+
+ ## Other agents
+
+-- **Claude Code** (`hapi claude`) — local sessions wrap the native TUI, remote sessions drive the Claude Agent SDK. [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code)
++- **Claude Code** (`hapi claude`) — local sessions wrap the native TUI, remote sessions drive the Claude Agent SDK. With an updated CLI, Hub and client, use a queued message's **Steer** action (or explicit send-and-steer in supported clients) to supply guidance during a remote turn. The current tool finishes normally before the guidance takes effect; ordinary messages stay queued. Unconfirmed guidance is never automatically resent after process failure: check the conversation before explicitly retrying it. [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code)
+ - **Codex** (`hapi codex`) — OpenAI's Codex CLI, with terminal/Web control and a dedicated `plan` mode. See [Codex usage and limits](./codex-shared-sessions.md) for resume, terminal-exit behavior, and launch options. [openai/codex](https://github.com/openai/codex)
+ - **GitHub Copilot** (`hapi copilot`) — Copilot CLI over ACP (`copilot --acp --stdio`). [GitHub Copilot](https://github.com/features/copilot)
+ - **Kimi** (`hapi kimi`) — Moonshot AI's Kimi CLI over ACP (`kimi acp`). [MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli)
+diff --git a/hub/src/sync/messageService.test.ts b/hub/src/sync/messageService.test.ts
+index 7f8a68e0ebb0c1ac868a97ccab55332db3e89287..b3df37d5ff47a09e507b7cacbbe02f6a6af4062c 100644
+--- a/hub/src/sync/messageService.test.ts
++++ b/hub/src/sync/messageService.test.ts
+@@ -1229,11 +1229,11 @@ describe('MessageService.sendMessage deliveryMode', () => {
+         expect(gateChecks).toBe(0)
+     })
+
+-    it('persists Pi steer provenance but downgrades every deferred CLI delivery to queue', async () => {
++    it.each(['pi', 'claude'])('preserves live %s steer but downgrades every deferred delivery to queue', async (flavor) => {
+         const store = makeStore()
+         const session = store.sessions.getOrCreateSession(
+             'delivery-mode-pi',
+-            { path: '/tmp/delivery-mode-pi', host: 'localhost', flavor: 'pi' },
++            { path: '/tmp/delivery-mode-pi', host: 'localhost', flavor },
+             null,
+             'default'
+         )
+@@ -1286,11 +1286,11 @@ describe('MessageService.sendMessage deliveryMode', () => {
+         })
+     })
+
+-    it('delivers a duplicate-localId retry as queue even when the stored row retains steer', async () => {
++    it.each(['pi', 'claude'])('delivers duplicate %s localIds as queue even when the stored row retains steer', async (flavor) => {
+         const store = makeStore()
+         const session = store.sessions.getOrCreateSession(
+             'delivery-mode-duplicate-pi',
+-            { path: '/tmp/delivery-mode-duplicate-pi', host: 'localhost', flavor: 'pi' },
++            { path: '/tmp/delivery-mode-duplicate-pi', host: 'localhost', flavor },
+             null,
+             'default'
+         )
+@@ -1324,6 +1324,20 @@ describe('MessageService.sendMessage deliveryMode', () => {
+         })
+     })
+
++    it.each(['dispatching', 'indeterminate', 'invoked'] as const)('never re-emits a duplicate Claude message already %s', async state => {
++        const store = makeStore()
++        const session = store.sessions.getOrCreateSession('claude-duplicate-state', { path: '/tmp', flavor: 'claude' }, null, 'default')
++        const { io, cliEmitted } = makeTrackingIo()
++        const service = new MessageService(store, io, makePublisher() as any)
++        const payload = { text: 'one action', localId: 'stable-id', deliveryMode: 'steer' as const }
++        await service.sendMessage(session.id, payload)
++        if (state === 'invoked') store.messages.markMessagesInvoked(session.id, ['stable-id'], Date.now())
++        else store.messages.setMessagesDeliveryState(session.id, ['stable-id'], state)
++        await service.sendMessage(session.id, payload)
++        expect(cliEmitted).toHaveLength(1)
++        expect(service.replayImmediateQueuedMessages(session.id)).toBe(0)
++    })
++
+     it('downgrades a legacy persisted steer through the mature scheduled scan', () => {
+         const store = makeStore()
+         const session = store.sessions.getOrCreateSession(
+@@ -1396,7 +1410,7 @@ describe('MessageService.sendMessage deliveryMode', () => {
+         ])
+     })
+
+-    it('downgrades forged steer intent for non-Pi sessions and defaults omitted intent to queue', async () => {
++    it('downgrades unsupported direct steer intent and defaults omitted intent to queue', async () => {
+         const store = makeStore()
+         const session = makeSession(store, 'delivery-mode-non-pi')
+         const service = new MessageService(store, makeTrackingIo().io, makePublisher() as any)
+@@ -1419,11 +1433,11 @@ describe('MessageService.sendMessage deliveryMode', () => {
+         })).toEqual(['queue', 'queue'])
+     })
+
+-    it('normalizes direct scheduled steer requests to queue', async () => {
++    it.each(['pi', 'claude'])('normalizes direct scheduled %s steer requests to queue', async (flavor) => {
+         const store = makeStore()
+         const session = store.sessions.getOrCreateSession(
+             'delivery-mode-pi-scheduled',
+-            { path: '/tmp/delivery-mode-pi-scheduled', host: 'localhost', flavor: 'pi' },
++            { path: '/tmp/delivery-mode-pi-scheduled', host: 'localhost', flavor },
+             null,
+             'default'
+         )
+diff --git a/hub/src/sync/messageService.ts b/hub/src/sync/messageService.ts
+index cd0cfbdadde6c3d11e2412cc65d16b416497e82b..5657fe9561f6449d93f9306e295fa42decf5af2b 100644
+--- a/hub/src/sync/messageService.ts
++++ b/hub/src/sync/messageService.ts
+@@ -124,11 +124,11 @@ function getNormalizedDeliveryMode(
+         return 'queue'
+     }
+
+-    return isObject(metadata) && metadata.flavor === 'pi' ? 'steer' : 'queue'
++    return isObject(metadata) && (metadata.flavor === 'pi' || metadata.flavor === 'claude') ? 'steer' : 'queue'
+ }
+
+ /**
+- * Native steer is scoped to the Pi turn active at the initial live emit. Once
++ * Native steer is scoped to the turn active at the initial live emit. Once
+  * a durable row is delivered through reconnect, backfill, a clear gate, or a
+  * scheduled scan, that turn identity is no longer provable. Preserve stored
+  * provenance for Web diagnostics, but make deferred CLI delivery an ordinary
+@@ -890,13 +890,15 @@ export class MessageService {
+         const actualSessionId = inserted.sessionId
+         const msg = inserted.message
+         // A duplicate localId is an idempotent retry, not proof that the
+-        // original Pi turn still exists. Its stored row may retain steer
++        // original turn still exists. Its stored row may retain steer
+         // provenance from a POST whose response was lost, so deliver the
+         // duplicate through the same turn-safe deferred view as reconnect.
+         const cliContent = inserted.inserted
+             ? msg.content
+             : contentForDeferredDelivery(msg.content)
+-        const shouldEmitToCli = msg.deliveryState !== 'indeterminate'
++        const shouldEmitToCli = (inserted.inserted || msg.invokedAt === null)
++            // StoredMessage maps durable dispatching to indeterminate as well.
++            && msg.deliveryState !== 'indeterminate'
+         this.onSessionActivity?.(actualSessionId, msg.createdAt)
+
+         // Only emit to CLI if the message is not scheduled for the future.
+diff --git a/hub/src/sync/steerQueuedMessage.test.ts b/hub/src/sync/steerQueuedMessage.test.ts
+index 171eb6c0c7bfb6325ac933d7f832c60b5964acf4..4ebf2646ba00f4f0970adfd18f1d0011983fb9aa 100644
+--- a/hub/src/sync/steerQueuedMessage.test.ts
++++ b/hub/src/sync/steerQueuedMessage.test.ts
+@@ -1,4 +1,4 @@
+-import { describe, expect, it } from 'bun:test'
++import { describe, expect, it, spyOn } from 'bun:test'
+ import { Store } from '../store'
+ import { RpcRegistry } from '../socket/rpcRegistry'
+ import { SyncEngine } from './syncEngine'
+@@ -15,6 +15,26 @@ function createEngine() {
+ }
+
+ describe('SyncEngine.steerQueuedMessage', () => {
++    it('routes a Claude steer to the CLI without treating dispatch as consumption', async () => {
++        const { store, engine } = createEngine()
++        const steer = spyOn(engine['rpcGateway'], 'steerQueuedMessage').mockResolvedValue({ steered: true })
++        try {
++            const session = engine.getOrCreateSession(
++                'steer-claude',
++                { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
++                { steeringActive: true, controlledByUser: false },
++                'default'
++            )
++            const message = store.messages.addMessage(session.id, { text: 'new direction' }, 'claude-local')
++            expect(await engine.steerQueuedMessage(session.id, message.id)).toEqual({ status: 'steered', localId: 'claude-local' })
++            expect(steer).toHaveBeenCalledWith(session.id, 'claude-local')
++            expect(store.messages.lookupQueuedMessage(session.id, message.id).status).toBe('queued')
++        } finally {
++            steer.mockRestore()
++            engine.stop()
++        }
++    })
++
+     it('rejects every scheduled row, mature ones included, without invoking the CLI', async () => {
+         const { store, engine } = createEngine()
+         try {
+@@ -52,8 +72,8 @@ describe('SyncEngine.steerQueuedMessage', () => {
+         const { store, engine } = createEngine()
+         try {
+             const session = engine.getOrCreateSession(
+-                'steer-claude',
+-                { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
++                'steer-opencode',
++                { path: '/tmp/project', host: 'localhost', flavor: 'opencode' },
+                 { requests: {}, completedRequests: {} },
+                 'default'
+             )
+@@ -63,7 +83,7 @@ describe('SyncEngine.steerQueuedMessage', () => {
+
+             expect(result).toEqual({
+                 status: 'failed',
+-                error: 'Steering is only supported for Pi, Codex, Cursor ACP, and Hermes sessions',
++                error: 'Steering is only supported for Claude, Pi, Codex, Cursor ACP, and Hermes sessions',
+                 localId: null
+             })
+         } finally {
+diff --git a/hub/src/sync/syncEngine.ts b/hub/src/sync/syncEngine.ts
+index c9274fe23977c65e29775ed2bc54b27853eeeff2..1f946490fba6f44ce6e778153642b70fcf2f14c7 100644
+--- a/hub/src/sync/syncEngine.ts
++++ b/hub/src/sync/syncEngine.ts
+@@ -1066,7 +1066,7 @@ export class SyncEngine {
+
+     /**
+      * Ask the CLI to deliver one waiting-queue message into the active turn
+-     * (native steer). Supported for Pi, Codex, and Cursor ACP sessions; the
++     * (native steer). Supported for Claude, Pi, Codex, Cursor ACP and Hermes; the
+      * CLI's `steer-queued-message` handler is registered per flavor. Legacy
+      * stream-json Cursor sessions and other flavors are rejected by the
+      * capability gate.
+@@ -1080,7 +1080,7 @@ export class SyncEngine {
+             return { status: 'failed', error: 'Session not found', localId: null }
+         }
+         if (!isSteeringSupportedForSession(session.metadata)) {
+-            return { status: 'failed', error: 'Steering is only supported for Pi, Codex, Cursor ACP, and Hermes sessions', localId: null }
++            return { status: 'failed', error: 'Steering is only supported for Claude, Pi, Codex, Cursor ACP, and Hermes sessions', localId: null }
+         }
+         if (session.agentState?.controlledByUser === true && !session.metadata?.capabilities?.concurrentClients) {
+             return { status: 'failed', error: 'Steering is only available for remote sessions', localId: null }
+diff --git a/shared/src/modes.test.ts b/shared/src/modes.test.ts
+index 4664313b4cb01cb6b9a4e4b57e07cd5fb7068905..9fffb4945c1c1d8c74a2273f12d97d8752e168bd 100644
+--- a/shared/src/modes.test.ts
++++ b/shared/src/modes.test.ts
+@@ -139,11 +139,12 @@ describe('claude auto permission mode', () => {
+ })
+
+ describe('isSteeringSupportedForFlavor', () => {
+-    it('supports codex, cursor and pi', () => {
++    it('supports Claude, Codex, Cursor, Pi and Hermes', () => {
+         expect(isSteeringSupportedForFlavor('codex')).toBe(true)
+         expect(isSteeringSupportedForFlavor('cursor')).toBe(true)
+         expect(isSteeringSupportedForFlavor('pi')).toBe(true)
+-        expect(isSteeringSupportedForFlavor('claude')).toBe(false)
++        expect(isSteeringSupportedForFlavor('claude')).toBe(true)
++        expect(isSteeringSupportedForFlavor('hermes')).toBe(true)
+         expect(isSteeringSupportedForFlavor('opencode')).toBe(false)
+         expect(isSteeringSupportedForFlavor(undefined)).toBe(false)
+         expect(isSteeringSupportedForFlavor(null)).toBe(false)
+@@ -151,8 +152,10 @@ describe('isSteeringSupportedForFlavor', () => {
+ })
+
+ describe('isSteeringSupportedForSession', () => {
+-    it('supports codex and pi sessions', () => {
++    it('supports Claude, Codex, Pi and Hermes sessions', () => {
+         expect(isSteeringSupportedForSession({ flavor: 'codex' })).toBe(true)
++        expect(isSteeringSupportedForSession({ flavor: 'claude' })).toBe(true)
++        expect(isSteeringSupportedForSession({ flavor: 'hermes' })).toBe(true)
+         expect(isSteeringSupportedForSession({ flavor: 'pi' })).toBe(true)
+     })
+
+@@ -178,7 +181,7 @@ describe('isSteeringSupportedForSession', () => {
+     })
+
+     it('rejects non-steerable flavors', () => {
+-        expect(isSteeringSupportedForSession({ flavor: 'claude' })).toBe(false)
++        expect(isSteeringSupportedForSession({ flavor: 'opencode' })).toBe(false)
+         expect(isSteeringSupportedForSession(null)).toBe(false)
+     })
+ })
+diff --git a/shared/src/modes.ts b/shared/src/modes.ts
+index 9fe320aa179db60228fe0a919ca266d560d440c4..cc8db239e1f87cb6b789396caf7f22b93178ca72 100644
+--- a/shared/src/modes.ts
++++ b/shared/src/modes.ts
+@@ -200,14 +200,15 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
+  * Steer = soft mid-turn delivery (same idea as Cursor GUI default "Send"):
+  * - Pi: native steer over the Pi runtime (first-class since #1466)
+  * - Codex: app-server `turn/steer` (true mid-turn inject)
++ * - Claude: stream-json stdin injection, acknowledged by native user UUID echo.
+  * - Hermes: native `/steer` through a concurrent ACP prompt (no cancel).
+  * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
+  *   stream-json Cursor sessions are NOT steerable — gate with
+  *   {@link isSteeringSupportedForSession}.
+  *
+- * Claude / others: not supported (no reachable soft-steer path) — UI hides Steer.
++ * Other flavors are not supported. Runtime readiness uses steeringActive.
+  */
+-export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi', 'hermes'] as const
++export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes'] as const
+
+ export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
+     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
+@@ -226,7 +227,7 @@ export function isSteeringSupportedForSession(metadata?: {
+     cursorSessionId?: string | null
+     cursorSessionProtocol?: 'acp' | 'stream-json' | null
+ } | null): boolean {
+-    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes') {
++    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes') {
+         return true
+     }
+     if (metadata?.flavor !== 'cursor') {

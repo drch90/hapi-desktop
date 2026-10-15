@@ -1,6 +1,6 @@
 # Claude 模型补丁与 steer 支持说明
 
-模型保留补丁修复 `/model` 选择在停止或切换权限后丢失的问题。当前这版 HAPI 的 Web 与桌面端均不支持 Claude steer，该补丁不增加中途引导能力。
+模型保留补丁修复 `/model` 选择在停止或切换权限后丢失的问题。Claude steer 已有[单独的适配补丁](claude-steer.md)，本页的模型补丁本身不增加中途引导能力。
 
 Claude 的 `/model <模型 ID>` 原先由当前 Claude 子进程处理，HAPI 没有同步保存这次选择。点击停止会结束该子进程，计划模式等权限变化也可能重新启动进程；下一次启动采用 HAPI 保存的旧模型，因此会恢复默认值。
 
@@ -30,8 +30,8 @@ bun run --cwd cli test src/claude/model.test.ts src/claude/runClaude.model.test.
 
 ## steer 支持情况
 
-steer 指在当前轮仍在执行时投递补充指令，无需停止当前轮或等待整轮结束。当前 HAPI 的 [`isSteeringSupportedForSession`](../vendor/hapi/shared/src/modes.ts) 不将 Claude 列为支持中途引导的会话，Hub 也按该能力拒绝相应操作。Web 和桌面端沿用同一判断，因此都不提供 Claude steer。
+steer 指在当前轮仍在执行时投递补充指令，无需停止当前工具或等待整轮结束。1.0.3 配套补丁已接通 Claude Code 的 stream-json 输入通道，并更新共享能力判断；补充指令以 UUID 回显确认接收，普通发送仍排队。
 
-Claude 运行中普通发送的消息会排队，等当前轮结束后处理。需要立即改变方向时，可以先点击停止，再发送新指令；这一操作会中断当前执行。
+启用需要更新远端 HAPI CLI、Hub，并覆盖安装 1.0.3 桌面版；Web 则需重新构建部署。桌面可从输入框或排队消息点击“优先插入”，Web 可从排队消息点击 Steer。旧 runner 未发布活动轮能力时，桌面/Web 仍隐藏该入口。
 
-新增 Claude steer 需要先在远端 HAPI CLI 的 Claude 适配中实现中途消息投递，再同步共享能力判断、Hub 与客户端入口，并验证消息确实在当前轮被接收。只放开前端按钮、应用本页的模型保留补丁或重新打包桌面端，都不能启用 steer。这是当前 HAPI 接入方式的支持范围，不代表 Claude Code 本身永久无法支持类似能力。
+详见 [Claude steer 适配说明](claude-steer.md)。只应用本页的模型补丁或重新打包桌面端不能更新远端投递逻辑；源码适配完成也不会自动部署到已运行的 Hub/runner。

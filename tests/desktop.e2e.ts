@@ -2351,6 +2351,80 @@ test('priority insertion respects provider capability, retains failed messages a
   expect(errors).toEqual([])
 })
 
+test('Claude direct and queued steering wait for native acknowledgement and never resend on reload', async () => {
+  server.holdMessages = true
+  server.steerOutcome = 'pending'
+  const session = server.sessions.get('review')!
+  session.thinking = true
+  session.agentState!.steeringActive = true
+  session.agentStateVersion++
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await page.getByTestId('session-review').click()
+  const chat = page.getByTestId('chat-review')
+  await chat.getByRole('textbox').fill('Claude 普通消息先排队')
+  await chat.getByRole('button', { name: '发送', exact: true }).click()
+  const queue = chat.getByRole('region', { name: '排队消息', exact: true })
+  await expect(queue).toContainText('Claude 普通消息先排队')
+  await queue.getByRole('button', { name: '优先插入', exact: true }).click()
+  await expect(queue).toContainText('尚未确认消息是否送达')
+  await chat.getByRole('textbox').fill('Claude 当前轮的新方向')
+  await chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true }).click()
+  await expect(queue).toContainText('Claude 当前轮的新方向')
+  const sends = () =>
+    server.requests.filter((r) => r.method === 'POST' && r.path === '/api/sessions/review/messages')
+  const steers = () => server.requests.filter((r) => r.path.endsWith('/steer'))
+  expect(sends().map((r) => r.body.deliveryMode)).toEqual(['queue', 'steer'])
+  expect(steers()).toHaveLength(1)
+  const pending = server.messages.get('review')!.filter((message) => message.invokedAt === null)
+  expect(pending).toHaveLength(2)
+  await page.reload()
+  await expect(queue).toContainText('Claude 当前轮的新方向')
+  await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(0)
+  expect(sends()).toHaveLength(2)
+  expect(steers()).toHaveLength(1)
+  for (const message of pending) {
+    message.invokedAt = Date.now()
+    delete message.deliveryState
+    server.emit({
+      type: 'messages-consumed',
+      sessionId: 'review',
+      localIds: [message.localId!],
+      invokedAt: message.invokedAt,
+      steered: true,
+    })
+  }
+  await expect(queue).toHaveCount(0)
+  await expect(chat.getByText('Claude 当前轮的新方向', { exact: true })).toHaveCount(1)
+  await expect(chat.getByText('Claude 普通消息先排队', { exact: true })).toHaveCount(1)
+  expect(sends()).toHaveLength(2)
+  expect(errors).toEqual([])
+})
+
+test('Claude steering requires a live remote runtime capability', async () => {
+  const session = server.sessions.get('review')!
+  session.thinking = true
+  await page.getByTestId('session-review').click()
+  const chat = page.getByTestId('chat-review')
+  await chat.getByRole('textbox').fill('检查运行时能力')
+  const button = chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true })
+  await expect(button).toHaveCount(0)
+  const publish = () => {
+    session.agentStateVersion++
+    server.emit({ type: 'session-updated', sessionId: 'review', data: session })
+  }
+  session.agentState!.steeringActive = true
+  publish()
+  await expect(button).toBeEnabled()
+  session.agentState!.controlledByUser = true
+  publish()
+  await expect(button).toHaveCount(0)
+  session.agentState!.controlledByUser = false
+  session.agentState!.steeringActive = false
+  publish()
+  await expect(button).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test('native commands discover project commands, autocomplete without sending and migrate shared clear results', async () => {
   server.commandEvents = true
   await page.getByTestId('session-design').click()

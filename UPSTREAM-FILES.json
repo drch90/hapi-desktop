@@ -465,11 +465,11 @@
   },
   "shared/src/modes.test.ts": {
     "upstream": "e7fdaccc0a642140d6461d4d0a274ac9d7a94fb73398cc9034997dec97dcae76",
-    "vendored": "e7fdaccc0a642140d6461d4d0a274ac9d7a94fb73398cc9034997dec97dcae76"
+    "vendored": "1d38846bb10d2f31b5eba9666c7230ad353d40ec48b407437f275e96175dc1c4"
   },
   "shared/src/modes.ts": {
     "upstream": "4b80317fd0754aa52270b7d0f793f14278de34079a9a61fdd646531c9ae9c4c7",
-    "vendored": "be8ba73da52fc9704a80b112c0327e92fb0500700aca7fee8570c6575d54f114"
+    "vendored": "ae812126cfbf42af4343c1e8fb60e19d52549845cfe69b93c28b2ba52e3e4e6e"
   },
   "shared/src/piThinkingLevel.ts": {
     "upstream": "96651d0ede2c46e27835aadbbf4d014e22b629c6701e6ecf742f2b8a34b00d5c",

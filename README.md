@@ -1,10 +1,10 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本为 **1.0.2**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.2 发布说明](docs/release-notes/v1.0.2.md)，main 分支的后续修复见 [未发布更新](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.3**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.3 版本说明](docs/release-notes/v1.0.3.md)，main 分支的后续修复见 [未发布更新](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
-1. 从 [最新 Release](https://github.com/drch90/hapi-desktop/releases/latest) 下载并运行 `HAPI-Desktop-<版本>-win-x64-setup.exe`；也可按下方说明从源码构建。
+1. 从 [Releases](https://github.com/drch90/hapi-desktop/releases) 下载已公开版本并运行 `HAPI-Desktop-<版本>-win-x64-setup.exe`；尚未公开的版本可从 [Actions](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 获取成功构建的产物，也可按下方说明从源码构建。
 2. 输入 Hub 地址和访问令牌。地址只包含协议、主机和端口，例如 `https://hapi.example.com` 或 `http://127.0.0.1:3006`，不包含 `/api`、子路径或查询参数。
 3. 打开已有会话，或选择在线机器、工作目录和 CLI 创建会话。Hub、runner 和 CLI 需另行部署。
 
@@ -115,14 +115,14 @@ HAPI 的 `display_image`、`display_video`、`display_media` 消息可显示图�
 
 会话顶部展示模式、权限、思考强度及创建/更新时间。会话设置通过 HAPI 原生 API 修改，成功后读取服务端状态，失败保留原值。归档会话需先恢复，断线或终端独占控制时禁用设置。
 
-当前这版 HAPI 的 Web 和桌面端都不支持 Claude 的轮次中途引导（steer）。运行中追加消息会排队，等当前轮结束后处理；需要立即改变方向时，可以先停止再发送。新增 steer 需要接通远端 HAPI CLI 的 Claude 中途消息投递，并同步 Hub 与客户端的能力判断。
+1.0.3 已适配 Claude 的轮次中途引导（steer）。需覆盖安装新版桌面，并在远端应用配套 CLI/Hub 补丁；桌面可使用输入框或排队消息上的“优先插入”，Web 重新构建部署后可对排队消息点击 Steer。当前工具不中断，引导在下一次模型调用前接收，普通发送仍然排队。旧桌面包内的能力判断不会随 Hub 更新，必须重新打包安装。各端升级要求、送达状态及验证边界见 [Claude steer 适配说明](docs/claude-steer.md)。
 
 通过 `/model <模型 ID>` 切换后，停止或改权限导致模型恢复默认的问题有单独的远端 HAPI CLI 补丁。该补丁只保留模型选择，不包含 steer，也不随桌面安装包部署；应用方法和验证说明见 [Claude 模型补丁与 steer 支持说明](docs/claude-model-persistence.md)。
 
 | CLI         | 创建与运行时设置                                                        |
 | ----------- | ----------------------------------------------------------------------- |
 | Codex       | 动态模型、思考档位、默认/计划协作模式及权限；快速模式仅在模型支持时显示 |
-| Claude Code | Web 同源模型、effort 和原生权限模式                                     |
+| Claude Code | Web 同源模型、effort、原生权限模式及活动轮优先插入（需远端配套补丁）       |
 | OpenCode    | 按机器和目录发现模型、模型变体及原生权限                                |
 | Hermes      | 供应商分组模型目录、默认配置和创建时手动模型 ID；原生默认/允许编辑权限  |
 
@@ -165,7 +165,7 @@ xvfb-run -a bun run test:e2e
 bun run package:win
 ```
 
-当前产物路径为 `build/HAPI-Desktop-1.0.2-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+当前产物路径为 `build/HAPI-Desktop-1.0.3-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 ### 自动构建与公开发布
 
@@ -178,11 +178,11 @@ bun run package:win
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.2 -m "HAPI Desktop 1.0.2"
-git push origin v1.0.2
+git tag -a v1.0.3 -m "HAPI Desktop 1.0.3"
+git push origin v1.0.3
 ```
 
-推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.2-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.3-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 
@@ -239,7 +239,7 @@ Renderer 使用本地 `app://desktop` 协议、sandbox 和 context isolation，�
 
 桌面端组合 Web 的独立组件和协议行为，使用自己的双栏、草稿与 IPC 适配。聊天归一化、工具分组、问答、模型发现、队列操作、暂存抽屉、上下文统计和用量页面尽量复用共享实现。
 
-上游基线、Hermes 来源快照及文件校验值记录在 [UPSTREAM.json](UPSTREAM.json)；逐文件来源记录在 [UPSTREAM-FILES.json](UPSTREAM-FILES.json)，修改记录在 [patches/hapi-desktop.patch](patches/hapi-desktop.patch)。Hermes 的来源快照包含当时尚未提交的实现，记录的基线提交不代表已包含这些更改。`bun run verify:upstream` 校验文件哈希，并反向/正向应用补丁，确保可恢复基线和桌面适配结果。更新共享源码时需同步来源记录和补丁，再运行相关测试。
+上游基线、Hermes 与 Claude steer 来源快照及文件校验值记录在 [UPSTREAM.json](UPSTREAM.json)；逐文件来源记录在 [UPSTREAM-FILES.json](UPSTREAM-FILES.json)，修改记录在 [patches/hapi-desktop.patch](patches/hapi-desktop.patch)。来源快照包含当时尚未提交的实现，记录的基线提交不代表已包含这些更改。`bun run verify:upstream` 校验文件哈希，并反向/正向应用补丁，确保可恢复基线和桌面适配结果。更新共享源码时需同步来源记录和补丁，再运行相关测试。
 
 修改桌面文案时，通过 `scripts/add-missing-keys.mjs` 更新全部七种语言，并运行 `bun run i18n:sync` 检查缺失键。
 
