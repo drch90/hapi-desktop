@@ -89,6 +89,39 @@ bun run build:single-exe
 
 按现有服务管理流程更新并重启 Hub/runner；已运行的旧 Claude CLI 会话仍使用旧代码，需在合适时机重新启动。此源码变更未自动重启、部署或发布任何运行中的服务。
 
+### PM2 服务更新
+
+PM2 负责启动进程，构建源码后仍需更新它实际调用的程序。以下示例对应已核对的 Linux x64、npm 全局安装布局：
+
+| PM2 服务 | 启动入口 | 参数 |
+| --- | --- | --- |
+| `hapi-hub` | `/usr/bin/hapi` | `hub --no-relay` |
+| `hapi-runner` | `/root/workspace/codex-header-sync/bin/hapi-auto` | `runner start-sync --workspace-root /root` |
+
+两个入口最终都调用 `/usr/lib/node_modules/@twsxtd/hapi/node_modules/@twsxtd/hapi-linux-x64/bin/hapi`。其中 `/usr/bin/hapi` 是 npm 提供的 Node 启动脚本，`hapi-auto` 保留自定义 Codex 启动环境；应将新二进制部署到平台包目录，继续使用现有启动入口和 PM2 配置。
+
+先在 `/root/workspace/hapi` 完成 `bun run build:single-exe`。确认服务名和目录与上表一致后，以能够写入 npm 安装目录的用户执行；其他部署布局需先调整路径和服务名：
+
+```bash
+(
+    set -e
+    hapi_new=/root/workspace/hapi/cli/dist-exe/bun-linux-x64-baseline/hapi
+    hapi_live=/usr/lib/node_modules/@twsxtd/hapi/node_modules/@twsxtd/hapi-linux-x64/bin/hapi
+
+    cp -a "$hapi_live" "$hapi_live.bak-$(date +%Y%m%d-%H%M%S)"
+    install -m 0755 "$hapi_new" "$hapi_live.new"
+    mv -f "$hapi_live.new" "$hapi_live"
+
+    pm2 restart hapi-hub
+    pm2 restart hapi-runner
+    pm2 status
+)
+```
+
+备份保存在原二进制旁，文件名带有时间。新文件先写入 `.new`，再重命名替换，避免直接覆写正在执行的文件；命令组在任一步失败时停止。
+
+Hub 重启会短暂断开客户端连接。确认 `hapi-hub` 和 `hapi-runner` 均为 `online` 后，新建一个 Claude 会话验证“优先插入”。已有会话的旧 HAPI CLI 进程不会自动加载新代码，需要重新启动该进程后生效。
+
 ## 验证与边界
 
 2026-10-15，独立实验与接入后的隔离实测均使用真实 Claude Code 2.1.300。接入实测运行此次修改后的 HAPI `Query` 和 `ClaudeSteering`，Hub 状态确认使用内存适配器：

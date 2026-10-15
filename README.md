@@ -117,6 +117,8 @@ HAPI 的 `display_image`、`display_video`、`display_media` 消息可显示图�
 
 1.0.3 已适配 Claude 的轮次中途引导（steer）。需覆盖安装新版桌面，并在远端应用配套 CLI/Hub 补丁；桌面可使用输入框或排队消息上的“优先插入”，Web 重新构建部署后可对排队消息点击 Steer。当前工具不中断，引导在下一次模型调用前接收，普通发送仍然排队。旧桌面包内的能力判断不会随 Hub 更新，必须重新打包安装。各端升级要求、送达状态及验证边界见 [Claude steer 适配说明](docs/claude-steer.md)。
 
+通过 PM2 运行 Hub/runner 时，按 [PM2 服务更新](docs/claude-steer.md#pm2-服务更新)核对启动入口，备份并替换实际二进制，再重启对应服务。
+
 通过 `/model <模型 ID>` 切换后，停止或改权限导致模型恢复默认的问题有单独的远端 HAPI CLI 补丁。该补丁只保留模型选择，不包含 steer，也不随桌面安装包部署；应用方法和验证说明见 [Claude 模型补丁与 steer 支持说明](docs/claude-model-persistence.md)。
 
 | CLI         | 创建与运行时设置                                                        |
