@@ -382,7 +382,7 @@ export function ToolDetailDialogContent(props: {
         && permission?.answers
         && Object.keys(permission.answers).length > 0
     return (
-        <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
+        <div className="tool-detail-content mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
             <ToolTimingDetails block={props.block} />
             <div>
                 <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">
@@ -538,7 +538,7 @@ function ToolCardInner(props: ToolCardProps) {
                         </button>
                     </DialogTrigger>
                     <DialogContent
-                        className="max-w-2xl"
+                        className="tool-detail-dialog max-w-2xl"
                         closeButtonClassName="top-2"
                         aria-describedby={undefined}
                         onCloseAutoFocus={(event) => {

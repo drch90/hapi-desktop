@@ -1257,7 +1257,7 @@
   },
   "web/src/components/ChatInput/Autocomplete.tsx": {
     "upstream": "df86f6d2c3b54c7f0e3c5d0ddcd896bed2e48c33097bdf1f39f72777914d0c85",
-    "vendored": "df86f6d2c3b54c7f0e3c5d0ddcd896bed2e48c33097bdf1f39f72777914d0c85"
+    "vendored": "21f12897c9ef08c2e558b25367493d8f61f878518c0590d46473bc31bdfdcfff"
   },
   "web/src/components/ChatInput/FloatingOverlay.tsx": {
     "upstream": "2590bd6b578ac44d9f971b47298d5aec4732c8d6b87bb3a2084243dbb30af1fd",
@@ -1757,7 +1757,7 @@
   },
   "web/src/components/ToolCard/ToolCard.tsx": {
     "upstream": "a587d2f4c5528a46fd2fdc4917738540424fb438283085cbebf62b139e29b0e4",
-    "vendored": "a587d2f4c5528a46fd2fdc4917738540424fb438283085cbebf62b139e29b0e4"
+    "vendored": "b6cc1a3b15662bfba8a0957649ae269bc3a170e1d5ef1be6a3d4bc6b19467054"
   },
   "web/src/components/ToolCard/ToolGroupCard.test.tsx": {
     "upstream": "5cff03f02a628f592fa04ecfc0b4423b55ce0f1aa8ea9c17ab9fb85be212ed3a",
@@ -1765,7 +1765,7 @@
   },
   "web/src/components/ToolCard/ToolGroupCard.tsx": {
     "upstream": "e971294e04e7a35c8eda3b5cc4f6cb099da8988d28473203227cb2b519a93bc3",
-    "vendored": "e971294e04e7a35c8eda3b5cc4f6cb099da8988d28473203227cb2b519a93bc3"
+    "vendored": "ba7d23697164d12a3064810c1138655574c7ff899586d0a327eae88416b2cde8"
   },
   "web/src/components/ToolCard/askUserQuestion.ts": {
     "upstream": "9f9bb499103880b8d0a47d85ccefb1f2146e1a766c491ef0226894da44aab44a",
@@ -1861,7 +1861,7 @@
   },
   "web/src/components/ToolCard/trace.tsx": {
     "upstream": "f77491c1379523307631f31d701ee2340df013ad9b49a211df7561faf1d913a9",
-    "vendored": "f77491c1379523307631f31d701ee2340df013ad9b49a211df7561faf1d913a9"
+    "vendored": "8ae4ac728146ca6dbc517a4c25aa073b4bb9447dccec17ecc9ce731c03118f3a"
   },
   "web/src/components/ToolCard/views/AskUserQuestionView.tsx": {
     "upstream": "b4172e94ebbcf48a42c0a8256ad20d3587b964820a1086d8afc29d774f033aea",
@@ -2285,7 +2285,7 @@
   },
   "web/src/hooks/queries/useSlashCommands.ts": {
     "upstream": "172731700fc505e2e64d035f30724855f9ec5ce5712d7613bf6be4f69db08a68",
-    "vendored": "172731700fc505e2e64d035f30724855f9ec5ce5712d7613bf6be4f69db08a68"
+    "vendored": "b1c12dfc0d022355202564f12b5ce2ceff076ad2480dc076981261f075abd129"
   },
   "web/src/hooks/realtimeTranscription.test.ts": {
     "upstream": "30e84bdeed72e4d9ba5a8f7ca12ad1facb6a34d2021e584f0885d4fa74c595bc",

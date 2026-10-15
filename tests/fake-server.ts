@@ -142,6 +142,15 @@ export class FixtureHub {
   steerOutcome: 'steered' | 'failed' | 'invoked' | 'indeterminate' = 'steered'
   emitQueueEvents = true
   commandEvents = false
+  slashCommandsGate: Promise<void> | null = null
+  slashCommands = [
+    {
+      name: 'project-check',
+      description: 'Project diagnostics',
+      source: 'project',
+      content: 'Inspect the project',
+    },
+  ]
   failPin = false
   failUsage = false
   failScratchSaveAfterCommit = false
@@ -581,16 +590,10 @@ export class FixtureHub {
       return
     }
     if (action === '/slash-commands') {
+      await this.slashCommandsGate
       reply({
         success: true,
-        commands: [
-          {
-            name: 'project-check',
-            description: 'Project diagnostics',
-            source: 'project',
-            content: 'Inspect the project',
-          },
-        ],
+        commands: this.slashCommands,
       })
       return
     }

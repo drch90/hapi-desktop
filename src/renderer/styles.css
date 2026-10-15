@@ -697,6 +697,7 @@ input[type='checkbox'] {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  container: chat / inline-size;
 }
 .chat-header {
   display: flex;
@@ -771,6 +772,22 @@ input[type='checkbox'] {
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+}
+@container chat (max-width: 600px) {
+  .chat-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
+  .chat-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .session-timestamps {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    flex-wrap: wrap;
+  }
 }
 .session-metadata {
   flex-basis: 100%;
@@ -1271,6 +1288,48 @@ input[type='checkbox'] {
   padding: 8px 12px;
   background: var(--desk-sidebar);
 }
+.tool-inline-details {
+  padding: 12px 14px;
+}
+.tool-inline-details .tool-detail-content {
+  margin-top: 0;
+  max-height: none;
+  overflow: visible;
+}
+.tool-detail-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 48px));
+  height: min(780px, calc(100dvh - 64px));
+  min-width: min(480px, calc(100vw - 48px));
+  min-height: min(320px, calc(100dvh - 64px));
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 64px);
+  overflow: hidden;
+  resize: both;
+}
+.tool-detail-dialog > :first-child {
+  flex-shrink: 0;
+}
+.tool-detail-dialog .tool-detail-content {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overscroll-behavior: contain;
+}
+.tool-detail-content > * {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.tool-detail-dialog .tool-trace-content {
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+}
+.tool-detail-dialog [data-hapi-code-body] {
+  /* The dialog owns vertical scrolling, so its resize also enlarges code views. */
+  max-height: none !important;
+}
 .reasoning {
   margin-bottom: 15px;
   color: var(--desk-muted);
@@ -1529,6 +1588,7 @@ input[type='checkbox'] {
   z-index: 20;
   max-height: min(260px, 40vh);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--desk-border);
   border-radius: 8px;
   background: var(--app-bg);

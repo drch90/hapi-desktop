@@ -13,6 +13,7 @@ interface AutocompleteProps {
 export const Autocomplete = memo(function Autocomplete(props: AutocompleteProps) {
     const { suggestions, selectedIndex, onSelect } = props
     const listRef = useRef<HTMLDivElement>(null)
+    const selectedKey = suggestions[selectedIndex]?.key
 
     useEffect(() => {
         if (selectedIndex < 0 || selectedIndex >= suggestions.length) return
@@ -22,7 +23,9 @@ export const Autocomplete = memo(function Autocomplete(props: AutocompleteProps)
             `[data-suggestion-index="${selectedIndex}"]`
         )
         selectedEl?.scrollIntoView({ block: 'nearest' })
-    }, [selectedIndex, suggestions.length])
+    // Catalog refreshes and newly added rows must not undo manual scrolling.
+    // Follow the selection only when the logical selected item changes.
+    }, [selectedKey])
 
     if (suggestions.length === 0) {
         return null

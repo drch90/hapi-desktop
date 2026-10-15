@@ -22,6 +22,34 @@ function levenshteinDistance(a: string, b: string): number {
     return matrix[b.length][a.length]
 }
 
+export function getSlashCommandSuggestions(commands: readonly SlashCommand[], queryText: string): Suggestion[] {
+    const searchTerm = queryText.replace(/^\//, '').toLowerCase()
+    const maxDistance = Math.max(2, Math.floor(searchTerm.length / 2))
+    return commands
+        .map(cmd => {
+            const name = cmd.name.toLowerCase()
+            let score: number
+            if (!searchTerm || name === searchTerm) score = 0
+            else if (name.startsWith(searchTerm)) score = 1
+            else if (name.includes(searchTerm)) score = 2
+            else {
+                const dist = levenshteinDistance(searchTerm, name)
+                score = dist <= maxDistance ? 3 + dist : Infinity
+            }
+            return { cmd, score }
+        })
+        .filter(item => item.score < Infinity)
+        .sort((a, b) => a.score - b.score)
+        .map(({ cmd }) => ({
+            key: `/${cmd.name}`,
+            text: `/${cmd.name}`,
+            label: `/${cmd.name}`,
+            description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
+            content: cmd.content,
+            source: cmd.source
+        }))
+}
+
 export function useSlashCommands(
     api: ApiClient | null,
     sessionId: string | null,
@@ -31,6 +59,7 @@ export function useSlashCommands(
     isLoading: boolean
     error: string | null
     getSuggestions: (query: string) => Promise<Suggestion[]>
+    refetch: () => void
 } {
     const resolvedSessionId = sessionId ?? 'unknown'
 
@@ -77,45 +106,7 @@ export function useSlashCommands(
             void query.refetch()
         }
 
-        const searchTerm = queryText.startsWith('/')
-            ? queryText.slice(1).toLowerCase()
-            : queryText.toLowerCase()
-
-        if (!searchTerm) {
-            return commands.map(cmd => ({
-                key: `/${cmd.name}`,
-                text: `/${cmd.name}`,
-                label: `/${cmd.name}`,
-                description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
-                content: cmd.content,
-                source: cmd.source
-            }))
-        }
-
-        const maxDistance = Math.max(2, Math.floor(searchTerm.length / 2))
-        return commands
-            .map(cmd => {
-                const name = cmd.name.toLowerCase()
-                let score: number
-                if (name === searchTerm) score = 0
-                else if (name.startsWith(searchTerm)) score = 1
-                else if (name.includes(searchTerm)) score = 2
-                else {
-                    const dist = levenshteinDistance(searchTerm, name)
-                    score = dist <= maxDistance ? 3 + dist : Infinity
-                }
-                return { cmd, score }
-            })
-            .filter(item => item.score < Infinity)
-            .sort((a, b) => a.score - b.score)
-            .map(({ cmd }) => ({
-                key: `/${cmd.name}`,
-                text: `/${cmd.name}`,
-                label: `/${cmd.name}`,
-                description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
-                content: cmd.content,
-                source: cmd.source
-            }))
+        return getSlashCommandSuggestions(commands, queryText)
     }, [commands, query.refetch])
 
     return {
@@ -123,5 +114,6 @@ export function useSlashCommands(
         isLoading: query.isLoading,
         error: query.error instanceof Error ? query.error.message : query.error ? 'Failed to load commands' : null,
         getSuggestions,
+        refetch: query.refetch,
     }
 }

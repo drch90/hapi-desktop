@@ -13,6 +13,117 @@ let server: FixtureHub
 let dataDirectory: string
 let errors: string[]
 
+test('native command menus preserve their element, scroll and selection while commands and session state refresh', async () => {
+  let releaseCommands!: () => void
+  server.slashCommandsGate = new Promise<void>((resolve) => {
+    releaseCommands = resolve
+  })
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await chat.locator('.composer').getByRole('button', { name: '原生命令', exact: true }).click()
+  const menu = chat.getByRole('region', { name: '原生命令', exact: true })
+  await expect(menu).toBeVisible()
+  await menu.evaluate((element) => {
+    element.setAttribute('data-menu-instance', 'original')
+    element.scrollTop = 200
+  })
+  const scrollTop = await menu.evaluate((element) => element.scrollTop)
+  expect(scrollTop).toBeGreaterThan(100)
+  releaseCommands()
+  await expect(menu.getByRole('button', { name: /project-check/ })).toHaveCount(1)
+  await expect(menu).toHaveAttribute('data-menu-instance', 'original')
+  expect(await menu.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+  const requests = server.requests.filter((request) => request.path.endsWith('/slash-commands')).length
+  const session = server.sessions.get('design')!
+  session.metadata = { ...session.metadata!, name: '后台刷新后的会话' }
+  session.metadataVersion++
+  session.thinking = true
+  session.updatedAt = Date.now() + 1000
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await expect(page.getByTestId('session-design')).toContainText('后台刷新后的会话')
+  await expect(menu).toHaveAttribute('data-menu-instance', 'original')
+  expect(await menu.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+  expect(server.requests.filter((request) => request.path.endsWith('/slash-commands'))).toHaveLength(requests)
+  await expect(menu).toHaveCSS('overscroll-behavior', 'contain')
+  const input = chat.locator('.composer textarea')
+  await input.focus()
+  await input.press('ArrowDown')
+  await input.press('Tab')
+  await expect(input).toHaveValue(/^\/\S+\s/)
+  expect(
+    server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+  ).toHaveLength(0)
+  expect(errors).toEqual([])
+})
+
+test('session mention menus keep rows and scroll stable during background activity', async () => {
+  for (let index = 0; index < 18; index++) {
+    const id = `mention-peer-${index}`
+    const session = fixtureSession(id, `参考会话 ${index}`, 'claude')
+    session.updatedAt = Date.now() - index * 1000
+    server.sessions.set(id, session)
+    server.messages.set(id, [fixtureMessage(`${id}-message`, 1, 'Context')])
+  }
+  await page.reload()
+  await page.getByTestId('session-design').click()
+  const input = page.getByTestId('chat-design').locator('.composer textarea')
+  await input.fill('@参考')
+  const menu = page.getByRole('region', { name: '会话引用', exact: true })
+  await expect(menu.getByRole('button')).toHaveCount(18)
+  await menu.evaluate((element) => {
+    element.setAttribute('data-menu-instance', 'original')
+    element.scrollTop = 350
+  })
+  const scrollTop = await menu.evaluate((element) => element.scrollTop)
+  const rows = await menu.getByRole('button').allTextContents()
+  const peer = server.sessions.get('mention-peer-17')!
+  peer.thinking = true
+  peer.updatedAt = Date.now() + 10000
+  peer.metadata = { ...peer.metadata!, name: '参考会话 已更新' }
+  peer.metadataVersion++
+  peer.hasConversationContent = true
+  server.emit({ type: 'session-updated', sessionId: peer.id, data: peer })
+  await expect(menu.getByRole('button').last()).toContainText('参考会话 已更新')
+  await expect(menu).toHaveAttribute('data-menu-instance', 'original')
+  expect((await menu.getByRole('button').allTextContents()).slice(0, -1)).toEqual(rows.slice(0, -1))
+  expect(await menu.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+  await input.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue('@参考')
+  expect(errors).toEqual([])
+})
+
+test('native task cards open inline details once with full timestamps and readable child output', async () => {
+  const fixture = JSON.parse(
+    await readFile(resolve('vendor/hapi/shared/fixtures/chat/sidechain-task-nested-children.json'), 'utf8'),
+  )
+  const result = fixture.input.messages.find((message: { id: string }) => message.id === 'msg-agent-606')
+  result.content.content.data.message.content[0].content = Array.from(
+    { length: 70 },
+    (_, index) => `src/retry.ts:${index + 1}: const retry${index} = () => uploadChunk(${index})`,
+  ).join('\n')
+  server.messages.set('review', fixture.input.messages)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1480, 940))
+  await page.getByTestId('session-review').click()
+  const tool = page.getByTestId('chat-review').locator('.message-tool')
+  await expect(tool).toHaveCount(1)
+  await expect(tool.locator('button.disclosure')).toHaveCount(1)
+  await expect(tool).not.toContainText('2025')
+  await page.screenshot({ path: 'build/tool-cards-preview.png', animations: 'disabled' })
+  await tool.locator('button.disclosure').click()
+  await expect(tool.locator('.tool-expanded-details')).toBeVisible()
+  await page
+    .getByTestId('chat-review')
+    .locator('.transcript')
+    .evaluate((element) => {
+      element.scrollTop = 0
+    })
+  await page.screenshot({ path: 'build/tool-expanded-preview.png', animations: 'disabled' })
+  await expect(tool.locator('.tool-expanded-details')).toContainText('2025')
+  await expect(tool.locator('.tool-expanded-details')).toContainText('withRetry')
+  expect(errors).toEqual([])
+})
+
 test('session mentions search by ID and title, insert at the cursor, persist and send Web references', async () => {
   await page.getByTestId('session-design').click()
   const input = page.getByTestId('chat-design').locator('.composer textarea')
@@ -678,11 +789,15 @@ test('web exploration groups distinguish reads, searches and mutations, update l
   await expect(otherToggle).toHaveAttribute('aria-expanded', 'true')
   await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
   await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  // Use a reading gesture so automatic following does not undo a programmatic
+  // scroll while the window and font resize observers are still settling.
+  await page.getByTestId('chat-review').locator('.transcript').hover()
+  await page.mouse.wheel(0, -2000)
   await otherToggle.scrollIntoViewIfNeeded()
   await expect(otherToggle).toBeInViewport()
-  await expect(
-    page.getByTestId('chat-review').getByRole('button', { name: /读取 package.json/ }),
-  ).toBeInViewport()
+  const readRow = page.getByTestId('chat-review').getByRole('button', { name: /读取 package.json/ })
+  await readRow.scrollIntoViewIfNeeded()
+  await expect(readRow).toBeInViewport()
   expect(errors).toEqual([])
 })
 
@@ -1312,9 +1427,13 @@ test('two panes, isolated drafts, read-only files, approvals, rename and secure 
     server.messages.get('review')!.push(message)
     server.emit({ type: 'message-received', sessionId: 'review', message })
   }
-  await expect(second.locator('.tool-duration-tag')).toContainText('5.0s')
-  await second.locator('button.disclosure').click()
-  await expect(second.getByTestId('tool-execution-times')).toContainText('5.0s')
+  const tool = second.locator('.message-tool')
+  await expect(tool).toContainText('5.0s')
+  await tool.locator('button.disclosure').click()
+  const details = tool.locator('.tool-expanded-details')
+  await expect(details).toBeVisible()
+  await expect(details).toContainText(/耗时\s*5\.0s/)
+  await expect(details).toContainText('All checks passed')
   await page.screenshot({ path: 'build/desktop-preview.png', animations: 'disabled' })
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByRole('dialog').getByRole('combobox', { name: '主题', exact: true }).selectOption('dark')
@@ -2165,6 +2284,9 @@ test('composer status and queue icons fit narrow panes and reflect disconnection
   expect(rects[0].x + rects[0].width).toBeLessThanOrEqual(rects[1].x)
   expect(rects[1].x + rects[1].width).toBeLessThanOrEqual(rects[2].x)
   expect(await chat.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await expect(chat.getByRole('heading', { level: 1 })).toBeInViewport({ ratio: 1 })
+  for (const action of await chat.locator('.chat-actions button').all())
+    await expect(action).toBeInViewport({ ratio: 1 })
   await page.screenshot({ path: 'build/composer-status-preview.png', animations: 'disabled' })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(status.locator('.composer-status-dot')).toHaveCSS('animation-name', 'none')
@@ -2294,6 +2416,9 @@ for (const [sessionId, flavor, command] of [
     const menu = chat.getByRole('region', { name: '原生命令', exact: true })
     await menu.getByRole('button', { name: new RegExp(`^${command} `) }).click()
     await expect(chat.getByRole('textbox')).toHaveValue(command + ' ')
+    // Cached suggestions can resolve before persisted attachments finish loading.
+    // The keyboard send follows the same readiness requirement as the button.
+    await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
     await chat.getByRole('textbox').press('Control+Enter')
     const target = sessionId === 'history' ? 'resumed' : sessionId
     const targetChat = page.getByTestId(`chat-${target}`)

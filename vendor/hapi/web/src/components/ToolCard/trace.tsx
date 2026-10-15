@@ -104,9 +104,7 @@ export function TraceSection({ block, metadata }: TraceSectionProps) {
     const children = getTraceChildren(block)
     if (!children) return null
 
-    const state = block.tool.state
     const isCodexAgentTrace = block.tool.name === 'CodexAgent'
-    const defaultOpen = isCodexAgentTrace || state === 'running' || state === 'error' || state === 'pending'
     const fixedHeight = isCodexAgentTrace
     const mode = isCodexAgentTrace ? 'session' : 'trace'
 
@@ -120,7 +118,7 @@ export function TraceSection({ block, metadata }: TraceSectionProps) {
         <TraceSectionInner
             items={children}
             metadata={metadata}
-            defaultOpen={defaultOpen}
+            defaultOpen={true}
             summaryText={summaryText}
             fixedHeight={fixedHeight}
             mode={mode}
@@ -167,7 +165,7 @@ function TraceSectionInner({
             </button>
 
             {open ? (
-                <div className={fixedHeight ? 'min-h-[260px] max-h-[45vh] overflow-y-auto pr-1' : undefined}>
+                <div className={fixedHeight ? 'tool-trace-content min-h-[260px] max-h-[45vh] overflow-y-auto pr-1' : undefined}>
                     <TraceChildList items={items} metadata={metadata} mode={mode} />
                 </div>
             ) : null}
@@ -186,7 +184,7 @@ type TraceChildListProps = {
 }
 
 function TraceChildList({ items, metadata, mode }: TraceChildListProps) {
-    const [expandedId, setExpandedId] = useState<string | null>(null)
+    const [expandedId, setExpandedId] = useState<string | null>(items.length === 1 ? items[0].id : null)
 
     return (
         <div className={mode === 'session'
@@ -324,14 +322,14 @@ function TraceChildRow({ child, metadata, expanded, onToggle, mode }: TraceChild
                     <div>
                         <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">{t('tool.input')}</div>
                         {FullInputView ? (
-                            <FullInputView block={child} metadata={metadata} />
+                            <FullInputView block={child} metadata={metadata} surface="dialog" />
                         ) : (
                             <CodeBlock code={safeStringify(child.tool.input)} language="json" />
                         )}
                     </div>
                     <div>
                         <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">{t('tool.result')}</div>
-                        <ResultView block={child} metadata={metadata} />
+                        <ResultView block={child} metadata={metadata} surface="dialog" />
                     </div>
                 </div>
             )}

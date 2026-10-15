@@ -24,7 +24,7 @@ import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
-import { ToolCard, getToolTimingDetails } from '@/components/ToolCard/ToolCard'
+import { ToolCard, ToolDetailDialogContent, getToolTimingDetails } from '@/components/ToolCard/ToolCard'
 import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { MessageAttachments } from '@/components/AssistantChat/messages/MessageAttachments'
 import { getToolPresentation } from '@/components/ToolCard/knownTools'
@@ -38,12 +38,9 @@ import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion
 import { CodeBlock } from '@/components/CodeBlock'
 import { useMessages } from '@/hooks/queries/useMessages'
 import { useSlashCommands } from '@/hooks/queries/useSlashCommands'
-import { useActiveSuggestions } from '@/hooks/useActiveSuggestions'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { applySuggestion } from '@/utils/applySuggestion'
 import { findActiveWord } from '@/utils/findActiveWord'
-import { buildSessionReferenceText, matchSessionsForMention } from '@/lib/sessionReference'
-import { getSessionTitle } from '@/lib/sessionTitle'
 import type { SessionSummary, Machine } from '@/types/api'
 import { isQueuedForInvocation } from '@/lib/messages'
 import {
@@ -83,6 +80,7 @@ import { GeneratedMediaCard } from './GeneratedMediaCard'
 import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread'
 import { buildConversationOutline } from '@/chat/outline'
 import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
+import { useComposerSuggestions } from '../lib/useComposerSuggestions'
 import { formatFileReference } from '@/lib/file-composer'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
@@ -163,31 +161,16 @@ export function Chat({
       ? draft.text
       : null
   const suggestionQuery = commandQuery ?? mentionQuery
-  const getSuggestions = useCallback(
-    async (query: string) => {
-      if (!query.startsWith('@')) return slashCommands.getSuggestions(query)
-      const machineLabel = (id: string | null) => {
-        const machine = machines.find((item) => item.id === id)
-        return machine?.metadata?.displayName || machine?.metadata?.host || id?.slice(0, 8) || ''
-      }
-      return matchSessionsForMention(sessions, query.slice(1), {
-        excludeId: id,
-        limit: 20,
-        resolveMachineLabel: machineLabel,
-      }).map((row) => ({
-        key: `session:${row.id}`,
-        text: buildSessionReferenceText(getSessionTitle(row), row.id, '/'),
-        label: `@${getSessionTitle(row) || row.id.slice(0, 8)}`,
-        description: [row.id, machineLabel(row.metadata?.machineId ?? null), row.metadata?.path]
-          .filter(Boolean)
-          .join(' · '),
-      }))
-    },
-    [id, sessions, machines, slashCommands.getSuggestions],
-  )
-  const [suggestions, selectedCommand, previousCommand, nextCommand, clearCommands] = useActiveSuggestions(
+  const commandsOpen = commandQuery !== null
+  useEffect(() => {
+    if (commandsOpen) slashCommands.refetch()
+  }, [commandsOpen, id, slashCommands.refetch])
+  const [suggestions, selectedCommand, previousCommand, nextCommand] = useComposerSuggestions(
     suggestionQuery,
-    getSuggestions,
+    slashCommands.commands,
+    sessions,
+    machines,
+    id,
   )
   const queueEdit = useQueueEdit(scope, id)
   const [editWorking, setEditWorking] = useState(false)
@@ -352,7 +335,6 @@ export function Chat({
     saveDraft(scope, id, latestDraft.current)
     setCommandMenuOpen(false)
     setSelection({ start: result.cursorPosition, end: result.cursorPosition })
-    clearCommands()
     requestAnimationFrame(() => {
       composer.current?.focus()
       composer.current?.setSelectionRange(result.cursorPosition, result.cursorPosition)
@@ -907,7 +889,6 @@ export function Chat({
                     block={block}
                   />
                 )}
-                <ToolExecutionTimes tool={block.tool} />
               </div>
             )
           })}
@@ -1118,7 +1099,6 @@ export function Chat({
                     setDismissedCommandQuery(draft.text)
                     setDismissedMention(mentionKey)
                     setCommandMenuOpen(false)
-                    clearCommands()
                     return
                   }
                   if (
@@ -1471,16 +1451,24 @@ function MessageBlock({
         )}
         {(isPlan || expanded) && session && (
           <div className="tool-expanded-details">
-            <ToolCard
-              api={api}
-              sessionId={session.id}
-              metadata={session.metadata}
-              terminalToolDisplayMode="detailed"
-              disabled={disabled}
-              onDone={done}
-              block={block}
-            />
-            <ToolExecutionTimes tool={block.tool} />
+            {isPlan ? (
+              <>
+                <ToolCard
+                  api={api}
+                  sessionId={session.id}
+                  metadata={session.metadata}
+                  terminalToolDisplayMode="detailed"
+                  disabled={disabled}
+                  onDone={done}
+                  block={block}
+                />
+                <ToolExecutionTimes tool={block.tool} />
+              </>
+            ) : (
+              <div className="tool-inline-details">
+                <ToolDetailDialogContent block={block} metadata={session.metadata ?? null} />
+              </div>
+            )}
           </div>
         )}
       </div>

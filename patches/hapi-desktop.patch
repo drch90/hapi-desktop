@@ -1340,3 +1340,215 @@ index 96d3f28..5ce7f2e 100644
      file: FileSearchItem
      onOpen: () => void
      onOpenMenu: (point: AnchoredMenuPoint) => void
+diff --git a/vendor/hapi/web/src/components/ChatInput/Autocomplete.tsx b/vendor/hapi/web/src/components/ChatInput/Autocomplete.tsx
+--- a/vendor/hapi/web/src/components/ChatInput/Autocomplete.tsx
++++ b/vendor/hapi/web/src/components/ChatInput/Autocomplete.tsx
+@@ -13,6 +13,7 @@
+ export const Autocomplete = memo(function Autocomplete(props: AutocompleteProps) {
+     const { suggestions, selectedIndex, onSelect } = props
+     const listRef = useRef<HTMLDivElement>(null)
++    const selectedKey = suggestions[selectedIndex]?.key
+ 
+     useEffect(() => {
+         if (selectedIndex < 0 || selectedIndex >= suggestions.length) return
+@@ -22,7 +23,9 @@
+             `[data-suggestion-index="${selectedIndex}"]`
+         )
+         selectedEl?.scrollIntoView({ block: 'nearest' })
+-    }, [selectedIndex, suggestions.length])
++    // Catalog refreshes and newly added rows must not undo manual scrolling.
++    // Follow the selection only when the logical selected item changes.
++    }, [selectedKey])
+ 
+     if (suggestions.length === 0) {
+         return null
+diff --git a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx b/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
+--- a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
+@@ -382,7 +382,7 @@
+         && permission?.answers
+         && Object.keys(permission.answers).length > 0
+     return (
+-        <div className="mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
++        <div className="tool-detail-content mt-3 flex max-h-[75vh] flex-col gap-4 overflow-auto">
+             <ToolTimingDetails block={props.block} />
+             <div>
+                 <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">
+@@ -538,7 +538,7 @@
+                         </button>
+                     </DialogTrigger>
+                     <DialogContent
+-                        className="max-w-2xl"
++                        className="tool-detail-dialog max-w-2xl"
+                         closeButtonClassName="top-2"
+                         aria-describedby={undefined}
+                         onCloseAutoFocus={(event) => {
+diff --git a/vendor/hapi/web/src/components/ToolCard/ToolGroupCard.tsx b/vendor/hapi/web/src/components/ToolCard/ToolGroupCard.tsx
+--- a/vendor/hapi/web/src/components/ToolCard/ToolGroupCard.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/ToolGroupCard.tsx
+@@ -411,7 +411,7 @@
+                     setSelectedToolId(null)
+                 }
+             }}>
+-                <DialogContent className="max-w-2xl" closeButtonClassName="top-2" aria-describedby={undefined}>
++                <DialogContent className="tool-detail-dialog max-w-2xl" closeButtonClassName="top-2" aria-describedby={undefined}>
+                     {selectedTool && selectedPresentation ? (
+                         <>
+                             <DialogHeader className="text-left">
+diff --git a/vendor/hapi/web/src/components/ToolCard/trace.tsx b/vendor/hapi/web/src/components/ToolCard/trace.tsx
+--- a/vendor/hapi/web/src/components/ToolCard/trace.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/trace.tsx
+@@ -104,9 +104,7 @@
+     const children = getTraceChildren(block)
+     if (!children) return null
+ 
+-    const state = block.tool.state
+     const isCodexAgentTrace = block.tool.name === 'CodexAgent'
+-    const defaultOpen = isCodexAgentTrace || state === 'running' || state === 'error' || state === 'pending'
+     const fixedHeight = isCodexAgentTrace
+     const mode = isCodexAgentTrace ? 'session' : 'trace'
+ 
+@@ -120,7 +118,7 @@
+         <TraceSectionInner
+             items={children}
+             metadata={metadata}
+-            defaultOpen={defaultOpen}
++            defaultOpen={true}
+             summaryText={summaryText}
+             fixedHeight={fixedHeight}
+             mode={mode}
+@@ -167,7 +165,7 @@
+             </button>
+ 
+             {open ? (
+-                <div className={fixedHeight ? 'min-h-[260px] max-h-[45vh] overflow-y-auto pr-1' : undefined}>
++                <div className={fixedHeight ? 'tool-trace-content min-h-[260px] max-h-[45vh] overflow-y-auto pr-1' : undefined}>
+                     <TraceChildList items={items} metadata={metadata} mode={mode} />
+                 </div>
+             ) : null}
+@@ -186,7 +184,7 @@
+ }
+ 
+ function TraceChildList({ items, metadata, mode }: TraceChildListProps) {
+-    const [expandedId, setExpandedId] = useState<string | null>(null)
++    const [expandedId, setExpandedId] = useState<string | null>(items.length === 1 ? items[0].id : null)
+ 
+     return (
+         <div className={mode === 'session'
+@@ -324,14 +322,14 @@
+                     <div>
+                         <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">{t('tool.input')}</div>
+                         {FullInputView ? (
+-                            <FullInputView block={child} metadata={metadata} />
++                            <FullInputView block={child} metadata={metadata} surface="dialog" />
+                         ) : (
+                             <CodeBlock code={safeStringify(child.tool.input)} language="json" />
+                         )}
+                     </div>
+                     <div>
+                         <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">{t('tool.result')}</div>
+-                        <ResultView block={child} metadata={metadata} />
++                        <ResultView block={child} metadata={metadata} surface="dialog" />
+                     </div>
+                 </div>
+             )}
+diff --git a/vendor/hapi/web/src/hooks/queries/useSlashCommands.ts b/vendor/hapi/web/src/hooks/queries/useSlashCommands.ts
+--- a/vendor/hapi/web/src/hooks/queries/useSlashCommands.ts
++++ b/vendor/hapi/web/src/hooks/queries/useSlashCommands.ts
+@@ -22,6 +22,34 @@
+     return matrix[b.length][a.length]
+ }
+ 
++export function getSlashCommandSuggestions(commands: readonly SlashCommand[], queryText: string): Suggestion[] {
++    const searchTerm = queryText.replace(/^\//, '').toLowerCase()
++    const maxDistance = Math.max(2, Math.floor(searchTerm.length / 2))
++    return commands
++        .map(cmd => {
++            const name = cmd.name.toLowerCase()
++            let score: number
++            if (!searchTerm || name === searchTerm) score = 0
++            else if (name.startsWith(searchTerm)) score = 1
++            else if (name.includes(searchTerm)) score = 2
++            else {
++                const dist = levenshteinDistance(searchTerm, name)
++                score = dist <= maxDistance ? 3 + dist : Infinity
++            }
++            return { cmd, score }
++        })
++        .filter(item => item.score < Infinity)
++        .sort((a, b) => a.score - b.score)
++        .map(({ cmd }) => ({
++            key: `/${cmd.name}`,
++            text: `/${cmd.name}`,
++            label: `/${cmd.name}`,
++            description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
++            content: cmd.content,
++            source: cmd.source
++        }))
++}
++
+ export function useSlashCommands(
+     api: ApiClient | null,
+     sessionId: string | null,
+@@ -31,6 +59,7 @@
+     isLoading: boolean
+     error: string | null
+     getSuggestions: (query: string) => Promise<Suggestion[]>
++    refetch: () => void
+ } {
+     const resolvedSessionId = sessionId ?? 'unknown'
+ 
+@@ -77,45 +106,7 @@
+             void query.refetch()
+         }
+ 
+-        const searchTerm = queryText.startsWith('/')
+-            ? queryText.slice(1).toLowerCase()
+-            : queryText.toLowerCase()
+-
+-        if (!searchTerm) {
+-            return commands.map(cmd => ({
+-                key: `/${cmd.name}`,
+-                text: `/${cmd.name}`,
+-                label: `/${cmd.name}`,
+-                description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
+-                content: cmd.content,
+-                source: cmd.source
+-            }))
+-        }
+-
+-        const maxDistance = Math.max(2, Math.floor(searchTerm.length / 2))
+-        return commands
+-            .map(cmd => {
+-                const name = cmd.name.toLowerCase()
+-                let score: number
+-                if (name === searchTerm) score = 0
+-                else if (name.startsWith(searchTerm)) score = 1
+-                else if (name.includes(searchTerm)) score = 2
+-                else {
+-                    const dist = levenshteinDistance(searchTerm, name)
+-                    score = dist <= maxDistance ? 3 + dist : Infinity
+-                }
+-                return { cmd, score }
+-            })
+-            .filter(item => item.score < Infinity)
+-            .sort((a, b) => a.score - b.score)
+-            .map(({ cmd }) => ({
+-                key: `/${cmd.name}`,
+-                text: `/${cmd.name}`,
+-                label: `/${cmd.name}`,
+-                description: cmd.description ?? (cmd.source === 'builtin' ? undefined : 'Custom command'),
+-                content: cmd.content,
+-                source: cmd.source
+-            }))
++        return getSlashCommandSuggestions(commands, queryText)
+     }, [commands, query.refetch])
+ 
+     return {
+@@ -123,5 +114,6 @@
+         isLoading: query.isLoading,
+         error: query.error instanceof Error ? query.error.message : query.error ? 'Failed to load commands' : null,
+         getSuggestions,
++        refetch: query.refetch,
+     }
+ }
