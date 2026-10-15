@@ -40,18 +40,54 @@ Android 的现有能力判断仅对 Hermes 检查 `steeringActive`，Claude 仍�
 
 远端补丁共 20 个文件：CLI 7 个实现文件及 6 个测试文件、Hub 2 个实现文件及 2 个测试文件、共享能力 1 个实现文件及 1 个测试文件、1 份用户文档。Web 复用现有队列入口。桌面同步 2 个共享文件，补充 2 个测试文件，并更新补丁、来源记录及文档。
 
-在目标 HAPI 源码根目录执行；已应用模型补丁时跳过前两行：
+以下命令假定 `hapi` 与 `hapi-desktop` 位于同一个父目录，并从 HAPI 源码根目录执行。例如当前目录为 `/root/workspace/hapi` 时，补丁实际位于 `/root/workspace/hapi-desktop/patches`，可直接使用下面的 `../hapi-desktop/patches`。仓库位于其他位置时，先将这个目录改为实际存在的补丁目录。
+
+已使用本次开发源码时，先做只读检查：
 
 ```sh
-git apply --check /path/to/hapi-desktop/patches/hapi-claude-model-persistence.patch
-git apply /path/to/hapi-desktop/patches/hapi-claude-model-persistence.patch
-git apply --check /path/to/hapi-desktop/patches/hapi-claude-steer.patch
-git apply /path/to/hapi-desktop/patches/hapi-claude-steer.patch
-bun typecheck
-bun run test
+git apply --reverse --check ../hapi-desktop/patches/hapi-claude-steer.patch
 ```
 
-验证后按现有流程构建、更新远端 Hub/runner。已运行的旧 Claude CLI 会话仍使用旧代码，需在合适时机重新启动。此源码变更未自动重启、部署或发布任何运行中的服务。
+成功退出且没有报错，表示 steer 改动已存在，跳过下面的补丁应用步骤，继续构建和部署。这里的 `--reverse --check` 只检查，不会撤销修改。
+
+仅对尚未包含适配的目标源码执行以下命令；已应用模型补丁时跳过对应的两条 `git apply`。括号中的任一步失败会停止本组命令：
+
+```sh
+(
+    set -e
+    git apply --check ../hapi-desktop/patches/hapi-claude-model-persistence.patch
+    git apply ../hapi-desktop/patches/hapi-claude-model-persistence.patch
+    git apply --check ../hapi-desktop/patches/hapi-claude-steer.patch
+    git apply ../hapi-desktop/patches/hapi-claude-steer.patch
+    bun typecheck
+    bun run test
+)
+```
+
+## 构建与启用
+
+`bun typecheck` 和 `bun run test` 只验证源码，不会生成或部署新版 HAPI。验证后按现有安装方式构建。
+
+使用包含 Web 的 HAPI 单文件可执行程序时，在 HAPI 源码根目录执行：
+
+```sh
+bun run build:single-exe
+```
+
+使用 `cli/dist-exe` 中对应平台的构建产物更新实际运行的 HAPI 可执行文件。若分别部署 CLI、Hub 和 Web，则执行：
+
+```sh
+(
+    set -e
+    bun run --cwd cli build:exe
+    bun run build:web
+    bun run build:hub
+)
+```
+
+分别部署 CLI 可执行文件、`hub/dist/index.js` 和 `web/dist`。根目录的 `bun run build:cli` 只做 CLI 类型检查，不生成可执行文件。
+
+按现有服务管理流程更新并重启 Hub/runner；已运行的旧 Claude CLI 会话仍使用旧代码，需在合适时机重新启动。此源码变更未自动重启、部署或发布任何运行中的服务。
 
 ## 验证与边界
 

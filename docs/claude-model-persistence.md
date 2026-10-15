@@ -15,13 +15,20 @@ Claude 的 `/model <模型 ID>` 原先由当前 Claude 子进程处理，HAPI �
 
 ## 应用与验证
 
-在 HAPI 源码根目录执行（将补丁路径替换为本机实际位置）：
+以下命令从 HAPI 源码根目录执行，假定 `hapi` 与 `hapi-desktop` 位于同一个父目录。例如当前目录为 `/root/workspace/hapi` 时，补丁实际位于 `/root/workspace/hapi-desktop/patches`，可直接使用 `../hapi-desktop/patches`；其他布局需改成实际存在的目录。
+
+已有模型修复的源码不需重复应用，可用 `git apply --reverse --check ../hapi-desktop/patches/hapi-claude-model-persistence.patch` 做只读检查。若已叠加 steer，因部分文件继续发生修改，应按 [steer 说明](claude-steer.md#应用补丁)检查并跳过重复应用。
+
+仅对尚未包含模型修复的源码运行以下命令；任一步失败会停止本组命令：
 
 ```sh
-git apply --check /path/to/hapi-desktop/patches/hapi-claude-model-persistence.patch
-git apply /path/to/hapi-desktop/patches/hapi-claude-model-persistence.patch
-bun run typecheck:cli
-bun run --cwd cli test src/claude/model.test.ts src/claude/runClaude.model.test.ts src/claude/claudeRemoteLauncher.modeGate.test.ts
+(
+    set -e
+    git apply --check ../hapi-desktop/patches/hapi-claude-model-persistence.patch
+    git apply ../hapi-desktop/patches/hapi-claude-model-persistence.patch
+    bun run typecheck:cli
+    bun run --cwd cli test src/claude/model.test.ts src/claude/runClaude.model.test.ts src/claude/claudeRemoteLauncher.modeGate.test.ts
+)
 ```
 
 已在隔离源码副本上通过 CLI 类型检查和 22 项回归，覆盖自定义模型、显式恢复默认、权限变化、思考强度保留和中断后的重新启动。测试使用模拟 Claude 进程，不会连接模型服务。
