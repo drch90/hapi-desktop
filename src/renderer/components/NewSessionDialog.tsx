@@ -132,14 +132,16 @@ export function NewSessionDialog({
     machineAvailable ? machineId : null,
     paths,
   )
-  const discoverOpencode =
-    agent === 'opencode' && available && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd)
+  // A deferred path can still refer to the previous directory after an edit.
+  // Only discover models for the current input, including after it is cleared.
+  const currentPathReady =
+    Boolean(cwd) && cwd === directory.trim() && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd)
+  const discoverOpencode = agent === 'opencode' && available && currentPathReady
   const hermes = useHermesModels({
     api,
     machineId,
     cwd,
-    enabled:
-      agent === 'hermes' && available && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd),
+    enabled: agent === 'hermes' && available && currentPathReady,
   })
   const codex = useCodexModels({ api, machineId, enabled: agent === 'codex' && available })
   const opencode = useOpencodeModelsForCwd({ api, machineId, cwd, enabled: discoverOpencode })

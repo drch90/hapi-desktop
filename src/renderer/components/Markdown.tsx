@@ -18,6 +18,7 @@ import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
 import remarkRepairTables from '@/lib/remark-repair-tables'
 import { Table } from '@/components/assistant-ui/markdown-text'
 import { CodeBlock } from '@/components/CodeBlock'
+import { isLargeText } from '@/lib/text-rendering'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { unwrap } from '../lib/api'
 import { parseSessionPathHref } from '@/lib/sessionReference'
@@ -145,6 +146,15 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   preserveSingleLineBreaks?: boolean
   [key: string]: unknown
 }) {
+  // Parsing Markdown (including GFM tables and math) is synchronous. Large
+  // output must be bounded before it reaches the parser, not just clipped
+  // after React has created every node.
+  if (isLargeText(content))
+    return (
+      <div className={`markdown ${className ?? ''}`}>
+        <CodeBlock code={content} language="text" scrollY />
+      </div>
+    )
   return (
     <div className={`markdown ${className ?? ''}`}>
       <ReactMarkdown

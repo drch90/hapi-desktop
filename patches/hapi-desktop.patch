@@ -891,18 +891,15 @@ index 5837d01..cfb2645 100644
          case 'cursor': return metadata.cursorSessionId ?? undefined
          case 'kimi': return metadata.kimiSessionId ?? undefined
 diff --git a/vendor/hapi/web/src/lib/shiki.ts b/vendor/hapi/web/src/lib/shiki.ts
-index 30e6775..1395106 100644
+index 30e6775..932ee9d 100644
 --- a/vendor/hapi/web/src/lib/shiki.ts
 +++ b/vendor/hapi/web/src/lib/shiki.ts
-@@ -2,60 +2,76 @@ import { createHighlighterCore } from 'shiki/core'
- import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
- import type { HighlighterCore } from 'shiki/core'
- import type { Root, RootContent } from 'hast'
--import { useState, useEffect, useMemo, type ReactNode } from 'react'
-+import { useState, useEffect, type ReactNode } from 'react'
+@@ -5,57 +5,74 @@ import type { Root, RootContent } from 'hast'
+ import { useState, useEffect, useMemo, type ReactNode } from 'react'
  import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
  import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
- 
++import { canHighlightText } from '@/lib/text-rendering'
+
 -// Only 2 themes
 -const THEMES = [
 -    import('@shikijs/themes/github-light'),
@@ -1007,10 +1004,10 @@ index 30e6775..1395106 100644
 +    http: () => import('@shikijs/langs/http'),
 +    proto: () => import('@shikijs/langs/proto'),
 +}
- 
+
  export const SHIKI_THEMES = {
      light: 'github-light',
-@@ -68,7 +84,16 @@ export const langAlias: Record<string, string> = {
+@@ -68,7 +85,16 @@ export const langAlias: Record<string, string> = {
      bash: 'shellscript',
      zsh: 'shellscript',
      shell: 'shellscript',
@@ -1027,7 +1024,7 @@ index 30e6775..1395106 100644
      js: 'javascript',
      ts: 'typescript',
      mjs: 'javascript',
-@@ -76,39 +101,94 @@ export const langAlias: Record<string, string> = {
+@@ -76,39 +102,94 @@ export const langAlias: Record<string, string> = {
      mts: 'typescript',
      cts: 'typescript',
      yml: 'yaml',
@@ -1063,11 +1060,11 @@ index 30e6775..1395106 100644
 +    patch: 'diff',
 +    protobuf: 'proto',
  }
- 
+
  // Singleton highlighter instance
  let highlighterPromise: Promise<HighlighterCore> | null = null
 +const languagePromises = new Map<string, Promise<void>>()
- 
+
  function getHighlighter(): Promise<HighlighterCore> {
      if (!highlighterPromise) {
          highlighterPromise = createHighlighterCore({
@@ -1083,7 +1080,7 @@ index 30e6775..1395106 100644
      }
      return highlighterPromise
  }
- 
+
 -function resolveLanguage(lang: string | undefined): string {
 +export function resolveCodeLanguage(lang: string | undefined): string {
      if (!lang) return 'text'
@@ -1127,9 +1124,9 @@ index 30e6775..1395106 100644
 +    }
 +    return highlighter
  }
- 
+
  /**
-@@ -177,43 +257,29 @@ function highlightToLineNodes(highlighter: HighlighterCore, code: string, lang:
+@@ -177,43 +258,33 @@ function highlightToLineNodes(highlighter: HighlighterCore, code: string, lang:
   * Returns a single ReactNode of the highlighted code (inline structure),
   * or null while pending / for unsupported languages (plain-text fallback).
   */
@@ -1145,11 +1142,15 @@ index 30e6775..1395106 100644
 +): T | null {
 +    const [result, setResult] = useState<{ code: string; lang: string; value: T | null } | null>(null)
 +    const lang = resolveCodeLanguage(language)
- 
++    const eligible = useMemo(() => Object.hasOwn(LANGS, lang) && canHighlightText(code), [code, lang])
+
      useEffect(() => {
-+        if (!Object.hasOwn(LANGS, lang)) return
++        if (!eligible) {
++            setResult(null)
++            return
++        }
          let cancelled = false
- 
+
          async function highlight() {
 -            const highlighter = await getHighlighter()
 -            if (cancelled) return
@@ -1187,19 +1188,18 @@ index 30e6775..1395106 100644
 -            })
 -            setHighlighted(rendered as ReactNode)
          }
- 
+
          // Debounce highlighting — 150ms reduces CPU pressure on Windows during
-@@ -223,9 +289,28 @@ export function useShikiHighlighter(
+@@ -223,9 +294,28 @@ export function useShikiHighlighter(
              cancelled = true
              clearTimeout(timer)
          }
 -    }, [code, lang])
-+    }, [code, lang, render])
- 
--    return highlighted
++    }, [code, lang, render, eligible])
++
 +    // Show the latest source immediately while the debounce/import is pending.
 +    // Otherwise streaming or reusing a block briefly displays the previous code.
-+    return result?.code === code && result.lang === lang ? result.value : null
++    return eligible && result?.code === code && result.lang === lang ? result.value : null
 +}
 +
 +function highlightToNode(highlighter: HighlighterCore, code: string, lang: string): ReactNode {
@@ -1211,16 +1211,17 @@ index 30e6775..1395106 100644
 +    })
 +    return toJsxRuntime(hast, { jsx, jsxs, Fragment })
 +}
-+
+
+-    return highlighted
 +export function useShikiHighlighter(
 +    code: string,
 +    language: string | undefined
 +): ReactNode | null {
 +    return useHighlightedCode(code, language, highlightToNode)
  }
- 
+
  /**
-@@ -239,39 +324,5 @@ export function useShikiHighlightedLines(
+@@ -239,39 +329,5 @@ export function useShikiHighlightedLines(
      code: string,
      language: string | undefined
  ): ReactNode[] | null {
@@ -1262,10 +1263,10 @@ index 30e6775..1395106 100644
 +    return useHighlightedCode(code, language, highlightToLineNodes)
  }
 diff --git a/vendor/hapi/web/src/routes/sessions/file.tsx b/vendor/hapi/web/src/routes/sessions/file.tsx
-index 6d5a70d..d23952c 100644
+index 6d5a70d..118e03e 100644
 --- a/vendor/hapi/web/src/routes/sessions/file.tsx
 +++ b/vendor/hapi/web/src/routes/sessions/file.tsx
-@@ -9,7 +9,7 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
+@@ -9,9 +9,10 @@ import { useAppGoBack } from '@/hooks/useAppGoBack'
  import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
  import { formatDiffError, formatReadFileError } from '@/lib/files-i18n'
  import { queryKeys } from '@/lib/query-keys'
@@ -1273,20 +1274,30 @@ index 6d5a70d..d23952c 100644
 +import { resolveFileLanguage, useShikiHighlighter } from '@/lib/shiki'
  import { useTranslation } from '@/lib/use-translation'
  import { decodeBase64 } from '@/lib/utils'
++import { TextPager, useTextPage } from '@/components/TextPager'
  import { ImagePreview } from '@/components/ImagePreview'
-@@ -91,7 +91,7 @@ function BackIcon(props: { className?: string }) {
+ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+ import { formatFileMetadata } from '@/lib/file-metadata'
+@@ -91,11 +92,13 @@ function BackIcon(props: { className?: string }) {
      )
  }
- 
+
 -function DiffDisplay(props: { diffContent: string }) {
+-    const lines = props.diffContent.split('\n')
 +export function DiffDisplay(props: { diffContent: string }) {
-     const lines = props.diffContent.split('\n')
- 
++    const page = useTextPage(props.diffContent)
++    const lines = page.text.split('\n')
+
      return (
-@@ -196,15 +196,11 @@ function FileContentHeader(props: {
+         <div className="overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-bg)]">
++            <TextPager index={page.index} count={page.count} onChange={page.setSelection} />
+             {lines.map((line, index) => {
+                 const isAdd = line.startsWith('+') && !line.startsWith('+++')
+                 const isRemove = line.startsWith('-') && !line.startsWith('---')
+@@ -196,15 +199,11 @@ function FileContentHeader(props: {
      )
  }
- 
+
 -function resolveLanguage(path: string): string | undefined {
 -    const parts = path.split('.')
 -    if (parts.length <= 1) return undefined
@@ -1296,21 +1307,32 @@ index 6d5a70d..d23952c 100644
 +export function resolveLanguage(path: string): string | undefined {
 +    return resolveFileLanguage(path)
  }
- 
+
 -function resolveImageMimeType(path: string): string | null {
 +export function resolveImageMimeType(path: string): string | null {
      const parts = path.split('.')
      if (parts.length <= 1) return null
      const ext = parts[parts.length - 1]?.toLowerCase()
-@@ -216,7 +212,7 @@ function getUtf8ByteLength(value: string): number {
+@@ -216,13 +215,14 @@ function getUtf8ByteLength(value: string): number {
      return new TextEncoder().encode(value).length
  }
- 
+
 -function isBinaryContent(content: string): boolean {
 +export function isBinaryContent(content: string): boolean {
      if (!content) return false
      if (content.includes('\0')) return true
-     const nonPrintable = content.split('').filter((char) => {
+-    const nonPrintable = content.split('').filter((char) => {
+-        const code = char.charCodeAt(0)
+-        return code < 32 && code !== 9 && code !== 10 && code !== 13
+-    }).length
++    let nonPrintable = 0
++    for (let index = 0; index < content.length; index++) {
++        const code = content.charCodeAt(index)
++        if (code < 32 && code !== 9 && code !== 10 && code !== 13) nonPrintable++
++    }
+     return nonPrintable / content.length > 0.1
+ }
+
 diff --git a/vendor/hapi/web/src/routes/sessions/files.tsx b/vendor/hapi/web/src/routes/sessions/files.tsx
 index 96d3f28..5ce7f2e 100644
 --- a/vendor/hapi/web/src/routes/sessions/files.tsx
@@ -1594,3 +1616,309 @@ index 4664313b4cb01cb6b9a4e4b57e07cd5fb7068905..9fffb4945c1c1d8c74a2273f12d97d87
          expect(isSteeringSupportedForSession(null)).toBe(false)
      })
  })
+diff --git a/vendor/hapi/web/src/components/CodeBlock.tsx b/vendor/hapi/web/src/components/CodeBlock.tsx
+index fd03047..13557f8 100644
+--- a/vendor/hapi/web/src/components/CodeBlock.tsx
++++ b/vendor/hapi/web/src/components/CodeBlock.tsx
+@@ -1,9 +1,10 @@
+-import { type CSSProperties, type ReactNode } from 'react'
++import { memo, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
+ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+ import { useCodeWrap } from '@/hooks/useCodeWrap'
+ import { useShikiHighlightedLines, splitCodeLines } from '@/lib/shiki'
+ import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
+ import { useTranslation } from '@/lib/use-translation'
++import { TextPager, useTextPage } from '@/components/TextPager'
+
+ const DEFAULT_COLLAPSE_LINE_THRESHOLD = 18
+ const DEFAULT_COLLAPSE_CHAR_THRESHOLD = 1800
+@@ -22,7 +23,7 @@ function formatCodeLabel(language?: string, title?: string): string {
+     return language
+ }
+
+-export function CodeBlock(props: {
++export const CodeBlock = memo(function CodeBlock(props: {
+     code: string
+     language?: string
+     title?: string
+@@ -51,7 +52,12 @@ export function CodeBlock(props: {
+     const showWrapToggle = props.showWrapToggle ?? true
+     const { copied, copy } = useCopyToClipboard()
+     const { codeWrap, setCodeWrap } = useCodeWrap()
+-    const highlightedLines = useShikiHighlightedLines(props.code, props.language)
++    const page = useTextPage(props.code)
++    const body = useRef<HTMLDivElement>(null)
++    const highlightedLines = useShikiHighlightedLines(
++        page.text,
++        page.count === 1 ? props.language : undefined
++    )
+     const isCollapsed = Boolean(props.collapseLongContent) && shouldCollapseCode(
+         props.code,
+         props.collapseLineThreshold ?? DEFAULT_COLLAPSE_LINE_THRESHOLD,
+@@ -73,9 +79,9 @@ export function CodeBlock(props: {
+     // `highlightedLines` (one ReactNode per line) is null while shiki is
+     // pending or for unsupported languages; fall back to the raw code split
+     // on newlines using the same normalization, so line numbers match.
+-    const fallbackLines = splitCodeLines(props.code)
++    const fallbackLines = useMemo(() => splitCodeLines(page.text), [page.text])
+     const codeLines: ReactNode[] = highlightedLines ?? fallbackLines
+-    const firstLine = props.startLineNumber ?? 1
++    const firstLine = (props.startLineNumber ?? 1) + page.startLine - 1
+     const lineNumberWidth = Math.max(String(firstLine + codeLines.length - 1).length, 3)
+     const label = formatCodeLabel(props.language, props.title)
+     // First track sizes to the line-number column; the code column takes the
+@@ -144,7 +150,17 @@ export function CodeBlock(props: {
+                 </div>
+             </div>
+
++            <TextPager
++                index={page.index}
++                count={page.count}
++                onChange={!isCollapsed && (showCopyButton || showWrapToggle) ? (selection) => {
++                    page.setSelection(selection)
++                    if (body.current) body.current.scrollTop = 0
++                } : undefined}
++            />
++
+             <div
++                ref={body}
+                 data-hapi-code-body="true"
+                 className={`min-w-0 w-full max-w-full ${codeWrap ? '' : 'overflow-x-auto'}`}
+                 style={bodyStyle}
+@@ -184,4 +200,4 @@ export function CodeBlock(props: {
+             ) : null}
+         </div>
+     )
+-}
++})
+diff --git a/vendor/hapi/web/src/components/DiffView.tsx b/vendor/hapi/web/src/components/DiffView.tsx
+index c8927f4..9bec512 100644
+--- a/vendor/hapi/web/src/components/DiffView.tsx
++++ b/vendor/hapi/web/src/components/DiffView.tsx
+@@ -7,6 +7,8 @@ import { useCodeWrap } from '@/hooks/useCodeWrap'
+ import { WrapIcon } from '@/components/icons'
+ import { cn } from '@/lib/utils'
+ import { useTranslation } from '@/lib/use-translation'
++import { isLargeText } from '@/lib/text-rendering'
++import { CodeBlock } from '@/components/CodeBlock'
+
+ function countLines(text: string) {
+     if (text.length === 0) return 0
+@@ -70,7 +72,7 @@ function DiffWrapToggle() {
+     )
+ }
+
+-export function DiffView(props: {
++type DiffViewProps = {
+     oldString: string
+     newString: string
+     filePath?: string
+@@ -78,7 +80,25 @@ export function DiffView(props: {
+     size?: 'compact' | 'comfortable'
+     scrollY?: boolean
+     maxHeight?: number
+-}) {
++}
++
++export function DiffView(props: DiffViewProps) {
++    const { t } = useTranslation()
++    if (isLargeText(props.oldString) || isLargeText(props.newString)) {
++        // diffLines can take quadratic time on unrelated files. Keep both
++        // complete sources accessible without computing an unbounded diff.
++        return (
++            <div className="space-y-2" data-large-diff>
++                <p className="text-xs text-[var(--app-hint)]">{t('diff.large')}</p>
++                <CodeBlock code={props.oldString} title={t('diff.before')} language="text" scrollY />
++                <CodeBlock code={props.newString} title={t('diff.after')} language="text" scrollY />
++            </div>
++        )
++    }
++    return <RegularDiffView {...props} />
++}
++
++function RegularDiffView(props: DiffViewProps) {
+     const { t } = useTranslation()
+     const variant = props.variant ?? 'preview'
+     const { suppressFocusRing, onTriggerPointerDown, onTriggerKeyDown, onTriggerBlur } = usePointerFocusRing()
+diff --git a/vendor/hapi/web/src/components/TextPager.tsx b/vendor/hapi/web/src/components/TextPager.tsx
+new file mode 100644
+index 0000000..00c0b74
+--- /dev/null
++++ b/vendor/hapi/web/src/components/TextPager.tsx
+@@ -0,0 +1,57 @@
++import { useMemo, useState } from 'react'
++import { paginateText } from '@/lib/text-rendering'
++import { useTranslation } from '@/lib/use-translation'
++
++export function useTextPage(text: string) {
++    const pages = useMemo(() => paginateText(text), [text])
++    // Keeping "last" as an intent lets a reader follow the end of live output.
++    const [selection, setSelection] = useState<number | 'last'>(0)
++    const index = selection === 'last' ? pages.length - 1 : Math.min(selection, pages.length - 1)
++    const page = pages[index]
++    return {
++        text: text.slice(page.start, page.end),
++        startLine: page.startLine,
++        index,
++        count: pages.length,
++        setSelection,
++    }
++}
++
++export function TextPager(props: {
++    index: number
++    count: number
++    onChange?: (page: number | 'last') => void
++}) {
++    const { t } = useTranslation()
++    if (props.count <= 1) return null
++    const buttonClass = 'rounded border border-[var(--app-border)] px-2 py-1 disabled:opacity-40'
++    return (
++        <div data-text-pager className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-[var(--app-hint)]">
++            <span>{t('text.preview.paged')}</span>
++            <span role="status">{t('text.preview.section', { current: props.index + 1, total: props.count })}</span>
++            {props.onChange && (
++                <span className="flex gap-1" data-hapi-share-export-exclude="true">
++                    {([
++                        ['first', 0, props.index === 0],
++                        ['previous', props.index - 1, props.index === 0],
++                        ['next', props.index + 1, props.index === props.count - 1],
++                        ['last', 'last', props.index === props.count - 1],
++                    ] as const).map(([label, page, disabled]) => (
++                        <button
++                            key={label}
++                            type="button"
++                            className={buttonClass}
++                            disabled={disabled}
++                            onClick={(event) => {
++                                event.stopPropagation()
++                                props.onChange?.(page)
++                            }}
++                        >
++                            {t(`text.preview.${label}`)}
++                        </button>
++                    ))}
++                </span>
++            )}
++        </div>
++    )
++}
+diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/locales/en.ts
+index fb62fac..1c1eed1 100644
+--- a/vendor/hapi/web/src/lib/locales/en.ts
++++ b/vendor/hapi/web/src/lib/locales/en.ts
+@@ -1,4 +1,13 @@
+ export default {
++  'text.preview.paged': 'Large content is shown in sections.',
++  'text.preview.section': 'Section {current} of {total}',
++  'text.preview.first': 'First section',
++  'text.preview.previous': 'Previous section',
++  'text.preview.next': 'Next section',
++  'text.preview.last': 'Last section',
++  'diff.large': 'Large change: showing the original and updated text.',
++  'diff.before': 'Before',
++  'diff.after': 'After',
+   // Loading states
+   'loading': 'Loading…',
+   'authorizing': 'Authorizing…',
+diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/locales/zh-CN.ts
+index 1633362..ac2fe3e 100644
+--- a/vendor/hapi/web/src/lib/locales/zh-CN.ts
++++ b/vendor/hapi/web/src/lib/locales/zh-CN.ts
+@@ -1,4 +1,13 @@
+ export default {
++  'text.preview.paged': '内容较长，已分段显示。',
++  'text.preview.section': '第 {current} / {total} 段',
++  'text.preview.first': '首段',
++  'text.preview.previous': '上一段',
++  'text.preview.next': '下一段',
++  'text.preview.last': '末段',
++  'diff.large': '变更较大，分别显示修改前后的文本。',
++  'diff.before': '修改前',
++  'diff.after': '修改后',
+   // Loading states
+   'loading': '加载中…',
+   'authorizing': '认证中…',
+diff --git a/vendor/hapi/web/src/lib/text-rendering.ts b/vendor/hapi/web/src/lib/text-rendering.ts
+new file mode 100644
+index 0000000..f1c93d9
+--- /dev/null
++++ b/vendor/hapi/web/src/lib/text-rendering.ts
+@@ -0,0 +1,61 @@
++// Bound both text work and DOM size. A byte/character limit alone still lets
++// thousands of short lines through; a line limit alone misses minified files.
++export const TEXT_PAGE_CHARS = 24_000
++export const TEXT_PAGE_LINES = 300
++const HIGHLIGHT_LINE_CHARS = 1_500
++
++export type TextPage = { start: number; end: number; startLine: number }
++
++export function isLargeText(text: string): boolean {
++    if (text.length > TEXT_PAGE_CHARS) return true
++    let lines = 1
++    for (let at = text.indexOf('\n'); at >= 0 && at < text.length - 1; at = text.indexOf('\n', at + 1)) {
++        if (++lines > TEXT_PAGE_LINES) return true
++    }
++    return false
++}
++
++export function canHighlightText(text: string): boolean {
++    if (isLargeText(text)) return false
++    let start = 0
++    for (;;) {
++        const newline = text.indexOf('\n', start)
++        const end = newline < 0 ? text.length : newline
++        if (end - start > HIGHLIGHT_LINE_CHARS) return false
++        if (newline < 0) return true
++        start = newline + 1
++    }
++}
++
++/** Non-overlapping slices preserve every character, including long lines. */
++export function paginateText(text: string): TextPage[] {
++    if (!isLargeText(text)) return [{ start: 0, end: text.length, startLine: 1 }]
++    const pages: TextPage[] = []
++    let start = 0
++    let startLine = 1
++    while (start < text.length) {
++        let end = Math.min(start + TEXT_PAGE_CHARS, text.length)
++        // Keep UTF-16 surrogate pairs and Windows newlines on the same page.
++        const last = text.charCodeAt(end - 1)
++        if (end < text.length && (
++            (last >= 0xd800 && last <= 0xdbff)
++            || (last === 13 && text.charCodeAt(end) === 10)
++        )) end--
++        // Search only this slice: repeatedly searching the rest of a minified
++        // file for a nonexistent newline would otherwise be quadratic.
++        const slice = text.slice(start, end)
++        let lines = 0
++        let lastNewline = -1
++        for (let at = slice.indexOf('\n'); at >= 0; at = slice.indexOf('\n', at + 1)) {
++            lastNewline = at
++            if (++lines === TEXT_PAGE_LINES) break
++        }
++        if (lastNewline >= 0 && (end < text.length || lines === TEXT_PAGE_LINES)) {
++            end = start + lastNewline + 1
++        }
++        pages.push({ start, end, startLine })
++        startLine += lines
++        start = end
++    }
++    return pages
++}
+diff --git a/vendor/hapi/web/src/lib/utils.ts b/vendor/hapi/web/src/lib/utils.ts
+index 185b41e..737fa72 100644
+--- a/vendor/hapi/web/src/lib/utils.ts
++++ b/vendor/hapi/web/src/lib/utils.ts
+@@ -11,7 +11,10 @@ export function cn(...inputs: ClassValue[]): string {
+ export function decodeBase64(value: string): { text: string; ok: boolean } {
+     try {
+         const binaryString = atob(value)
+-        const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0))
++        // Uint8Array.from(string, callback) builds a per-character iterable
++        // and creates severe allocation pressure for multi-megabyte files.
++        const bytes = new Uint8Array(binaryString.length)
++        for (let index = 0; index < binaryString.length; index++) bytes[index] = binaryString.charCodeAt(index)
+         const text = new TextDecoder('utf-8').decode(bytes)
+         return { text, ok: true }
+     } catch {

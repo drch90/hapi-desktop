@@ -57,7 +57,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
       - name: Run Electron interface tests
+        id: e2e
         run: xvfb-run -a bun run test:e2e
+      - name: Upload Electron test diagnostics
+        if: ${{ failure() && steps.e2e.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: electron-test-failure
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   windows:
     name: Build Windows x64 installer

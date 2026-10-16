@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -42,16 +42,15 @@ import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { applySuggestion } from '@/utils/applySuggestion'
 import { findActiveWord } from '@/utils/findActiveWord'
 import type { SessionSummary, Machine } from '@/types/api'
-import { isQueuedForInvocation } from '@/lib/messages'
 import {
   isSteeringSupportedForSession,
   getPermissionModeLabel,
   getCodexCollaborationModeLabel,
+  toSessionSummary,
   type MessageDeliveryMode,
 } from '@hapi/protocol'
 import { formatSessionHeaderTimestamp } from '@/lib/sessionHeaderTimestamp'
 import { getReasoningEffortForFlavor } from '@/lib/codexStatusLabels'
-import { normalizeDecryptedMessage } from '@/chat/normalize'
 import { reduceChatBlocks } from '@/chat/reducer'
 import { getEventPresentation, formatDuration } from '@/chat/presentation'
 import type { ChatBlock, ToolCallBlock } from '@/chat/types'
@@ -84,6 +83,9 @@ import { useComposerSuggestions } from '../lib/useComposerSuggestions'
 import { formatFileReference } from '@/lib/file-composer'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
+import { createChatBlockSelector, reuseChatBlocks } from '../lib/chat-rendering'
+
+const MemoToolGroupCard = memo(ToolGroupCard)
 
 function formatShortDate(timestamp: number, locale?: string): string {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '—'
@@ -109,7 +111,7 @@ type ChatProps = {
   codexExplorationCollapsed: boolean
   replaceSession: (from: string, to: string) => void
   sessionDeleted: (id: string) => void
-  sessionArchived: (id: string) => Promise<void>
+  sessionArchived: (id: string, beforeArchive: SessionSummary) => Promise<void>
   keepSession: (id: string) => void
   openSession: (id: string) => void
   openFile: (path: string) => void
@@ -233,16 +235,10 @@ export function Chat({
     const timer = setTimeout(() => saveDraft(scope, id, latestDraft.current), 200)
     return () => clearTimeout(timer)
   }, [draft, id, scope])
+  const selectBlocks = useMemo(createChatBlockSelector, [id, scope])
   const reduced = useMemo(
-    () =>
-      reduceChatBlocks(
-        messages.messages
-          .filter((message) => !isQueuedForInvocation(message))
-          .map(normalizeDecryptedMessage)
-          .filter((item) => item !== null),
-        session?.agentState,
-      ),
-    [messages.messages, session?.agentState],
+    () => selectBlocks(messages.messages, session?.agentState),
+    [selectBlocks, messages.messages, session?.agentState],
   )
   const blocks = reduced.blocks
   const pending = useMemo(
@@ -256,11 +252,14 @@ export function Chat({
   const previousGroups = useRef<ToolGroupBlock[]>([])
   const visibleBlocks = useMemo(
     () =>
-      buildVisibleChatBlocks(blocks, {
-        hasMoreMessages: messages.hasMore,
-        previousGroups: previousGroups.current,
-        codexExplorationCollapsed,
-      }),
+      reuseChatBlocks(
+        previousGroups.current,
+        buildVisibleChatBlocks(blocks, {
+          hasMoreMessages: messages.hasMore,
+          previousGroups: previousGroups.current,
+          codexExplorationCollapsed,
+        }),
+      ),
     [blocks, messages.hasMore, codexExplorationCollapsed],
   )
   useEffect(() => {
@@ -306,7 +305,7 @@ export function Chat({
     !controlledByUser,
   )
 
-  function updateDraft(update: Partial<Draft>) {
+  const updateDraft = useCallback((update: Partial<Draft>) => {
     if ('text' in update || 'scheduledAt' in update) draftRevision.current++
     const value = {
       ...latestDraft.current,
@@ -317,7 +316,18 @@ export function Chat({
     }
     latestDraft.current = value
     setDraft(value)
-  }
+  }, [])
+  const toggleBlock = useCallback(
+    (blockId: string) => {
+      const expanded = latestDraft.current.expanded
+      updateDraft({
+        expanded: expanded.includes(blockId)
+          ? expanded.filter((id) => id !== blockId)
+          : [...expanded, blockId],
+      })
+    },
+    [updateDraft],
+  )
   function selectCommand(index: number) {
     const suggestion = suggestions[index]
     if (!suggestion) return
@@ -340,10 +350,37 @@ export function Chat({
       composer.current?.setSelectionRange(result.cursorPosition, result.cursorPosition)
     })
   }
-  async function refresh() {
+  const refresh = useCallback(async () => {
     await Promise.all([query.refetch(), messages.refetch()])
     refreshSessions()
-  }
+  }, [query.refetch, messages.refetch])
+  const messageDone = useCallback(() => void refresh(), [refresh])
+  const chatContext = useMemo(
+    () => ({
+      api,
+      sessionId: id,
+      metadata: session?.metadata ?? null,
+      terminalToolDisplayMode: 'detailed' as const,
+      showSessionSummaryInChat: false,
+      disabled: !connected || busy,
+      onRefresh: messageDone,
+      hasMoreMessages: messages.hasMore,
+      isSyncingTail: messages.isSyncingTail,
+      isLoadingMoreMessages: messages.isLoadingMore,
+      loadOlderMessagesPreservingScroll: navigation.loadEarlier,
+    }),
+    [
+      id,
+      session?.metadata,
+      connected,
+      busy,
+      messageDone,
+      messages.hasMore,
+      messages.isSyncingTail,
+      messages.isLoadingMore,
+      navigation.loadEarlier,
+    ],
+  )
   async function action(work: () => Promise<unknown>) {
     if (busy) return
     setBusy(true)
@@ -751,21 +788,7 @@ export function Chat({
                 </p>
               )}
               {messages.isSyncingTail && blocks.length === 0 && <p className="muted">{t('Loading…')}</p>}
-              <HappyChatProvider
-                value={{
-                  api,
-                  sessionId: id,
-                  metadata: session?.metadata ?? null,
-                  terminalToolDisplayMode: 'detailed',
-                  showSessionSummaryInChat: false,
-                  disabled: !connected || busy,
-                  onRefresh: () => void refresh(),
-                  hasMoreMessages: messages.hasMore,
-                  isSyncingTail: messages.isSyncingTail,
-                  isLoadingMoreMessages: messages.isLoadingMore,
-                  loadOlderMessagesPreservingScroll: navigation.loadEarlier,
-                }}
-              >
+              <HappyChatProvider value={chatContext}>
                 <div className="happy-thread-messages">
                   {visibleBlocks
                     .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
@@ -778,22 +801,17 @@ export function Chat({
                       >
                         {isToolGroupBlock(block) ? (
                           <div className="message-tool-group" data-presentation={block.presentationMode}>
-                            <ToolGroupCard block={block} metadata={session?.metadata ?? null} />
+                            <MemoToolGroupCard block={block} metadata={session?.metadata ?? null} />
                           </div>
                         ) : (
                           <MessageBlock
                             block={block}
-                            session={session}
+                            sessionId={session?.id}
+                            metadata={session?.metadata ?? null}
                             disabled={!connected || busy}
-                            done={() => void refresh()}
+                            done={messageDone}
                             expanded={draft.expanded.includes(block.id)}
-                            toggle={() =>
-                              updateDraft({
-                                expanded: draft.expanded.includes(block.id)
-                                  ? draft.expanded.filter((id) => id !== block.id)
-                                  : [...draft.expanded, block.id],
-                              })
-                            }
+                            onToggle={toggleBlock}
                           />
                         )}
                       </div>
@@ -1334,11 +1352,13 @@ export function Chat({
           description={t('This stops the active session and keeps its history.')}
           confirmLabel={t('Archive')}
           confirmingLabel={t('Working…')}
-          isPending={busy}
+          isPending={busy || !session}
           onConfirm={() =>
             action(async () => {
+              if (!session) throw new Error('HTTP_404')
+              const beforeArchive = toSessionSummary(session)
               await api.archiveSession(id)
-              await sessionArchived(id)
+              await sessionArchived(id, beforeArchive)
             })
           }
         />
@@ -1375,24 +1395,27 @@ export function Chat({
   )
 }
 
-function MessageBlock({
+const MessageBlock = memo(function MessageBlock({
   block,
-  session,
+  sessionId,
+  metadata,
   disabled,
   done,
   expanded,
-  toggle,
+  onToggle,
 }: {
   block: ChatBlock
-  session?: Session
+  sessionId?: string
+  metadata: Session['metadata']
   disabled: boolean
   done: () => void
   expanded: boolean
-  toggle: () => void
+  onToggle: (id: string) => void
 }) {
   const { t } = useTranslation()
   const source = useRef<HTMLElement>(null)
   const { t: web } = useHapiTranslation()
+  const toggle = () => onToggle(block.id)
   if (block.kind === 'tool-call') {
     const [now, setNow] = useState(Date.now)
     const isRunning = block.tool.state === 'running'
@@ -1412,7 +1435,7 @@ function MessageBlock({
         result: block.tool.result,
         childrenCount: block.children.length,
         description: block.tool.nativeTitle ?? block.tool.description,
-        metadata: session?.metadata ?? null,
+        metadata,
       },
       web,
     )
@@ -1449,14 +1472,14 @@ function MessageBlock({
             <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
           </button>
         )}
-        {(isPlan || expanded) && session && (
+        {(isPlan || expanded) && sessionId && (
           <div className="tool-expanded-details">
             {isPlan ? (
               <>
                 <ToolCard
                   api={api}
-                  sessionId={session.id}
-                  metadata={session.metadata}
+                  sessionId={sessionId}
+                  metadata={metadata}
                   terminalToolDisplayMode="detailed"
                   disabled={disabled}
                   onDone={done}
@@ -1466,7 +1489,7 @@ function MessageBlock({
               </>
             ) : (
               <div className="tool-inline-details">
-                <ToolDetailDialogContent block={block} metadata={session.metadata ?? null} />
+                <ToolDetailDialogContent block={block} metadata={metadata} />
               </div>
             )}
           </div>
@@ -1508,7 +1531,7 @@ function MessageBlock({
           <MessageActions
             text={block.text}
             source={source}
-            title={session?.metadata?.name || t('Session')}
+            title={metadata?.name || t('Session')}
             role={block.kind === 'user-text' ? 'user' : 'assistant'}
           />
         </div>
@@ -1557,7 +1580,7 @@ function MessageBlock({
         <CodeBlock code={JSON.stringify(block.review, null, 2)} language="json" scrollY />
       </details>
     )
-  if (block.kind === 'generated-image' && session)
-    return <GeneratedMediaCard key={`${session.id}:${block.imageId}`} sessionId={session.id} block={block} />
+  if (block.kind === 'generated-image' && sessionId)
+    return <GeneratedMediaCard key={`${sessionId}:${block.imageId}`} sessionId={sessionId} block={block} />
   return null
-}
+})

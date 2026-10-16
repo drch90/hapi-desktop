@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { resolveFileLanguage, useShikiHighlighter } from '@/lib/shiki'
 import { useTranslation } from '@/lib/use-translation'
 import { decodeBase64 } from '@/lib/utils'
+import { TextPager, useTextPage } from '@/components/TextPager'
 import { ImagePreview } from '@/components/ImagePreview'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { formatFileMetadata } from '@/lib/file-metadata'
@@ -92,10 +93,12 @@ function BackIcon(props: { className?: string }) {
 }
 
 export function DiffDisplay(props: { diffContent: string }) {
-    const lines = props.diffContent.split('\n')
+    const page = useTextPage(props.diffContent)
+    const lines = page.text.split('\n')
 
     return (
         <div className="overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-bg)]">
+            <TextPager index={page.index} count={page.count} onChange={page.setSelection} />
             {lines.map((line, index) => {
                 const isAdd = line.startsWith('+') && !line.startsWith('+++')
                 const isRemove = line.startsWith('-') && !line.startsWith('---')
@@ -215,10 +218,11 @@ function getUtf8ByteLength(value: string): number {
 export function isBinaryContent(content: string): boolean {
     if (!content) return false
     if (content.includes('\0')) return true
-    const nonPrintable = content.split('').filter((char) => {
-        const code = char.charCodeAt(0)
-        return code < 32 && code !== 9 && code !== 10 && code !== 13
-    }).length
+    let nonPrintable = 0
+    for (let index = 0; index < content.length; index++) {
+        const code = content.charCodeAt(index)
+        if (code < 32 && code !== 9 && code !== 10 && code !== 13) nonPrintable++
+    }
     return nonPrintable / content.length > 0.1
 }
 

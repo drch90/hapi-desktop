@@ -6,7 +6,24 @@ import { useShikiHighlighter } from '@/lib/shiki'
 vi.mock('shiki/core', () => ({
   createHighlighterCore: vi.fn().mockRejectedValue(new Error('Unable to load a syntax chunk')),
 }))
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+
+it.each(['x'.repeat(100_000), 'x\n'.repeat(1_000), 'x'.repeat(2_000)])(
+  'does not schedule a grammar for oversized code (%#)',
+  async (code) => {
+    vi.useFakeTimers()
+    function Example() {
+      return <pre>{useShikiHighlighter(code, 'js') ?? code}</pre>
+    }
+    const { container } = render(<Example />)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(container.textContent).toBe(code)
+    expect(createHighlighterCore).not.toHaveBeenCalled()
+  },
+)
 
 it('skips highlighting plain text and recovers from a failed import without losing source', async () => {
   function Example({ code, language }: { code: string; language: string }) {

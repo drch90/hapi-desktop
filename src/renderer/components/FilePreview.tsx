@@ -42,6 +42,9 @@ export function FilePreview(props: {
   const imageMime = resolveImageMimeType(props.path)
   const file = useQuery({
     queryKey: ['desktop-file', props.sessionId, props.path],
+    // File content can be tens of megabytes. Release it when the preview
+    // closes rather than accumulating it in the default five-minute cache.
+    gcTime: 0,
     queryFn: async () => {
       const result = await api.readSessionFile(props.sessionId, props.path)
       if (!result.success || result.content === undefined) throw new Error('FILE_UNAVAILABLE')
@@ -50,6 +53,7 @@ export function FilePreview(props: {
   })
   const diff = useQuery({
     queryKey: ['desktop-file-diff', props.sessionId, props.path, props.staged],
+    gcTime: 0,
     queryFn: async () => {
       const result = await api.getGitDiffFile(props.sessionId, props.path, props.staged)
       if (!result.success) throw new Error('DIFF_UNAVAILABLE')
@@ -57,9 +61,19 @@ export function FilePreview(props: {
     },
     enabled: !imageMime,
   })
-  const decoded = useMemo(() => decodeBase64(file.data?.content ?? ''), [file.data?.content])
-  const binary = !decoded.ok || isBinaryContent(decoded.text)
-  const canCopy = file.isSuccess && !binary && new TextEncoder().encode(decoded.text).length <= 1_000_000
+  const decoded = useMemo(
+    () => decodeBase64(imageMime ? '' : (file.data?.content ?? '')),
+    [file.data?.content, imageMime],
+  )
+  const binary = useMemo(() => !decoded.ok || isBinaryContent(decoded.text), [decoded])
+  const canCopy = useMemo(
+    () =>
+      file.isSuccess &&
+      !binary &&
+      decoded.text.length <= 1_000_000 &&
+      new TextEncoder().encode(decoded.text).length <= 1_000_000,
+    [file.isSuccess, binary, decoded.text],
+  )
   const showDiff = mode === 'diff' && Boolean(diff.data) && !imageMime
   const metadata = formatFileMetadata(file.data?.size, file.data?.modified, locale)
   useLayoutEffect(() => {

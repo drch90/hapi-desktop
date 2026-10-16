@@ -99,6 +99,7 @@ export class FixtureHub {
   requests: { path: string; method: string; body: Record<string, unknown> }[] = []
   generatedMedia = new Map<string, { content: Buffer; mimeType: string }>()
   fileContents = new Map<string, Buffer | null>()
+  fileDiffs = new Map<string, string>()
   fileReadPaths: string[] = []
   directoryEntries = new Map<
     string,
@@ -862,6 +863,7 @@ export class FixtureHub {
       session.active = false
       session.thinking = false
       if (action === '/archive' && session.metadata) {
+        session.updatedAt = Math.max(session.updatedAt + 1, Date.now())
         session.metadata.lifecycleState = 'archived'
         session.metadataVersion++
       }
@@ -950,6 +952,7 @@ export class FixtureHub {
       reply({
         success: true,
         stdout:
+          this.fileDiffs.get(url.searchParams.get('path') ?? '') ??
           'diff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,5 @@\n-connectDirectly()\n+const hub = connectHub()\n+hub.on("reconnect", restoreCursor)\n+hub.on("approval", notifyUser)\n+openWorkspace()\n',
       })
       return

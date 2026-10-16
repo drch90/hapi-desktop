@@ -19,6 +19,8 @@ import {
   removeOptimisticMessage,
 } from '@/lib/message-window-store'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
+import { isUserMessage, mergeMessages } from '@/lib/messages'
+import type { DecryptedMessage } from '@/types/api'
 import type { DesktopEvent } from '../../shared/bridge'
 import { api } from './api'
 import { resetQueueEdits } from './queueEdit'
@@ -35,13 +37,40 @@ export const sessionKey = (id: string) => ['session', id] as const
 export const machinesKey = ['machines'] as const
 const opened = new Map<string, number>()
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
+const incoming = new Map<string, Map<string, DecryptedMessage>>()
+let incomingTimer: ReturnType<typeof setTimeout> | undefined
+
+function flushIncoming(id?: string) {
+  for (const sessionId of id === undefined ? [...incoming.keys()] : [id]) {
+    const batch = incoming.get(sessionId)
+    incoming.delete(sessionId)
+    if (batch && opened.has(sessionId)) ingestIncomingMessages(sessionId, [...batch.values()])
+  }
+}
+
+function queueIncoming(id: string, message: DecryptedMessage) {
+  const batch = incoming.get(id) ?? new Map<string, DecryptedMessage>()
+  const previous = batch.get(message.id)
+  // Retain the newest snapshot of a streaming row, including client-only
+  // invocation/steering signals, before sorting and trimming the window once.
+  batch.set(message.id, previous ? mergeMessages([previous], [message])[0] : message)
+  incoming.set(id, batch)
+  if (incomingTimer !== undefined) return
+  incomingTimer = setTimeout(() => {
+    incomingTimer = undefined
+    flushIncoming()
+  }, 50)
+}
 
 export function watchSession(id: string) {
   opened.set(id, (opened.get(id) ?? 0) + 1)
   return () => {
     const count = (opened.get(id) ?? 1) - 1
     if (count) opened.set(id, count)
-    else opened.delete(id)
+    else {
+      opened.delete(id)
+      incoming.delete(id)
+    }
   }
 }
 
@@ -54,6 +83,9 @@ export function refreshSessions() {
 }
 
 export function resetCaches(eraseDrafts = false) {
+  clearTimeout(incomingTimer)
+  incomingTimer = undefined
+  incoming.clear()
   resetAttachmentRuntime(eraseDrafts)
   resetQueueEdits()
   clearTimeout(refreshTimer)
@@ -64,6 +96,7 @@ export function resetCaches(eraseDrafts = false) {
 }
 
 export function forgetSession(id: string) {
+  incoming.delete(id)
   void queries.cancelQueries({ queryKey: sessionsKey })
   void queries.cancelQueries({ queryKey: sessionKey(id) })
   queries.removeQueries({ queryKey: sessionKey(id) })
@@ -99,6 +132,7 @@ export async function markSessionArchived(id: string) {
 // subscribe to the already normalized in-memory message window.
 export function applyDesktopEvent(event: DesktopEvent) {
   if (event.type === 'resync' || (event.type === 'connection' && event.state.status === 'connected')) {
+    flushIncoming()
     refreshSessions()
     void queries.invalidateQueries({ queryKey: ['desktop-scratchlist'] })
     void queries.invalidateQueries({ queryKey: ['usage-summary'] })
@@ -119,21 +153,33 @@ export function applyDesktopEvent(event: DesktopEvent) {
   const id = data.sessionId
   switch (data.type) {
     case 'message-received':
-      if (opened.has(id)) ingestIncomingMessages(id, [data.message])
+      if (opened.has(id)) {
+        if (isUserMessage(data.message)) {
+          // A delayed user receipt could overwrite newer REST queue state
+          // after a steer, retry or cancellation. Batch only agent output.
+          flushIncoming(id)
+          ingestIncomingMessages(id, [data.message])
+        } else queueIncoming(id, data.message)
+      }
       break
     case 'messages-consumed':
+      flushIncoming(id)
       markMessagesConsumed(id, data.localIds, data.invokedAt, data.steered)
       break
     case 'messages-indeterminate':
+      flushIncoming(id)
       markMessagesIndeterminate(id, data.localIds)
       break
     case 'messages-requeued':
+      flushIncoming(id)
       markMessagesRequeued(id, data.localIds)
       break
     case 'message-cancelled':
+      flushIncoming(id)
       if (data.localId) removeOptimisticMessage(id, data.localId)
       break
     case 'messages-invalidated':
+      incoming.delete(id)
       invalidateMessageWindow(id)
       if (opened.has(id)) void reconcileQueuedStateAfterConnect(api, id).catch(() => {})
       break
@@ -207,6 +253,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
       break
     }
     case 'session-ended':
+      flushIncoming(id)
       refreshSessions()
       void queries.invalidateQueries({ queryKey: sessionKey(id) })
       break

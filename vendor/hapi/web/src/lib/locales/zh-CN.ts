@@ -1,4 +1,13 @@
 export default {
+  'text.preview.paged': '内容较长，已分段显示。',
+  'text.preview.section': '第 {current} / {total} 段',
+  'text.preview.first': '首段',
+  'text.preview.previous': '上一段',
+  'text.preview.next': '下一段',
+  'text.preview.last': '末段',
+  'diff.large': '变更较大，分别显示修改前后的文本。',
+  'diff.before': '修改前',
+  'diff.after': '修改后',
   // Loading states
   'loading': '加载中…',
   'authorizing': '认证中…',

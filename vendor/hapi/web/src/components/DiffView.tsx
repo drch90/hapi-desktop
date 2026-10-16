@@ -7,6 +7,8 @@ import { useCodeWrap } from '@/hooks/useCodeWrap'
 import { WrapIcon } from '@/components/icons'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/use-translation'
+import { isLargeText } from '@/lib/text-rendering'
+import { CodeBlock } from '@/components/CodeBlock'
 
 function countLines(text: string) {
     if (text.length === 0) return 0
@@ -70,7 +72,7 @@ function DiffWrapToggle() {
     )
 }
 
-export function DiffView(props: {
+type DiffViewProps = {
     oldString: string
     newString: string
     filePath?: string
@@ -78,7 +80,25 @@ export function DiffView(props: {
     size?: 'compact' | 'comfortable'
     scrollY?: boolean
     maxHeight?: number
-}) {
+}
+
+export function DiffView(props: DiffViewProps) {
+    const { t } = useTranslation()
+    if (isLargeText(props.oldString) || isLargeText(props.newString)) {
+        // diffLines can take quadratic time on unrelated files. Keep both
+        // complete sources accessible without computing an unbounded diff.
+        return (
+            <div className="space-y-2" data-large-diff>
+                <p className="text-xs text-[var(--app-hint)]">{t('diff.large')}</p>
+                <CodeBlock code={props.oldString} title={t('diff.before')} language="text" scrollY />
+                <CodeBlock code={props.newString} title={t('diff.after')} language="text" scrollY />
+            </div>
+        )
+    }
+    return <RegularDiffView {...props} />
+}
+
+function RegularDiffView(props: DiffViewProps) {
     const { t } = useTranslation()
     const variant = props.variant ?? 'preview'
     const { suppressFocusRing, onTriggerPointerDown, onTriggerKeyDown, onTriggerBlur } = usePointerFocusRing()

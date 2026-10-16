@@ -244,6 +244,90 @@ test.afterEach(async () => {
   }
 })
 
+test('large OpenCode history and streaming output keep the composer responsive', async () => {
+  const session = server.sessions.get('design')!
+  session.metadata = { ...session.metadata!, flavor: 'opencode' }
+  const code = Array.from({ length: 12_000 }, (_, index) => `const result${index} = "输出 ${index}";`).join(
+    '\n',
+  )
+  const startedAt = Date.now() - 10_000
+  const history = Array.from({ length: 25 }, (_, index) =>
+    fixtureCodexEvent(
+      `large-${index}`,
+      index + 1,
+      { type: 'message', message: `历史输出 ${index}\n\n\`\`\`typescript\n${code}\n\`\`\`` },
+      startedAt + index,
+    ),
+  )
+  server.messages.set('design', history)
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const last = chat.locator('.agent-message').last()
+  await expect(last.locator('[data-text-pager]')).toBeVisible()
+  await last.getByRole('button', { name: '末段', exact: true }).click()
+  await expect(last).toContainText('const result11999')
+  // The full history contains hundreds of thousands of lines. Only the
+  // bounded sections should create code rows or enter the Markdown parser.
+  expect(await chat.locator('[data-code-cell]').count()).toBeLessThan(10_000)
+
+  const input = chat.locator('.composer textarea')
+  await input.fill('输出期间保留的草稿')
+  const liveAt = startedAt + 100
+  for (let index = 0; index < 60; index++) {
+    const message = fixtureCodexEvent(
+      'large-live',
+      26,
+      { type: 'message', message: `${code.slice(0, 30_000 + index * 1_000)}\nLIVE ${index}` },
+      liveAt,
+    )
+    if (index === 59) history.push(message)
+    server.emit({ type: 'message-received', sessionId: 'design', message })
+  }
+  await input.fill('仍可继续输入')
+  await expect(input).toHaveValue('仍可继续输入')
+  await expect(chat.locator('.agent-message')).toHaveCount(history.length)
+  await chat.locator('.agent-message').last().getByRole('button', { name: '末段', exact: true }).click()
+  await expect(chat.locator('.agent-message').last()).toContainText('LIVE 59')
+  await page.getByTestId('session-review').click()
+  await expect(page.getByTestId('chat-review')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('multi-megabyte files, minified lines and large diffs remain browsable', async () => {
+  const source = 'const line = "文件预览数据😀";\n'.repeat(150_000) + '// END OF LARGE FILE'
+  const minified = '{"value":"' + 'x'.repeat(4_000_000) + 'MINIFIED END"}'
+  server.fileContents.set('large.ts', Buffer.from(source))
+  server.fileContents.set('bundle.json', Buffer.from(minified))
+  server.fileDiffs.set('large.ts', '+line\n'.repeat(100_000) + '+END OF LARGE DIFF')
+  server.fileDiffs.set('bundle.json', '')
+  server.directoryEntries.set('', [
+    { name: 'large.ts', type: 'file' },
+    { name: 'bundle.json', type: 'file' },
+  ])
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  const panel = page.locator('.file-panel')
+  await panel.getByRole('button', { name: 'large.ts', exact: true }).click()
+  await expect(panel.locator('[data-text-pager]')).toBeVisible()
+  expect(await panel.locator('[data-code-cell]').count()).toBeLessThanOrEqual(300)
+  await panel.getByRole('button', { name: '末段', exact: true }).click()
+  await expect(panel.locator('[data-hapi-code-block]')).toContainText('// END OF LARGE FILE')
+  await panel.locator('.file-preview-modes').getByRole('button', { name: 'Diff', exact: true }).click()
+  await panel.getByRole('button', { name: '末段', exact: true }).click()
+  await expect(panel.locator('.unified-diff')).toContainText('+END OF LARGE DIFF')
+  expect(await panel.locator('.unified-diff *').count()).toBeLessThan(400)
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await panel.getByRole('button', { name: 'bundle.json', exact: true }).click()
+  await expect(panel.locator('[data-text-pager]')).toBeVisible()
+  await panel.getByRole('button', { name: '末段', exact: true }).click()
+  await expect(panel.locator('[data-hapi-code-block]')).toContainText('MINIFIED END')
+  expect(await panel.locator('[data-code-cell]').count()).toBe(1)
+  await page.getByTestId('chat-design').locator('.composer textarea').fill('大文件预览后仍可输入')
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await expect(panel.getByRole('button', { name: 'large.ts', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('body links open the browser and remote file preview on the first click, including pane focus changes', async () => {
   const url = 'https://github.com/example/project/actions/runs/123456'
   server.messages.set('design', [
@@ -498,6 +582,8 @@ test('session context menu copies web references and confirms archive and deleti
   await page.getByRole('menuitem', { name: '归档', exact: true }).click()
   await dialog.getByRole('button', { name: '归档', exact: true }).click()
   await expect(page.getByTestId('session-review')).toHaveAttribute('data-status', 'history')
+  await expect(page.getByTestId('session-review').locator('.session-unread-badge')).toHaveCount(0)
+  await expect(page.getByTestId('session-review')).not.toHaveClass(/\bunread\b/)
   server.failDelete = true
   await page.getByTestId('session-review').click({ button: 'right' })
   await page.getByRole('menuitem', { name: /删除/ }).click()
@@ -1777,8 +1863,13 @@ test('HAPI interactive questions preserve each provider answer contract', async 
     .locator('.approval-area')
     .getByRole('checkbox', { name: /交互问答/ })
     .click()
-  await secondCard.getByRole('checkbox', { name: /文件预览/ }).scrollIntoViewIfNeeded()
-  await expect(secondCard.getByRole('checkbox', { name: /文件预览/ })).toBeInViewport({ ratio: 1 })
+  const filePreviewOption = secondCard.getByRole('checkbox', { name: /文件预览/ })
+  await filePreviewOption.scrollIntoViewIfNeeded()
+  // Chromium can round away a fraction of the transparent outer frame at a
+  // scroll boundary. Keep the full visible body in view and verify selection.
+  await expect(filePreviewOption.locator(':scope > span')).toBeInViewport({ ratio: 1 })
+  await filePreviewOption.click()
+  await expect(filePreviewOption).toHaveAttribute('aria-checked', 'true')
   await secondCard.getByRole('button', { name: '下一个 →', exact: true }).click()
   await secondCard.getByRole('radio', { name: /其他/ }).click()
   await secondCard.getByRole('textbox').fill('验证按钮始终可见')
@@ -1786,7 +1877,7 @@ test('HAPI interactive questions preserve each provider answer contract', async 
   await second.locator('.approval-area').getByRole('button', { name: '提交', exact: true }).click()
   await expect
     .poll(() => server.requests.find((r) => r.path.endsWith('/claude-question-request/approve'))?.body)
-    .toEqual({ answers: { '0': ['消息发送', '交互问答'], '1': ['验证按钮始终可见'] } })
+    .toEqual({ answers: { '0': ['消息发送', '交互问答', '文件预览'], '1': ['验证按钮始终可见'] } })
   await expect(second.locator('.approval-area')).toBeEmpty()
   expect(errors).toEqual([])
 })
@@ -1923,6 +2014,7 @@ test('status sections separate individual sessions, include pending and backgrou
   const design = server.sessions.get('design')!
   const review = server.sessions.get('review')!
   server.sessions.get('history')!.metadata!.path = '/home/dev/archived-project'
+  await page.clock.install()
   await page.evaluate(() =>
     window.desktop.updateSettings({ notifications: false, collapseHistoryByDefault: true }),
   )
@@ -1938,6 +2030,14 @@ test('status sections separate individual sessions, include pending and backgrou
     await expect(page.locator('.sidebar').getByRole('button', { name, exact: true })).toHaveCount(0)
   await expect(active.locator('.workspace-group-heading')).toHaveCount(0)
   await expect(active.locator('.session-row')).toHaveCount(2)
+  await expect(active.locator('.session-activity-time')).toHaveCount(2)
+  await expect(designRow.locator('.session-activity-time')).toHaveText('刚刚')
+  await expect(designRow.locator('.session-activity-time')).toHaveAttribute(
+    'datetime',
+    new Date(design.updatedAt).toISOString(),
+  )
+  await page.clock.fastForward(61_000)
+  await expect(designRow.locator('.session-activity-time')).toHaveText('1分钟前')
   await expect(designRow).toHaveAttribute('data-status', 'ready')
   await expect(designRow.locator('.session-ready-icon')).toBeVisible()
   await expect(page.locator('.session-unread-badge')).toHaveCount(0)
@@ -1959,8 +2059,10 @@ test('status sections separate individual sessions, include pending and backgrou
   design.updatedAt += 10
   server.emit({ type: 'session-updated', sessionId: 'design', data: design })
   await expect(running.getByTestId('session-design')).toBeVisible()
+  await expect(running.getByTestId('session-design').locator('.session-activity-time')).toHaveText('1分钟前')
   await expect(running.locator('.workspace-group-heading')).toHaveCount(0)
   await expect(active.getByTestId('session-review')).toBeVisible()
+  await page.locator('.sidebar').screenshot({ path: 'build/session-activity-time-preview.png' })
   expect(
     await page
       .locator('.session-tree > .session-section')
@@ -2436,6 +2538,8 @@ test('native commands discover project commands, autocomplete without sending an
   await input.press('Tab')
   await expect(input).toHaveValue('/compact ')
   expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  // Command suggestions can be ready before persisted attachments finish loading.
+  await expect(chat.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
   await input.press('Control+Enter')
   await expect(chat.locator('.event-message')).toContainText('Conversation compacted')
   expect(server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.text).toBe(
@@ -4623,6 +4727,7 @@ test('archiving closes tabs only after success and keeps drafts for later previe
   server.emitArchiveEvents = false
   await confirm.getByRole('button', { name: '归档', exact: true }).click()
   await expect(review).toHaveCount(0)
+  await expect(page.getByTestId('session-review').locator('.session-unread-badge')).toHaveCount(0)
   await expect(page.getByRole('tab')).toHaveCount(1)
   await expect(page.getByTestId('chat-design').locator('.composer textarea')).toHaveValue('归档前的设计草稿')
   await page.getByTestId('session-review').click()
@@ -4639,6 +4744,51 @@ test('archiving closes tabs only after success and keeps drafts for later previe
   await expect(page.locator('.tab.preview')).toHaveCount(1)
   expect(errors).toEqual([])
 })
+
+for (const emitArchiveEvents of [true, false]) {
+  for (const state of ['working', 'unread', 'manual-unread'] as const) {
+    test(`archiving preserves ${state} attention with archive SSE ${emitArchiveEvents}`, async () => {
+      await page.getByTestId('session-design').click()
+      const review = server.sessions.get('review')!
+      const row = page.getByTestId('session-review')
+      if (state === 'manual-unread') {
+        await row.click({ button: 'right' })
+        await page.getByRole('menuitem', { name: '标为未读', exact: true }).click()
+      } else {
+        review.thinking = state === 'working'
+        review.updatedAt = Math.max(review.updatedAt + 1, Date.now())
+        server.emit({ type: 'session-updated', sessionId: review.id, data: review })
+        await expect(row).toHaveAttribute('data-status', state === 'working' ? 'thinking' : 'ready')
+      }
+      const expectedUnread = state === 'working' ? 0 : 1
+      await expect(row.locator('.session-unread-badge')).toHaveCount(expectedUnread)
+      server.emitArchiveEvents = emitArchiveEvents
+      await row.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: '归档', exact: true }).click()
+      await page
+        .getByRole('dialog', { name: '归档此会话？', exact: true })
+        .getByRole('button', { name: '归档', exact: true })
+        .click()
+      await expect(row).toHaveAttribute('data-status', 'history')
+      await expect(row.locator('.session-unread-badge')).toHaveCount(expectedUnread)
+      await expect(page.locator('.desktop-toasts [role="status"]')).toHaveCount(0)
+      await page.reload()
+      await expect(row).toHaveAttribute('data-status', 'history')
+      await expect(row.locator('.session-unread-badge')).toHaveCount(expectedUnread)
+      if (state === 'working') {
+        review.active = true
+        review.thinking = false
+        delete review.metadata!.lifecycleState
+        review.metadataVersion++
+        review.updatedAt = Math.max(review.updatedAt + 1, Date.now())
+        server.emit({ type: 'session-updated', sessionId: review.id, data: review })
+        await expect(page.getByTestId('sessions-active').getByTestId('session-review')).toBeVisible()
+        await expect(row.locator('.session-unread-badge')).toHaveCount(1)
+      }
+      expect(errors).toEqual([])
+    })
+  }
+}
 
 test('remote archive closes an open tab once while temporary inactivity keeps it open', async () => {
   await page.getByTestId('session-design').click()

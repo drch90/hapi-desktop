@@ -26,7 +26,8 @@
     "Extend shared syntax highlighting with lazy common grammars, aliases and file-name detection",
     "Expose cached slash-command filtering and avoid scrolling unchanged autocomplete selections",
     "Desktop tool detail dialog sizing hooks and expanded subagent traces with full content",
-    "Enable Claude steering capability for the companion CLI and Hub patch"
+    "Enable Claude steering capability for the companion CLI and Hub patch",
+    "Bound code and diff rendering with lossless text sections, skip oversized syntax highlighting, and avoid per-character file-preview allocations"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [

@@ -2,9 +2,10 @@ import { createHighlighterCore } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import type { HighlighterCore } from 'shiki/core'
 import type { Root, RootContent } from 'hast'
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime'
+import { canHighlightText } from '@/lib/text-rendering'
 
 // Load a grammar only when it appears in a message/file. Some grammars embed
 // many others (notably C++ and Ruby), so eagerly loading the whole catalog
@@ -264,9 +265,13 @@ function useHighlightedCode<T>(
 ): T | null {
     const [result, setResult] = useState<{ code: string; lang: string; value: T | null } | null>(null)
     const lang = resolveCodeLanguage(language)
+    const eligible = useMemo(() => Object.hasOwn(LANGS, lang) && canHighlightText(code), [code, lang])
 
     useEffect(() => {
-        if (!Object.hasOwn(LANGS, lang)) return
+        if (!eligible) {
+            setResult(null)
+            return
+        }
         let cancelled = false
 
         async function highlight() {
@@ -289,11 +294,11 @@ function useHighlightedCode<T>(
             cancelled = true
             clearTimeout(timer)
         }
-    }, [code, lang, render])
+    }, [code, lang, render, eligible])
 
     // Show the latest source immediately while the debounce/import is pending.
     // Otherwise streaming or reusing a block briefly displays the previous code.
-    return result?.code === code && result.lang === lang ? result.value : null
+    return eligible && result?.code === code && result.lang === lang ? result.value : null
 }
 
 function highlightToNode(highlighter: HighlighterCore, code: string, lang: string): ReactNode {

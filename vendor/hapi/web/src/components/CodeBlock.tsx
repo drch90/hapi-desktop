@@ -1,9 +1,10 @@
-import { type CSSProperties, type ReactNode } from 'react'
+import { memo, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useCodeWrap } from '@/hooks/useCodeWrap'
 import { useShikiHighlightedLines, splitCodeLines } from '@/lib/shiki'
 import { CopyIcon, CheckIcon, WrapIcon } from '@/components/icons'
 import { useTranslation } from '@/lib/use-translation'
+import { TextPager, useTextPage } from '@/components/TextPager'
 
 const DEFAULT_COLLAPSE_LINE_THRESHOLD = 18
 const DEFAULT_COLLAPSE_CHAR_THRESHOLD = 1800
@@ -22,7 +23,7 @@ function formatCodeLabel(language?: string, title?: string): string {
     return language
 }
 
-export function CodeBlock(props: {
+export const CodeBlock = memo(function CodeBlock(props: {
     code: string
     language?: string
     title?: string
@@ -51,7 +52,12 @@ export function CodeBlock(props: {
     const showWrapToggle = props.showWrapToggle ?? true
     const { copied, copy } = useCopyToClipboard()
     const { codeWrap, setCodeWrap } = useCodeWrap()
-    const highlightedLines = useShikiHighlightedLines(props.code, props.language)
+    const page = useTextPage(props.code)
+    const body = useRef<HTMLDivElement>(null)
+    const highlightedLines = useShikiHighlightedLines(
+        page.text,
+        page.count === 1 ? props.language : undefined
+    )
     const isCollapsed = Boolean(props.collapseLongContent) && shouldCollapseCode(
         props.code,
         props.collapseLineThreshold ?? DEFAULT_COLLAPSE_LINE_THRESHOLD,
@@ -73,9 +79,9 @@ export function CodeBlock(props: {
     // `highlightedLines` (one ReactNode per line) is null while shiki is
     // pending or for unsupported languages; fall back to the raw code split
     // on newlines using the same normalization, so line numbers match.
-    const fallbackLines = splitCodeLines(props.code)
+    const fallbackLines = useMemo(() => splitCodeLines(page.text), [page.text])
     const codeLines: ReactNode[] = highlightedLines ?? fallbackLines
-    const firstLine = props.startLineNumber ?? 1
+    const firstLine = (props.startLineNumber ?? 1) + page.startLine - 1
     const lineNumberWidth = Math.max(String(firstLine + codeLines.length - 1).length, 3)
     const label = formatCodeLabel(props.language, props.title)
     // First track sizes to the line-number column; the code column takes the
@@ -144,7 +150,17 @@ export function CodeBlock(props: {
                 </div>
             </div>
 
+            <TextPager
+                index={page.index}
+                count={page.count}
+                onChange={!isCollapsed && (showCopyButton || showWrapToggle) ? (selection) => {
+                    page.setSelection(selection)
+                    if (body.current) body.current.scrollTop = 0
+                } : undefined}
+            />
+
             <div
+                ref={body}
                 data-hapi-code-body="true"
                 className={`min-w-0 w-full max-w-full ${codeWrap ? '' : 'overflow-x-auto'}`}
                 style={bodyStyle}
@@ -184,4 +200,4 @@ export function CodeBlock(props: {
             ) : null}
         </div>
     )
-}
+})

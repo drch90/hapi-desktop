@@ -1,4 +1,13 @@
 export default {
+  'text.preview.paged': 'Large content is shown in sections.',
+  'text.preview.section': 'Section {current} of {total}',
+  'text.preview.first': 'First section',
+  'text.preview.previous': 'Previous section',
+  'text.preview.next': 'Next section',
+  'text.preview.last': 'Last section',
+  'diff.large': 'Large change: showing the original and updated text.',
+  'diff.before': 'Before',
+  'diff.after': 'After',
   // Loading states
   'loading': 'Loading…',
   'authorizing': 'Authorizing…',

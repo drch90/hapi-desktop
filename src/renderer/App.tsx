@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -37,6 +38,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { classifySessionAttention } from '@/lib/sessionAttention'
 import {
   initializeSessionLastSeen,
+  getSessionLastSeenAt,
   getSessionLastSeenSnapshot,
   markAllSessionsSeen,
   markSessionSeen,
@@ -75,6 +77,7 @@ import { forgetAttachmentDraft } from './lib/useAttachments'
 import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
+import { SessionActivityTime } from './components/SessionActivityTime'
 import { UsageDialog } from './components/Usage'
 import { Tabs } from './components/Tabs'
 import { NewSessionDialog } from './components/NewSessionDialog'
@@ -318,6 +321,19 @@ export function sessionTitle(session?: Pick<SessionSummary, 'id' | 'metadata'>) 
   )
 }
 
+function archiveCanStayRead(session: SessionSummary, scope: string): boolean {
+  const key = `${scope}:${session.id}`
+  if (getSessionManualUnreadAt(key) !== null) return false
+  // Stopping thinking/pending work is not a completion notice. Preserve an
+  // existing unread notice, but do not expose one solely by clearing status.
+  return (
+    classifySessionAttention(session, {
+      selected: false,
+      lastSeenAt: getSessionLastSeenAt(key),
+    })?.kind !== 'unread'
+  )
+}
+
 function Workbench({
   bootstrap,
   connection,
@@ -408,26 +424,52 @@ function Workbench({
     const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
     dispatch({ type: 'open', id, preview: row ? !row.active : undefined })
   }
-  const previousSessionStates = useRef(new Map<string, { active: boolean; lifecycle?: string }>())
-  useEffect(() => {
+  const previousSessionStates = useRef(new Map<string, SessionSummary>())
+  const archiveReadConfirmations = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
     if (!sessions.data) return
     for (const row of sessions.data) {
       const previous = previousSessionStates.current.get(row.id)
+      const archived = row.metadata?.lifecycleState === 'archived'
+      const becameArchived = previous && previous.metadata?.lifecycleState !== 'archived' && archived
+      const archiveVersion = archiveReadConfirmations.current.get(row.id)
+      const confirmedArchive =
+        archived && archiveVersion !== undefined && row.metadataVersion > archiveVersion
+      if (
+        (becameArchived && archiveCanStayRead(previous, scope)) ||
+        (confirmedArchive && getSessionManualUnreadAt(`${scope}:${row.id}`) === null)
+      )
+        markSessionSeen(`${scope}:${row.id}`, row.updatedAt)
+      if (confirmedArchive || (row.active && previous?.metadata?.lifecycleState === 'archived'))
+        archiveReadConfirmations.current.delete(row.id)
       // A confirmed lifecycle change also covers archiving from Web. A lost
       // runner connection alone must not close a tab or interrupt its draft.
-      if (previous && previous.lifecycle !== 'archived' && row.metadata?.lifecycleState === 'archived')
-        rawDispatch({ type: 'close', id: row.id })
+      if (becameArchived) rawDispatch({ type: 'close', id: row.id })
       else if (row.active && !previous?.active) rawDispatch({ type: 'keep-tab', id: row.id })
     }
-    previousSessionStates.current = new Map(
-      sessions.data.map((row) => [row.id, { active: row.active, lifecycle: row.metadata?.lifecycleState }]),
-    )
-  }, [sessions.data])
-  const sessionArchived = useCallback(async (id: string) => {
-    previousSessionStates.current.set(id, { active: false, lifecycle: 'archived' })
-    await markSessionArchived(id)
-    rawDispatch({ type: 'close', id })
-  }, [])
+    previousSessionStates.current = new Map(sessions.data.map((row) => [row.id, row]))
+    for (const id of archiveReadConfirmations.current.keys())
+      if (!previousSessionStates.current.has(id)) archiveReadConfirmations.current.delete(id)
+  }, [sessions.data, scope])
+  const sessionArchived = useCallback(
+    async (id: string, beforeArchive: SessionSummary) => {
+      const row = queries.getQueryData<SessionSummary[]>(sessionsKey)?.find((row) => row.id === id)
+      if (archiveCanStayRead(beforeArchive, scope)) {
+        markSessionSeen(`${scope}:${id}`, row?.updatedAt ?? beforeArchive.updatedAt)
+        // Without SSE, the local archive changes lifecycle before REST supplies
+        // the server's new timestamp/version. Acknowledge that confirmation too.
+        if (
+          !row ||
+          row.metadata?.lifecycleState !== 'archived' ||
+          row.metadataVersion <= beforeArchive.metadataVersion
+        )
+          archiveReadConfirmations.current.set(id, beforeArchive.metadataVersion)
+      }
+      await markSessionArchived(id)
+      rawDispatch({ type: 'close', id })
+    },
+    [scope],
+  )
   const sidebarMax = Math.max(
     220,
     Math.min(480, workbenchWidth - (workspace.split ? 440 : 320) - (workspace.sidePanel ? 240 : 0)),
@@ -896,15 +938,18 @@ function Workbench({
                             />
                           )}
                           <span className="session-copy">
-                            <span>
-                              {(row.pinned || row.globalPinned) && (
-                                <Pin
-                                  size={12}
-                                  className="session-pin"
-                                  aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
-                                />
-                              )}
-                              {sessionTitle(row)}
+                            <span className="session-heading">
+                              <span className="session-name">
+                                {(row.pinned || row.globalPinned) && (
+                                  <Pin
+                                    size={12}
+                                    className="session-pin"
+                                    aria-label={t(row.globalPinned ? 'Global pins' : 'Project pins')}
+                                  />
+                                )}
+                                {sessionTitle(row)}
+                              </span>
+                              {row.active && <SessionActivityTime updatedAt={row.updatedAt} />}
                             </span>
                             <small>
                               {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}

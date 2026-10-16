@@ -17,7 +17,7 @@ export function SessionListActions(props: {
   scope: string
   onDismiss: () => void
   onDeleted: (id: string) => void
-  onArchived: (id: string) => Promise<void>
+  onArchived: (id: string, beforeArchive: SessionSummary) => Promise<void>
 }) {
   const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(true)
@@ -114,7 +114,7 @@ export function SessionListActions(props: {
         onConfirm={() =>
           perform(async () => {
             await api.archiveSession(props.session.id)
-            await props.onArchived(props.session.id)
+            await props.onArchived(props.session.id, props.session)
           })
         }
       />

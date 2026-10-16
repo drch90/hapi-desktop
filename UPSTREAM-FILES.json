@@ -1277,7 +1277,7 @@
   },
   "web/src/components/CodeBlock.tsx": {
     "upstream": "4353c99737f0de0eef35d482358e3a4acc849c81d4c7290ad28a8b57fb6031a2",
-    "vendored": "4353c99737f0de0eef35d482358e3a4acc849c81d4c7290ad28a8b57fb6031a2"
+    "vendored": "d541be302c20a3603c366d8cbc7990e61f691012d1da2893c959b4ba97477aca"
   },
   "web/src/components/CodexSessionSyncDialog.test.tsx": {
     "upstream": "7276bdd4684478e5d4802254bda5174cdcaffe85e8c52d288b631b94957ac03d",
@@ -1301,7 +1301,7 @@
   },
   "web/src/components/DiffView.tsx": {
     "upstream": "3db4228488991712c5f0f46d84dab4f3a5d66ebbd6b74a7b44290e406a532297",
-    "vendored": "3db4228488991712c5f0f46d84dab4f3a5d66ebbd6b74a7b44290e406a532297"
+    "vendored": "ece64fc6fb9391c66e42d1314f8c4c7e9437a4eeeb94936533d0ceee42480b9e"
   },
   "web/src/components/FileActionMenu.test.tsx": {
     "upstream": "a8b312cc3e9c89aa18148485c631f527953de829a76555955189c6f48fe9dde9",
@@ -1718,6 +1718,10 @@
   "web/src/components/Terminal/TerminalView.tsx": {
     "upstream": "8719aabf6f0ffe832794953a1f3b415759f442a53d68758171aa8ed1456356b2",
     "vendored": "8719aabf6f0ffe832794953a1f3b415759f442a53d68758171aa8ed1456356b2"
+  },
+  "web/src/components/TextPager.tsx": {
+    "upstream": null,
+    "vendored": "9ff626105ccd22518a495401288dee09789b83dea17c9dfe3a3ec98354e8dc9e"
   },
   "web/src/components/ToastContainer.tsx": {
     "upstream": "d60286793c5b6f522a715944e3cf1c3dfc2dbb79a7771957de65f114e5bdce9b",
@@ -2969,7 +2973,7 @@
   },
   "web/src/lib/locales/en.ts": {
     "upstream": "6f16ceb3add59f0d5788a24fb1b6aeedbce71f3398e6aca380c925a8218ba976",
-    "vendored": "6f16ceb3add59f0d5788a24fb1b6aeedbce71f3398e6aca380c925a8218ba976"
+    "vendored": "98025cc12e62085bda4906a88b3ce743b0b69b7de8670dbcee802a2af3743ec5"
   },
   "web/src/lib/locales/index.ts": {
     "upstream": "c8a0a9adbf620ea05878853e954492659c14d70056ae2592548e357c0218a4ff",
@@ -2977,7 +2981,7 @@
   },
   "web/src/lib/locales/zh-CN.ts": {
     "upstream": "79e605c5d2d8f4eff2154dca31d944b676975b9520e8a7abe7380162fab9ba8b",
-    "vendored": "79e605c5d2d8f4eff2154dca31d944b676975b9520e8a7abe7380162fab9ba8b"
+    "vendored": "86ae9018639c97d710a7fa682a4e72c2f9ee3a89822db95311c23651d37b81fb"
   },
   "web/src/lib/machineHealth.test.ts": {
     "upstream": "47a77d59607a45c9554dfee9e332b0b4c0155264a5474837cc539d2d263230fe",
@@ -3373,7 +3377,7 @@
   },
   "web/src/lib/shiki.ts": {
     "upstream": "d01f62e3c58b2a3801fdcf6a3a299226b5ff9774e0e03f2ca2d08e26700460c1",
-    "vendored": "a3477fb5ef8da1cb6a2a2d52c72545280830890be47c0c5cbd5f32bdc8b5156c"
+    "vendored": "0568e561a932cd06dd5fa2b04faec5a6efd534b2c8113b708acb69102abcc636"
   },
   "web/src/lib/spaRedirect.test.ts": {
     "upstream": "5c4f5028d22d0ac1ca5bb69661523939d9dc1d596482645655bda326e2906f09",
@@ -3394,6 +3398,10 @@
   "web/src/lib/terminalFont.ts": {
     "upstream": "6e7cd4fdfe57914d25cd5d867025f76ee4a93e82dd2dd09d21c17c46787a9f6a",
     "vendored": "6e7cd4fdfe57914d25cd5d867025f76ee4a93e82dd2dd09d21c17c46787a9f6a"
+  },
+  "web/src/lib/text-rendering.ts": {
+    "upstream": null,
+    "vendored": "23c290117b137ad8a88c3ed64e796e9b0fd031fec1153d8bf28018c7361e4740"
   },
   "web/src/lib/toast-context.tsx": {
     "upstream": "c000c7f5db3d44848dfaf8ab4fd607c3ce59f0926220d859fc7e9ed157de397d",
@@ -3437,7 +3445,7 @@
   },
   "web/src/lib/utils.ts": {
     "upstream": "a92da3c8d24addda1df17ede692d158043e86df0c3a05f9b16d24ec4062a04c7",
-    "vendored": "a92da3c8d24addda1df17ede692d158043e86df0c3a05f9b16d24ec4062a04c7"
+    "vendored": "77cbf9190f3d5a11865793b1a602752e4954097dc1e42d04abd74e50a2dffad6"
   },
   "web/src/lib/voice-context.tsx": {
     "upstream": "eaeb5c8b21aada20688904fff0dd3099cc3f00eab8de3ef936184a4952033462",
@@ -3573,7 +3581,7 @@
   },
   "web/src/routes/sessions/file.tsx": {
     "upstream": "7d34fb1cd43536a88b462e640bbeea48b64ca1fcc25f81817133bfa942474759",
-    "vendored": "fb8c92118f3874486e08aae1958e8118004fb7678a14f9ccd22c7d0ddfe8a073"
+    "vendored": "5b4bcbd5f0602d6e682f7c42bf900f32962cf2e3f7bfa3da142b5694a74eba11"
   },
   "web/src/routes/sessions/files.test.tsx": {
     "upstream": "40d7460d4860d840cdc00101d6d460046007a0b28c521ad193ed918a91c21eaa",

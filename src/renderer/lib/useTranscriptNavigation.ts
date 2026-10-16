@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { VisibleChatBlock } from '@/chat/toolGroups'
 import type { OlderHistoryLoadResult } from '@/components/AssistantChat/context'
 import type { useMessages } from '@/hooks/queries/useMessages'
@@ -214,7 +214,7 @@ export function useTranscriptNavigation(props: {
     return true
   }
 
-  async function loadEarlier(): Promise<OlderHistoryLoadResult> {
+  const loadEarlier = useCallback(async (): Promise<OlderHistoryLoadResult> => {
     if (!props.messages.hasMore) return 'terminal-stop'
     if (props.messages.isLoadingMore || props.messages.isSyncingTail) return 'transient-stop'
     const run = ++navigation.current
@@ -239,7 +239,13 @@ export function useTranscriptNavigation(props: {
     if (outcome.kind === 'stopped' && (outcome.reason === 'busy' || outcome.reason === 'epoch-reset'))
       return 'transient-stop'
     return 'terminal-stop'
-  }
+  }, [
+    props.sessionId,
+    props.messages.hasMore,
+    props.messages.isLoadingMore,
+    props.messages.isSyncingTail,
+    props.messages.loadMore,
+  ])
 
   return {
     viewport,

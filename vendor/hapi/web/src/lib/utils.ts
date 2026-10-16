@@ -11,7 +11,10 @@ export function cn(...inputs: ClassValue[]): string {
 export function decodeBase64(value: string): { text: string; ok: boolean } {
     try {
         const binaryString = atob(value)
-        const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0))
+        // Uint8Array.from(string, callback) builds a per-character iterable
+        // and creates severe allocation pressure for multi-megabyte files.
+        const bytes = new Uint8Array(binaryString.length)
+        for (let index = 0; index < binaryString.length; index++) bytes[index] = binaryString.charCodeAt(index)
         const text = new TextDecoder('utf-8').decode(bytes)
         return { text, ok: true }
     } catch {
