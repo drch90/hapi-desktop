@@ -155,6 +155,7 @@ export class FixtureHub {
   failPin = false
   failUsage = false
   failScratchSaveAfterCommit = false
+  scratchSaveGate: Promise<void> | null = null
   failScratchDelete = false
   cancelGate: Promise<void> | null = null
   scratchlists = new Map<
@@ -502,6 +503,7 @@ export class FixtureHub {
           reply({ entries: [...entries.values()] })
           return
         }
+        await this.scratchSaveGate
         const entryId = String(body.entryId ?? `note-${entries.size + 1}`)
         const entry = entries.get(entryId) ?? {
           entryId,

@@ -78,18 +78,22 @@ import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { SessionActivityTime } from './components/SessionActivityTime'
+import { SessionSearch, type SessionSearchHandle } from './components/SessionSearch'
 import { UsageDialog } from './components/Usage'
 import { Tabs } from './components/Tabs'
 import { NewSessionDialog } from './components/NewSessionDialog'
 
-// New upstream picker labels share the desktop's seven-language catalog.
-const hermesLabels: Record<string, string> = {
+// Adapt shared component copy to the desktop's controls and seven-language catalog.
+const desktopWebLabels: Record<string, string> = {
   'newSession.hermes.modelPlaceholder': 'Leave empty to use Hermes configuration',
   'hermes.models.default': 'Use Hermes default',
   'hermes.models.refresh': 'Refresh models',
   'hermes.models.search': 'Search provider or model',
   'hermes.models.loading': 'Loading Hermes models…',
   'hermes.models.empty': 'No matching models',
+  'scratchlist.title': 'Scratchlist',
+  'scratchlist.drawerHint': 'Save drafts without sending. Close the list to restore the Send button.',
+  'scratchlist.emptyHint': 'No stored messages yet. Save the current draft or add a message above.',
 }
 
 export function App() {
@@ -142,8 +146,8 @@ export function App() {
       locale,
       setLocale: () => {},
       t: (key: string, params?: Record<string, string | number>) =>
-        hermesLabels[key]
-          ? t(hermesLabels[key], { lng: settings?.locale })
+        desktopWebLabels[key]
+          ? t(desktopWebLabels[key], { lng: settings?.locale })
           : ((dict as Record<string, string>)[key] ?? (en as Record<string, string>)[key] ?? key).replace(
               /\{(\w+)\}/g,
               (match, key: string) => String(params?.[key] ?? match),
@@ -353,7 +357,7 @@ function Workbench({
   const [machineFilter, setMachineFilter] = useState('')
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [markAllRead, setMarkAllRead] = useState(false)
-  const searchInput = useRef<HTMLInputElement>(null)
+  const searchInput = useRef<SessionSearchHandle>(null)
   const sessionTree = useRef<HTMLDivElement>(null)
   const [locateTarget, setLocateTarget] = useState<string | null>(null)
   const workbench = useRef<HTMLElement>(null)
@@ -518,7 +522,14 @@ function Workbench({
       forgetSession(id)
       forgetAttachmentDraft(scope, id)
       forgetQueueEdit(scope, id)
-      for (const family of ['draft', 'outbox', 'queue-edit', 'scratch-draft', 'scratch-save'])
+      for (const family of [
+        'draft',
+        'outbox',
+        'queue-edit',
+        'scratch-draft',
+        'scratch-save',
+        'composer-park',
+      ])
         localStorage.removeItem(`desktop:${family}:${scope}:${id}`)
       for (const key of Object.keys(localStorage))
         if (key.startsWith(`desktop:scratch-send:${scope}:${id}:`)) localStorage.removeItem(key)
@@ -787,16 +798,14 @@ function Workbench({
           <Plus size={16} />
           {t('New session')}
         </Button>
-        <div className="search-field">
-          <Search size={15} />
-          <input
-            ref={searchInput}
-            aria-label={t('Search sessions')}
-            placeholder={t('Search sessions')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        <SessionSearch
+          key={scope}
+          ref={searchInput}
+          scope={scope}
+          value={search}
+          onChange={setSearch}
+          collapsed={workspace.sidebarCollapsed}
+        />
         <div className="session-list-tools">
           <select
             aria-label={t('Filter by machine')}

@@ -52,9 +52,11 @@ Desktop 包含界面与共享 Web 源码，远端 CLI/Hub 的修复需要单独�
 - 原二进制、SQLite 一致性备份和服务配置保存在 `/root/.hapi/backups/model-queue-20261019T012442Z/`；数据库备份通过 `quick_check`。备份含本机数据，不加入源码仓库。
 - 新二进制 SHA-256：`811556a004ab5b7d0b37a5d72f582e2670f2b0babb7b053e0a4524f1925b42c2`。
 
-Windows x64 安装包已重新构建，版本仍为 **1.0.3**，保存在 `build/model-queue-20261019/HAPI-Desktop-1.0.3-win-x64-setup.exe`，大小为 97,535,490 字节。SHA-256：`f2d7d830f58f01eb1a9f2ded516abcaee89a9cfb87cd08dd1ba617060a9f0c5d`。同目录保存校验文件和验证记录；按用户要求仅保存在本机，未发送安装包。
+模型与队列修复曾生成 Windows x64 安装包，版本为 **1.0.3**，大小为 97,535,490 字节。SHA-256：`f2d7d830f58f01eb1a9f2ded516abcaee89a9cfb87cd08dd1ba617060a9f0c5d`。原打包位置为 `build/model-queue-20261019/`；该中间产物已在后续磁盘清理时删除，校验与验证记录保留用于追溯。
 
 后续在此基础上新增了历史目录分组按完整路径字母排序及排序规则设置（`workspaceGroupSort`），更新后的 Windows 安装包保存在 `build/workspace-order-20261019/HAPI-Desktop-1.0.3-win-x64-setup.exe`，大小为 97,535,663 字节，SHA-256：`c1a5ffb4c2ddcc76dd1d0f3eefc4e24372c030f3694e5a7ff6f031523f9751bd`。同目录包含校验文件与验证记录。
+
+目录排序构建保留为上一份可回退安装包。最新构建还包含会话搜索与消息暂存优化，位置和 SHA-256 见 [未发布更新](release-notes/unreleased.md#搜索与暂存优化验证)。安装包保留规则见 [本地产物保留与清理](../README.md#本地产物保留与清理)。
 
 已校验安装包中 177 个构建文件与当前输出逐字节一致，NSIS 和内层压缩包完整性通过，内层 `app.asar` 与已验证文件一致。远端程序通过独立临时数据目录的启动、健康检查及嵌入 Web 资源检查。构建、打包及验证全程限制为 2 个 CPU 核心；后续测试须继续遵守 [CPU 资源限制](../README.md#cpu-资源限制)。
 

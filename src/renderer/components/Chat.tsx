@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowUp,
+  X,
   Square,
   RotateCcw,
   Pencil,
@@ -23,6 +24,8 @@ import {
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { ApiError } from '@/api/client'
+import { finalizeMigratedScratchlistParkCleanup } from '@/lib/scratchlistAttachmentFlow'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
 import { ToolCard, ToolDetailDialogContent, getToolTimingDetails } from '@/components/ToolCard/ToolCard'
 import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
@@ -80,6 +83,7 @@ import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread
 import { buildConversationOutline } from '@/chat/outline'
 import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
 import { useComposerSuggestions } from '../lib/useComposerSuggestions'
+import { parkComposerDraft, useComposerPark } from '../lib/composerPark'
 import { formatFileReference } from '@/lib/file-composer'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
@@ -143,7 +147,9 @@ export function Chat({
   })
   const session = query.data
   const scopedApi = useMemo(() => createApi(scope), [scope])
-  const attachments = useAttachments(scope, id, Boolean(session?.active && connected))
+  const composerPark = useComposerPark(scope, id)
+  const [scratchlistOpen, setScratchlistOpen] = useState(Boolean(composerPark.pending))
+  const attachments = useAttachments(scope, id, Boolean(session?.active && connected && !scratchlistOpen))
   const fileInput = useRef<HTMLInputElement>(null)
   const messages = useMessages(api, id)
   const [draft, setDraft] = useState(() => loadDraft(scope, id))
@@ -177,14 +183,14 @@ export function Chat({
   const queueEdit = useQueueEdit(scope, id)
   const [editWorking, setEditWorking] = useState(false)
   const attempt = useAttempt(scope, id)
-  const [busy, setBusy] = useState(false)
+  const [actionBusy, setBusy] = useState(false)
+  const busy = actionBusy || composerPark.working
   const [error, setError] = useState('')
   const [rename, setRename] = useState(false)
   const [archive, setArchive] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [configuration, setConfiguration] = useState(false)
   const [questionsExpanded, setQuestionsExpanded] = useState(true)
-  const [scratchlistOpen, setScratchlistOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const outlineButton = useRef<HTMLButtonElement>(null)
   const outlineContainer = useRef<HTMLDivElement>(null)
@@ -397,6 +403,10 @@ export function Chat({
     }
   }
   async function send(retry = false, deliveryMode: MessageDeliveryMode = 'queue') {
+    if (scratchlistOpen && !retry) {
+      if (deliveryMode === 'queue') await parkDraft()
+      return
+    }
     if (
       busy ||
       editWorking ||
@@ -517,6 +527,74 @@ export function Chat({
       }
     }
   }
+  async function parkDraft() {
+    if (busy || editWorking || attempt || !session || !connected || attachments.loading || attachments.error)
+      return
+    if (!composerPark.pending && !latestDraft.current.text.trim() && !attachments.items.length) return
+    if (!latestDraft.current.revision) updateDraft({ revision: crypto.randomUUID() })
+    const submitted = { ...latestDraft.current }
+    const generation = queueEditEpoch()
+    const current = () => generation === queueEditEpoch() && !migrated.current && attachments.isCurrent()
+    let selected = false
+    setError('')
+    try {
+      saveDraft(scope, id, submitted)
+      await parkComposerDraft({
+        scope,
+        sessionId: id,
+        api: scopedApi,
+        snapshot: async () => {
+          const items = attachments.select()
+          selected = true
+          await Promise.all(items.map((item) => item.job))
+          return {
+            text: submitted.text,
+            draftRevision: submitted.revision!,
+            attachments: items.map((item) => ({
+              id: item.value?.id ?? item.id,
+              file: item.file,
+              name: item.file.name,
+              contentType: item.file.type,
+              path: item.value?.path,
+            })),
+          }
+        },
+        onSaved: async (receipt) => {
+          if (!alive.current || !current()) return false
+          const sameDraft = () =>
+            latestDraft.current.revision === receipt.draftRevision &&
+            latestDraft.current.text === receipt.text
+          const ids = attachments.items.map((item) => item.value?.id ?? item.id)
+          const sameAttachments =
+            ids.length === receipt.attachmentIds.length &&
+            ids.every((attachmentId, index) => attachmentId === receipt.attachmentIds[index])
+          // New typing or attachments belong to a new draft. Preserve them in full.
+          if (sameDraft() && sameAttachments) {
+            await attachments.clearSent(receipt.attachmentIds)
+            if (!alive.current || !current()) return false
+            if (sameDraft()) updateDraft({ text: '', scheduledAt: null })
+            saveDraft(scope, id, latestDraft.current)
+            await finalizeMigratedScratchlistParkCleanup(scopedApi, id, receipt.attachments, true)
+          }
+          void queries.invalidateQueries({ queryKey: ['desktop-scratchlist', scope, id] })
+          return true
+        },
+      })
+    } catch (error) {
+      if (alive.current && current())
+        setError(
+          error instanceof ApiError && [404, 405, 501].includes(error.status)
+            ? 'This Hub does not support this operation, or the item is unavailable.'
+            : error instanceof ApiError && error.code === 'scratchlist_at_cap'
+              ? 'Scratchlist is full. Remove an entry and retry.'
+              : error instanceof Error && error.message === 'SCRATCH_TEXT_TOO_LONG'
+                ? 'Stored messages must be 10,000 characters or fewer.'
+                : 'Could not save to scratchlist. Your draft is kept; retry saving.',
+        )
+    } finally {
+      if (selected) attachments.release()
+    }
+  }
   async function inspectAttempt() {
     if (!attempt || busy || attachments.loading) return
     setBusy(true)
@@ -618,7 +696,7 @@ export function Chat({
   async function attachFiles(files: File[]) {
     if (!files.length || busy || !connected || attempt || !session || attachments.loading) return
     await attachments.add(files)
-    if (!session.active) {
+    if (!session.active && !scratchlistOpen) {
       await action(async () => {
         const target = await scopedApi.resumeSession(id)
         if (target !== id) {
@@ -1023,7 +1101,7 @@ export function Chat({
             </div>
           )}
           <form
-            className="composer"
+            className={`composer ${scratchlistOpen ? 'scratchlist-mode' : ''}`}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes('Files')) event.preventDefault()
             }}
@@ -1079,8 +1157,8 @@ export function Chat({
             )}
             <textarea
               ref={composer}
-              aria-label={t('Send a message…')}
-              placeholder={t('Send a message…')}
+              aria-label={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
+              placeholder={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
               value={draft.text}
               readOnly={Boolean(attempt)}
               onFocus={() => setComposerFocused(true)}
@@ -1163,16 +1241,37 @@ export function Chat({
                   flavor={session?.metadata?.flavor}
                 />
               </div>
-              <button
-                type="button"
-                className={`icon-button ${scratchlistOpen ? 'selected' : ''}`}
-                aria-label={t('Scratchlist')}
-                title={t('Scratchlist')}
-                aria-expanded={scratchlistOpen}
-                onClick={() => setScratchlistOpen(!scratchlistOpen)}
-              >
-                <NotebookPen size={17} />
-              </button>
+              <div className="composer-scratchlist-actions">
+                <button
+                  type="button"
+                  className={`icon-button ${scratchlistOpen ? 'selected' : ''}`}
+                  aria-label={t('Scratchlist')}
+                  title={t(
+                    draft.text.trim() || attachments.items.length ? 'Save to scratchlist' : 'Scratchlist',
+                  )}
+                  aria-expanded={scratchlistOpen}
+                  disabled={busy || editWorking || Boolean(attempt) || attachments.loading || !connected}
+                  onClick={() => {
+                    if (draft.text.trim() || attachments.items.length || composerPark.pending) {
+                      setScratchlistOpen(true)
+                      void parkDraft()
+                    } else setScratchlistOpen(!scratchlistOpen)
+                  }}
+                >
+                  <NotebookPen size={17} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={t(scratchlistOpen ? 'Close scratchlist' : 'View scratchlist')}
+                  title={t(scratchlistOpen ? 'Close scratchlist' : 'View scratchlist')}
+                  aria-expanded={scratchlistOpen}
+                  disabled={composerPark.working}
+                  onClick={() => setScratchlistOpen(!scratchlistOpen)}
+                >
+                  {scratchlistOpen ? <X size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </div>
             </div>
             <div className="composer-toolbar">
               <div className="composer-toolbar-left">
@@ -1239,9 +1338,13 @@ export function Chat({
                 <span className="small muted composer-enter-hint">
                   {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}
                   {t(
-                    enterBehavior === 'send'
-                      ? 'Enter sends · Shift+Enter adds a line'
-                      : 'Enter adds a line · Ctrl+Enter sends',
+                    scratchlistOpen
+                      ? enterBehavior === 'send'
+                        ? 'Enter saves · Shift+Enter adds a line'
+                        : 'Enter adds a line · Ctrl+Enter saves'
+                      : enterBehavior === 'send'
+                        ? 'Enter sends · Shift+Enter adds a line'
+                        : 'Enter adds a line · Ctrl+Enter sends',
                   )}
                 </span>
               </div>
@@ -1269,7 +1372,7 @@ export function Chat({
                 >
                   {t('Native commands')}
                 </Button>
-                {canSteer && !draft.text.trimStart().startsWith('/') && (
+                {canSteer && !scratchlistOpen && !draft.text.trimStart().startsWith('/') && (
                   <Button
                     type="button"
                     size="sm"
@@ -1321,19 +1424,30 @@ export function Chat({
                 <Button
                   type="submit"
                   size="sm"
+                  className={scratchlistOpen ? 'composer-park-button' : undefined}
                   disabled={
                     !connected ||
                     busy ||
                     editWorking ||
-                    (!draft.text.trim() && !attachments.items.length) ||
+                    (!draft.text.trim() &&
+                      !attachments.items.length &&
+                      !(scratchlistOpen && composerPark.pending)) ||
                     Boolean(attempt) ||
                     !session ||
                     attachments.loading ||
-                    (session.active && !attachments.ready)
+                    (scratchlistOpen ? Boolean(attachments.error) : session.active && !attachments.ready)
                   }
                 >
-                  <ArrowUp size={15} />
-                  {t('Send')}
+                  {scratchlistOpen ? <NotebookPen size={15} /> : <ArrowUp size={15} />}
+                  {t(
+                    scratchlistOpen
+                      ? composerPark.working
+                        ? 'Saving…'
+                        : composerPark.pending
+                          ? 'Retry saving'
+                          : 'Save to scratchlist'
+                      : 'Send',
+                  )}
                 </Button>
               </div>
             </div>

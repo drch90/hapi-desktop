@@ -81,6 +81,7 @@ temp/
 
 # Local editor and operating-system files
 .idea/
+/.claude/worktrees/
 .DS_Store
 Thumbs.db
 desktop.ini

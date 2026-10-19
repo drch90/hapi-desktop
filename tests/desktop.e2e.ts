@@ -5037,6 +5037,107 @@ test('tab context operations, keyboard restore, dragging and sidebar preferences
   expect(errors).toEqual([])
 })
 
+test('session search history opens on click, persists, reuses and removes recent terms', async () => {
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  const history = page.getByRole('region', { name: '最近搜索', exact: true })
+  const cancel = page.getByRole('button', { name: '取消搜索', exact: true })
+  await expect(history).toHaveCount(0)
+  await search.click()
+  await expect(history).toContainText('暂无搜索记录')
+  await search.fill('rev')
+  await search.fill('review')
+  await expect(history).toHaveCount(0)
+  await expect(page.getByTestId('session-review')).toBeVisible()
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await search.press('Enter')
+  await cancel.click()
+  await expect(search).toHaveValue('')
+  await expect(history).toHaveCount(0)
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await search.fill('history')
+  await search.press('Enter')
+  await cancel.click()
+  await search.fill('design')
+  await page.getByTestId('session-design').click()
+  await cancel.click()
+  await search.click()
+  await expect(history.locator('.search-history-query')).toHaveText(['design', 'history', 'review'])
+  await history.getByRole('button', { name: 'review', exact: true }).click()
+  await expect(search).toHaveValue('review')
+  await expect(history).toHaveCount(0)
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await search.click()
+  await page.screenshot({ path: 'build/session-search-history.png', animations: 'disabled' })
+  await page.reload()
+  await search.click()
+  await expect(history.locator('.search-history-query')).toHaveText(['review', 'design', 'history'])
+  await history.getByRole('button', { name: 'review', exact: true }).click()
+  await search.click()
+  await history.getByRole('button', { name: '删除搜索记录: review', exact: true }).click()
+  await expect(search).toHaveValue('review')
+  await expect(history.locator('.search-history-query')).toHaveText(['design', 'history'])
+  await cancel.click()
+  await page.reload()
+  await search.click()
+  await expect(history.locator('.search-history-query')).toHaveText(['design', 'history'])
+  await history.getByRole('button', { name: '清空历史', exact: true }).click()
+  await expect(history).toContainText('暂无搜索记录')
+  await page.reload()
+  await search.click()
+  await expect(history).toContainText('暂无搜索记录')
+  await page.locator('.brand').click()
+  await expect(history).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('session search supports keyboard history and quick cancellation while preserving other filters', async () => {
+  const search = page.getByRole('textbox', { name: '搜索会话', exact: true })
+  const history = page.getByRole('region', { name: '最近搜索', exact: true })
+  const machine = page.getByRole('combobox', { name: '按机器筛选', exact: true })
+  const unread = page.getByLabel('仅看未读', { exact: true })
+  await search.fill('design')
+  await search.press('Escape')
+  await search.fill('review')
+  await search.press('Enter')
+  await page.keyboard.press('Control+b')
+  await expect(page.locator('.sidebar')).toHaveClass(/collapsed/)
+  await page.keyboard.press('Control+k')
+  await expect(search).toBeFocused()
+  await expect(history).toBeVisible()
+  expect(
+    await search.evaluate((input: HTMLInputElement) => input.selectionEnd! - input.selectionStart!),
+  ).toBe(6)
+  await search.press('ArrowDown')
+  await expect(history.getByRole('button', { name: 'review', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(history.getByRole('button', { name: 'design', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(search).toHaveValue('design')
+  await expect(history).toHaveCount(0)
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await search.press('Escape')
+  await page.getByTestId('session-design').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /标记为未读|标为未读/ }).click()
+  await machine.selectOption('linux-1')
+  await unread.check()
+  await search.fill('no-matching-session')
+  await expect(page.getByTestId('session-design')).toHaveCount(0)
+  await search.click()
+  await search.press('Escape')
+  await expect(search).toHaveValue('')
+  await expect(history).toHaveCount(0)
+  await expect(machine).toHaveValue('linux-1')
+  await expect(unread).toBeChecked()
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  await search.fill('no-matching-session')
+  await page.getByRole('button', { name: '取消搜索', exact: true }).click()
+  await expect(search).toHaveValue('')
+  await expect(machine).toHaveValue('linux-1')
+  await expect(unread).toBeChecked()
+  await expect(page.getByTestId('session-design')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('session pins, manual unread and combined search filters', async () => {
   await page.getByTestId('session-design').click()
   await page.getByTestId('session-design').click({ button: 'right' })
@@ -5158,11 +5259,160 @@ test('queue edit keeps a draft changed during cancellation and survives tab swit
   expect(errors).toEqual([])
 })
 
+test('scratchlist parks the current composer immediately and routes its send shortcuts to storage', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  const panel = chat.locator('.scratchlist-panel')
+  await input.fill('当前尚未发送的草稿')
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await expect(panel).toContainText('当前尚未发送的草稿')
+  await expect(input).toHaveValue('')
+  await expect(form).toHaveClass(/scratchlist-mode/)
+  await expect(form.getByRole('button', { name: '发送', exact: true })).toHaveCount(0)
+  await expect(panel).toContainText('关闭列表可恢复主输入框的“发送”按钮')
+  await input.fill('/clear')
+  await input.press('Control+Enter')
+  await expect(panel).toContainText('/clear')
+  await expect(input).toHaveValue('')
+  await input.fill('点击主按钮也应暂存')
+  await form.getByRole('button', { name: '保存到暂存列表', exact: true }).click()
+  await expect(panel).toContainText('点击主按钮也应暂存')
+  await expect(input).toHaveValue('')
+  await page.evaluate(() => window.desktop.updateSettings({ enterBehavior: 'send' }))
+  await expect(form).toContainText('Enter 保存 · Shift+Enter 换行')
+  await input.fill('Enter 保存的草稿')
+  await input.press('Enter')
+  await expect(panel).toContainText('Enter 保存的草稿')
+  await expect(input).toHaveValue('')
+  expect(server.scratchlists.get('design')?.size).toBe(4)
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'POST' && /\/(messages|resume|clear)$/.test(request.path),
+    ),
+  ).toHaveLength(0)
+  await input.fill('关闭暂存后明确发送')
+  await page.screenshot({ path: 'build/composer-scratchlist.png', animations: 'disabled' })
+  await chat.getByRole('button', { name: '关闭暂存列表', exact: true }).click()
+  await expect(form).not.toHaveClass(/scratchlist-mode/)
+  await form.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(input).toHaveValue('')
+  expect(
+    server.requests
+      .filter((request) => request.method === 'POST' && request.path.endsWith('/messages'))
+      .map((request) => request.body.text),
+  ).toEqual(['关闭暂存后明确发送'])
+  expect(server.scratchlists.get('design')?.size).toBe(4)
+  expect(errors).toEqual([])
+})
+
+test('scratchlist composer saves preserve newer edits and retry after reload without duplicating attachments', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  const panel = chat.locator('.scratchlist-panel')
+  await expect(form.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await form.locator('input[type="file"]').setInputFiles({
+    name: 'park-note.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Keep these bytes on the Hub'),
+  })
+  await expect(form.locator('.attachment-draft').getByRole('status')).toHaveText('待发送')
+  let release!: () => void
+  server.scratchSaveGate = new Promise<void>((resolve) => (release = resolve))
+  await input.fill('保存开始时的内容')
+  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await expect
+    .poll(
+      () =>
+        server.requests.filter(
+          (request) => request.method === 'POST' && request.path.endsWith('/scratchlist'),
+        ).length,
+    )
+    .toBe(1)
+  await input.fill('保存过程中继续修改的草稿')
+  release()
+  server.scratchSaveGate = null
+  await expect(panel).toContainText('保存开始时的内容')
+  await expect(input).toHaveValue('保存过程中继续修改的草稿')
+  await expect(form.locator('.attachment-draft')).toContainText('park-note.txt')
+  await expect(form.getByRole('button', { name: '保存到暂存列表', exact: true })).toBeEnabled()
+  server.failScratchSaveAfterCommit = true
+  await form.getByRole('button', { name: '保存到暂存列表', exact: true }).click()
+  await expect(chat.locator('.send-alert')).toContainText('暂存未完成，草稿已保留')
+  await expect(input).toHaveValue('保存过程中继续修改的草稿')
+  await expect.poll(() => server.scratchlists.get('design')?.size).toBe(2)
+  server.failScratchSaveAfterCommit = false
+  await page.reload()
+  await expect(panel).toBeVisible()
+  await expect(input).toHaveValue('保存过程中继续修改的草稿')
+  await form.getByRole('button', { name: '重试保存', exact: true }).click()
+  await expect(input).toHaveValue('')
+  await expect(form.locator('.attachment-draft')).toHaveCount(0)
+  expect(server.scratchlists.get('design')?.size).toBe(2)
+  const saves = server.requests.filter(
+    (request) => request.method === 'POST' && request.path.endsWith('/scratchlist'),
+  )
+  expect(saves).toHaveLength(3)
+  expect(saves[1].body.entryId).toBe(saves[2].body.entryId)
+  expect(server.requests.filter((request) => request.path.endsWith('/scratchlist/upload'))).toHaveLength(2)
+  expect(
+    server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+  ).toHaveLength(0)
+  const entry = [...server.scratchlists.get('design')!.values()][0]
+  entry.text = '另一客户端更新的暂存内容'
+  entry.updatedAt = Date.now() + 1
+  server.emit({
+    type: 'session-updated',
+    sessionId: 'design',
+    data: { scratchlistUpdatedAt: entry.updatedAt },
+  })
+  await expect(panel).toContainText('另一客户端更新的暂存内容')
+  expect(errors).toEqual([])
+})
+
+test('scratchlist parks archived-session attachments without resuming or sending to a runner', async () => {
+  await page.getByTestId('session-history').click()
+  const chat = page.getByTestId('chat-history')
+  const form = chat.locator('.composer')
+  await chat.getByRole('button', { name: '查看暂存列表', exact: true }).click()
+  await expect(form.getByRole('button', { name: '上传文件', exact: true })).toBeEnabled()
+  await form.locator('input[type="file"]').setInputFiles({
+    name: 'later.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Archived-session note'),
+  })
+  await form.getByRole('button', { name: '保存到暂存列表', exact: true }).click()
+  await expect(chat.getByTestId('scratchlist-entry')).toContainText('（附件）')
+  await expect(form.locator('.attachment-draft')).toHaveCount(0)
+  expect(server.scratchlists.get('history')?.size).toBe(1)
+  const stored = [...server.scratchlists.get('history')!.values()][0].attachments[0]
+  expect(stored.filename).toBe('later.txt')
+  expect(server.scratchFiles.get(stored.id)?.bytes.toString()).toBe('Archived-session note')
+  expect(
+    server.requests.filter(
+      (request) => request.method === 'POST' && /\/(messages|resume|spawn)$/.test(request.path),
+    ),
+  ).toHaveLength(0)
+  expect(server.uploads.size).toBe(0)
+  await page.reload()
+  await page.getByTestId('session-history').click()
+  await chat.getByRole('button', { name: '查看暂存列表', exact: true }).click()
+  await expect(chat.getByTestId('scratchlist-entry')).toContainText('（附件）')
+  await chat.locator('.scratchlist-panel').getByRole('button', { name: '复制到输入框', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '添加到输入框', exact: true }).click()
+  await expect(form.locator('.attachment-draft')).toContainText('later.txt')
+  expect(server.uploads.size).toBe(0)
+  expect(errors).toEqual([])
+})
+
 test('scratchlist stores and edits Hub entries, retries idempotently, and sends without overwriting drafts', async () => {
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
   await chat.locator('.composer textarea').fill('keep this draft')
-  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await chat.getByRole('button', { name: '查看暂存列表', exact: true }).click()
   const panel = chat.getByRole('region', { name: '暂存消息', exact: true })
   server.failScratchSaveAfterCommit = true
   await panel.getByRole('textbox', { name: '新增暂存消息' }).fill('idea for later')
@@ -5176,7 +5426,7 @@ test('scratchlist stores and edits Hub entries, retries idempotently, and sends 
   await page.getByRole('button', { name: '保存修改' }).click()
   await expect(panel).toContainText('revised stored idea')
   await page.reload()
-  await chat.getByRole('button', { name: '暂存消息', exact: true }).click()
+  await chat.getByRole('button', { name: '查看暂存列表', exact: true }).click()
   await expect(panel).toContainText('revised stored idea')
   server.failScratchDelete = true
   await panel.getByRole('button', { name: '加入发送队列', exact: true }).click()
