@@ -52,6 +52,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
   expect(storage.settings).toMatchObject({
     enterBehavior: 'newline',
     fontSize: 'normal',
+    workspaceGroupSort: 'path-asc',
     collapseHistoryByDefault: true,
     codexExplorationCollapsed: true,
     theme: 'dark',
@@ -62,6 +63,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
     ...storage.settings,
     enterBehavior: 'send',
     fontSize: 'extra-large',
+    workspaceGroupSort: 'path-desc',
     collapseHistoryByDefault: false,
     codexExplorationCollapsed: false,
   })
@@ -69,6 +71,7 @@ it('preserves older preferences and defaults Enter to newline, then persists the
     ...storage.settings,
     enterBehavior: 'send',
     fontSize: 'extra-large',
+    workspaceGroupSort: 'path-desc',
   })
 })
 

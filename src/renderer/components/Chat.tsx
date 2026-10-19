@@ -557,6 +557,7 @@ export function Chat({
         }
         if (
           state.queuedLocalIds.includes(queueEdit.localId) ||
+          state.dispatchingLocalIds?.includes(queueEdit.localId) ||
           state.indeterminateLocalIds?.includes(queueEdit.localId)
         ) {
           saveQueueEdit(scope, id, null, generation, queueEdit.localId)
@@ -1538,6 +1539,11 @@ const MessageBlock = memo(function MessageBlock({
         <MarkdownRenderer content={block.text} preserveSingleLineBreaks={block.kind === 'user-text'} />
         {block.kind === 'user-text' && block.attachments && (
           <MessageAttachments attachments={block.attachments} />
+        )}
+        {block.kind === 'user-text' && block.steered && (
+          <span className="small muted" title={web('queuedMessages.steeredBadgeTitle')}>
+            {web('queuedMessages.steeredBadge')}
+          </span>
         )}
       </article>
     )

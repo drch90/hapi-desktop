@@ -401,7 +401,7 @@
   },
   "shared/src/apiTypes.ts": {
     "upstream": "0a1bf18ddbd69697a9a817b053b72c0a0288e8ad7342098743f1868c7d0991b1",
-    "vendored": "5d3220d06502803a1fffdfe7c6daac60096ccd2bc5c8ca89053fe9a3798842ed"
+    "vendored": "0f4f1da1f137b29c740e7c5b0a137529b3dc9d7bd1405623153662354c4f4011"
   },
   "shared/src/buildInfo.ts": {
     "upstream": "cd60d840a872faa3c2b7cd30d71ef5983bd83577a898ac7a254359667de8829a",
@@ -517,7 +517,7 @@
   },
   "shared/src/schemas.ts": {
     "upstream": "c80ba6f753616ca27123d58f21cc5bcc15d4d71cd6d1ce794ceabb37052fadc5",
-    "vendored": "af82aa4e704226ae7be96b1757bbb8e76ff3be708f3b92f0a262814817af89db"
+    "vendored": "8b87e8d24497476542918fa768ad4ec9c08458277707f6b7f1121870ea65d78a"
   },
   "shared/src/scratchlistAttachments.ts": {
     "upstream": "05e5dd361a3eccf01aa575e10801da261975fd42d7c45e0a870a539c861463cf",
@@ -1029,11 +1029,11 @@
   },
   "web/src/components/AssistantChat/QueuedMessagesBar.test.tsx": {
     "upstream": "927e10cf7c30a9f4557f5d3f9a68f6035eabd612d48abc20cab1a38a3172770b",
-    "vendored": "927e10cf7c30a9f4557f5d3f9a68f6035eabd612d48abc20cab1a38a3172770b"
+    "vendored": "4c29578dcc953428eafc265fc17e0624cd13df2c8466d55c2680c03182905ec8"
   },
   "web/src/components/AssistantChat/QueuedMessagesBar.tsx": {
     "upstream": "e963afa972e39bc046827541871874fb9ce74e10e972530c33af6b2d1f9525aa",
-    "vendored": "e963afa972e39bc046827541871874fb9ce74e10e972530c33af6b2d1f9525aa"
+    "vendored": "0787660d66e306800ab376b06ca9655dce25f388b476371d314660cd83d43ce4"
   },
   "web/src/components/AssistantChat/RichComposerInput.segments.test.ts": {
     "upstream": "c0830583761c6e8be972b3c46f5375c46b98edd68148f3cb9866288e3158cdca",
@@ -2561,7 +2561,7 @@
   },
   "web/src/hooks/useSSE.ts": {
     "upstream": "29cf8dab49a41f3e95298c4037af6c344339c030bbdcdc815204243ecc78c9a3",
-    "vendored": "29cf8dab49a41f3e95298c4037af6c344339c030bbdcdc815204243ecc78c9a3"
+    "vendored": "b159e6abf18be3998986769231f4deecf5f7ad54d959b3955fdfd20bcc3f0a06"
   },
   "web/src/hooks/useSelectedSessionSeen.test.ts": {
     "upstream": "9679d31e8e11f399cd6f16d7ba40aed4aa9b8bdc86166722530e82da0ccfc920",
@@ -2973,7 +2973,7 @@
   },
   "web/src/lib/locales/en.ts": {
     "upstream": "6f16ceb3add59f0d5788a24fb1b6aeedbce71f3398e6aca380c925a8218ba976",
-    "vendored": "98025cc12e62085bda4906a88b3ce743b0b69b7de8670dbcee802a2af3743ec5"
+    "vendored": "4746e49b510a75cf39f4059ac1bf5d825ae4492a9fd17aab0697e9c1f2cb83ed"
   },
   "web/src/lib/locales/index.ts": {
     "upstream": "c8a0a9adbf620ea05878853e954492659c14d70056ae2592548e357c0218a4ff",
@@ -2981,7 +2981,7 @@
   },
   "web/src/lib/locales/zh-CN.ts": {
     "upstream": "79e605c5d2d8f4eff2154dca31d944b676975b9520e8a7abe7380162fab9ba8b",
-    "vendored": "86ae9018639c97d710a7fa682a4e72c2f9ee3a89822db95311c23651d37b81fb"
+    "vendored": "8815abb7bbda769a64aedb4f39d117a0bd5c3676d6bc5ae81e47ee31a05ae16d"
   },
   "web/src/lib/machineHealth.test.ts": {
     "upstream": "47a77d59607a45c9554dfee9e332b0b4c0155264a5474837cc539d2d263230fe",
@@ -3009,7 +3009,7 @@
   },
   "web/src/lib/message-window-store.ts": {
     "upstream": "e650acaf3add70d8e1e2da3ba3292e20675c27d4fdc5d51eeed9ddafacb40133",
-    "vendored": "d35604d26ba88d2b9fb6751c1493652101db0d1122aa820e597e777a714d57cc"
+    "vendored": "32c330bdebcc0800d23f14986f116f47e6d4c827727de5bb1ea31d82c1de0452"
   },
   "web/src/lib/messageDelivery.test.ts": {
     "upstream": "bc2a0b75ff4e4e66a3a7327989b5b23348d6f623db3a163186a988bcb61b6107",
@@ -3049,11 +3049,11 @@
   },
   "web/src/lib/queued-state-reconciliation.test.ts": {
     "upstream": "47b6165d32043d3ec3caac92be83ad5ec80d1c6b43ca473b609b9152c8ca8277",
-    "vendored": "47b6165d32043d3ec3caac92be83ad5ec80d1c6b43ca473b609b9152c8ca8277"
+    "vendored": "a409d083561a46395c30e88d80f8ad5e4747cd0dfec2c0bb17de629053326529"
   },
   "web/src/lib/queued-state-reconciliation.ts": {
     "upstream": "5b7dd68748008ef72e5ec6b7551a3245a9b9663af855ce51c427970079c8fb63",
-    "vendored": "5b7dd68748008ef72e5ec6b7551a3245a9b9663af855ce51c427970079c8fb63"
+    "vendored": "7e2ef850fa8e00a3327e875cb0dd2a9e87dd9c5af2b0ac0c8ac37ea35bad90ce"
   },
   "web/src/lib/randomId.test.ts": {
     "upstream": "2f25a8e240f15c538ed7525fd5809a4785804e58039c19a9a7f967e97b793c43",

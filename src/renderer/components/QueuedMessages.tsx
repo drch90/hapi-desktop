@@ -86,8 +86,10 @@ export function QueuedMessages({
               const preview = getQueuedMessagePreview(message)
               const canOperate =
                 !disabled &&
+                message.deliveryState !== 'dispatching' &&
                 computeCanCancel({ id: message.id, localId: message.localId, isPending: working })
               const uncertain = message.deliveryState === 'indeterminate'
+              const dispatching = message.deliveryState === 'dispatching'
               return (
                 <li className="queue-item" key={message.localId ?? message.id}>
                   <div className="queue-preview">
@@ -115,15 +117,24 @@ export function QueuedMessages({
                         {t('Delivery is unconfirmed. Check before sending again.')}
                       </div>
                     )}
+                    {dispatching && (
+                      <div className="small muted" role="status">
+                        {t('Inserting. Waiting for the agent to confirm receipt…')}
+                      </div>
+                    )}
                   </div>
                   <div className="queue-actions">
-                    {canSteer && !uncertain && message.scheduledAt == null && (
+                    {(canSteer || dispatching) && !uncertain && message.scheduledAt == null && (
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
                         aria-label={t('Insert into current turn')}
-                        title={t('Insert into current turn')}
+                        title={t(
+                          dispatching
+                            ? 'Inserting. Waiting for the agent to confirm receipt…'
+                            : 'Insert into current turn',
+                        )}
                         disabled={!canOperate}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() =>

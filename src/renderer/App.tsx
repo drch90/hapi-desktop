@@ -631,8 +631,19 @@ function Workbench({
         unreadOnly: readStateReady && unreadOnly,
         lastSeen,
         scope,
+        workspaceGroupSort: bootstrap.settings.workspaceGroupSort,
       }),
-    [sessions.data, machines.data, search, machineFilter, unreadOnly, lastSeen, readStateReady, scope],
+    [
+      sessions.data,
+      machines.data,
+      search,
+      machineFilter,
+      unreadOnly,
+      lastSeen,
+      readStateReady,
+      scope,
+      bootstrap.settings.workspaceGroupSort,
+    ],
   )
   const groupKeys = sections
     .filter((section) => section.key === 'history')
@@ -1292,6 +1303,20 @@ function SettingsDialog({
             >
               <option value="newline">{t('Enter for newline')}</option>
               <option value="send">{t('Enter to send')}</option>
+            </select>
+          </label>
+          <label>
+            {t('Workspace group order')}
+            <select
+              aria-label={t('Workspace group order')}
+              value={bootstrap.settings.workspaceGroupSort}
+              onChange={(e) =>
+                void update({ workspaceGroupSort: e.target.value as Settings['workspaceGroupSort'] })
+              }
+            >
+              <option value="path-asc">{t('Path (A–Z)')}</option>
+              <option value="path-desc">{t('Path (Z–A)')}</option>
+              <option value="recent">{t('Recently updated')}</option>
             </select>
           </label>
           <label className="check-label">

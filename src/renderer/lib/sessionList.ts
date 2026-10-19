@@ -1,5 +1,8 @@
 import type { SessionSummary } from '@hapi/protocol'
 import { buildSessionSearchScoreIndex, compareSessionsBySearchRelevance } from '@/lib/sessionListSearch'
+import type { Settings } from '../../shared/bridge'
+
+const pathCollator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
 export type SessionGroup = [
   string,
@@ -41,6 +44,7 @@ export function selectSessionList(options: {
   unreadOnly: boolean
   lastSeen: Readonly<Record<string, number>>
   scope: string
+  workspaceGroupSort?: Settings['workspaceGroupSort']
 }): SessionSection[] {
   const machineLabel = (id: string | null) => {
     const machine = options.machines.find((item) => item.id === id)
@@ -80,12 +84,20 @@ export function selectSessionList(options: {
         (a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || compare(a, b),
       )
     }
-    // Project pins lead within each status section; remaining groups retain
-    // the relevance/recency order established by their first matching row.
-    return [...groups.entries()].sort(
-      ([, a], [, b]) =>
-        Number(b.sessions.some((row) => row.pinned)) - Number(a.sessions.some((row) => row.pinned)),
-    )
+    return [...groups.entries()].sort(([aKey, a], [bKey, b]) => {
+      const pins = Number(b.sessions.some((row) => row.pinned)) - Number(a.sessions.some((row) => row.pinned))
+      // Search keeps relevance order; recent order already comes from the first row.
+      if (pins || query || options.workspaceGroupSort === 'recent') return pins
+      const direction = options.workspaceGroupSort === 'path-desc' ? -1 : 1
+      const pathOrder =
+        pathCollator.compare(a.path, b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+      return (
+        Number(b.hasDirectory) - Number(a.hasDirectory) ||
+        direction * pathOrder ||
+        pathCollator.compare(a.machine, b.machine) ||
+        aKey.localeCompare(bKey, 'en')
+      )
+    })
   }
   const flat = (key: string, sessions: SessionSummary[]): SessionGroup[] =>
     sessions.length

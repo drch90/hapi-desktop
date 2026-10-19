@@ -2,6 +2,8 @@
 
 模型保留补丁修复 `/model` 选择在停止或切换权限后丢失的问题。Claude steer 已有[单独的适配补丁](claude-steer.md)，本页的模型补丁本身不增加中途引导能力。
 
+后续的[模型与队列修复](model-queue-fixes.md)处理 Codex 普通消息提前进入活动轮、Claude 普通文字插入被旧设置拦截，以及等待回执和连续排队的问题。已叠加这些增量时，使用该页的补丁检查方式。
+
 Claude 的 `/model <模型 ID>` 原先由当前 Claude 子进程处理，HAPI 没有同步保存这次选择。点击停止会结束该子进程，计划模式等权限变化也可能重新启动进程；下一次启动采用 HAPI 保存的旧模型，因此会恢复默认值。
 
 [配套补丁](../patches/hapi-claude-model-persistence.patch) 修复 HAPI CLI 的 Claude runner，基于 `drch90/hapi` 提交 `33cc30947350d414ae50b4fa5b84452e41a52dd0`。补丁包含两个实现文件和三个回归测试文件，不属于桌面安装包内的 runner。
@@ -26,8 +28,8 @@ Claude 的 `/model <模型 ID>` 原先由当前 Claude 子进程处理，HAPI �
     set -e
     git apply --check ../hapi-desktop/patches/hapi-claude-model-persistence.patch
     git apply ../hapi-desktop/patches/hapi-claude-model-persistence.patch
-    bun run typecheck:cli
-    bun run --cwd cli test src/claude/model.test.ts src/claude/runClaude.model.test.ts src/claude/claudeRemoteLauncher.modeGate.test.ts
+    node ../hapi-desktop/scripts/limit-cpu.mjs bun run typecheck:cli
+    node ../hapi-desktop/scripts/limit-cpu.mjs bun run --cwd cli test src/claude/model.test.ts src/claude/runClaude.model.test.ts src/claude/claudeRemoteLauncher.modeGate.test.ts
 )
 ```
 

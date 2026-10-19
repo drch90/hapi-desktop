@@ -7,6 +7,7 @@ export type Settings = {
   theme: 'system' | 'light' | 'dark'
   enterBehavior: 'newline' | 'send'
   fontSize: 'small' | 'normal' | 'large' | 'extra-large'
+  workspaceGroupSort: 'path-asc' | 'path-desc' | 'recent'
   collapseHistoryByDefault: boolean
   codexExplorationCollapsed: boolean
   notifications: boolean

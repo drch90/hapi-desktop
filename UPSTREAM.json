@@ -27,7 +27,8 @@
     "Expose cached slash-command filtering and avoid scrolling unchanged autocomplete selections",
     "Desktop tool detail dialog sizing hooks and expanded subagent traces with full content",
     "Enable Claude steering capability for the companion CLI and Hub patch",
-    "Bound code and diff rendering with lossless text sections, skip oversized syntax highlighting, and avoid per-character file-preview allocations"
+    "Bound code and diff rendering with lossless text sections, skip oversized syntax highlighting, and avoid per-character file-preview allocations",
+    "Distinguish pending steer receipts from unknown delivery and preserve queued messages across reconnects"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -62,6 +63,23 @@
       "files": {
         "shared/src/modes.ts": "ae812126cfbf42af4343c1e8fb60e19d52549845cfe69b93c28b2ba52e3e4e6e",
         "shared/src/modes.test.ts": "1d38846bb10d2f31b5eba9666c7230ad353d40ec48b407437f275e96175dc1c4"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "eb010ee51251c51e50c5a6182e615b3b0031bbe5",
+      "state": "Uncommitted model and queue fixes after the existing Claude patches; patches/hapi-model-queue-fixes.patch records the incremental CLI, Hub, shared protocol and client changes",
+      "files": {
+        "shared/src/apiTypes.ts": "69049a3dbebc3f264d22b5f5e6cb1dc45b64eee3b221f12c04439417e380e883",
+        "shared/src/schemas.ts": "0f3c85234c51784e810cdbea13b5c89f5352db313e20283839862049d0efae31",
+        "web/src/components/AssistantChat/QueuedMessagesBar.test.tsx": "4c29578dcc953428eafc265fc17e0624cd13df2c8466d55c2680c03182905ec8",
+        "web/src/components/AssistantChat/QueuedMessagesBar.tsx": "0787660d66e306800ab376b06ca9655dce25f388b476371d314660cd83d43ce4",
+        "web/src/hooks/useSSE.ts": "b159e6abf18be3998986769231f4deecf5f7ad54d959b3955fdfd20bcc3f0a06",
+        "web/src/lib/locales/en.ts": "a39d23ebf6eca61ab66a95d9240d4b448271916adf11f081dc52cef946a5fa1f",
+        "web/src/lib/locales/zh-CN.ts": "c7eb2ffddc06cfb0943cfcb13a3555176f3e6a1f539678e7648a57bb13230a0a",
+        "web/src/lib/message-window-store.ts": "9ea25b9dee31cbf53c7533ac6481fdf3296503b87e2e7a6544249af80c8b8a3a",
+        "web/src/lib/queued-state-reconciliation.test.ts": "a409d083561a46395c30e88d80f8ad5e4747cd0dfec2c0bb17de629053326529",
+        "web/src/lib/queued-state-reconciliation.ts": "7e2ef850fa8e00a3327e875cb0dd2a9e87dd9c5af2b0ac0c8ac37ea35bad90ce"
       }
     }
   ]

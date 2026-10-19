@@ -1,0 +1,1287 @@
+diff --git a/android/core/data/src/main/kotlin/app/hapi/data/store/MessageWindowStore.kt b/android/core/data/src/main/kotlin/app/hapi/data/store/MessageWindowStore.kt
+index 4bc24affbec9b30de6fb766d5afbbc1e6a2fe26c..46162321f7ceff3b05cbdb1bfda89ce10523e894 100644
+--- a/android/core/data/src/main/kotlin/app/hapi/data/store/MessageWindowStore.kt
++++ b/android/core/data/src/main/kotlin/app/hapi/data/store/MessageWindowStore.kt
+@@ -560,11 +560,13 @@ class MessageWindowStore(
+         val candidateLocalIds = queuedReconcileCandidateLocalIds()
+         if (candidateLocalIds.isEmpty()) return
+         val queuedLocalIds = mutableListOf<String>()
++        val dispatchingLocalIds = mutableListOf<String>()
+         val indeterminateLocalIds = mutableListOf<String>()
+         val invokedLocalMessages = mutableListOf<Pair<String, Long>>()
+         candidateLocalIds.chunked(QUEUED_STATE_BATCH_SIZE).forEach { batch ->
+             val response = api.getQueuedState(sessionId, batch)
+             queuedLocalIds += response.queuedLocalIds
++            dispatchingLocalIds += response.dispatchingLocalIds
+             indeterminateLocalIds += response.indeterminateLocalIds
+             invokedLocalMessages += response.invokedLocalMessages.map { it.localId to it.invokedAt }
+         }
+@@ -577,7 +579,7 @@ class MessageWindowStore(
+         }
+         markRequeued(queuedLocalIds)
+         markIndeterminate(indeterminateLocalIds)
+-        reconcileQueuedLocalIds(candidateLocalIds, queuedLocalIds + indeterminateLocalIds)
++        reconcileQueuedLocalIds(candidateLocalIds, queuedLocalIds + dispatchingLocalIds + indeterminateLocalIds)
+     }
+
+     // ------------------------------------------------------------ lifecycle --
+diff --git a/android/core/data/src/test/kotlin/app/hapi/data/store/MessageWindowStoreTest.kt b/android/core/data/src/test/kotlin/app/hapi/data/store/MessageWindowStoreTest.kt
+index 9961194514ddcae87510fd220895b498a8b51637..ff500cfc1c01696a263fade33c28a1df97a43d9f 100644
+--- a/android/core/data/src/test/kotlin/app/hapi/data/store/MessageWindowStoreTest.kt
++++ b/android/core/data/src/test/kotlin/app/hapi/data/store/MessageWindowStoreTest.kt
+@@ -476,6 +476,20 @@ class MessageWindowStoreTest {
+         assertTrue(store.state.value.messages.isEmpty())
+     }
+
++    @Test fun `reconnect retains a steer that is still awaiting a native receipt`() = runTest {
++        val api = GatedMessagesApi().apply {
++            queuedState = QueuedStateResponse(emptyList(), emptyList(), dispatchingLocalIds = listOf("local"))
++        }
++        val store = MessageWindowStore("s", api, backgroundScope)
++        val pending = buildOptimisticMessage("local", "guidance", 1_000, status = MessageStatus.Queued)
++        val server = pending.wire.copy(id = "server", seq = 1, deliveryState = "dispatching")
++        api.release(latestPage(listOf(server), epoch = 1))
++        store.reconcileQueuedState()
++        assertEquals(listOf(listOf("local")), api.queuedRequests)
++        assertEquals(listOf("server"), store.state.value.messages.map { it.id })
++        assertEquals(listOf("local"), store.queuedReconcileCandidateLocalIds())
++    }
++
+     @Test fun `reconnect exposes a dismissed row that the hub explicitly requeued`() = runTest {
+         val api = GatedMessagesApi().apply { queuedState = QueuedStateResponse(listOf("local"), emptyList()) }
+         val store = MessageWindowStore("s", api, backgroundScope)
+diff --git a/android/core/protocol/src/main/kotlin/app/hapi/protocol/wire/ApiResponses.kt b/android/core/protocol/src/main/kotlin/app/hapi/protocol/wire/ApiResponses.kt
+index eb7ab7c231032c0c757610555b5a28b10bf28014..6b280c6be132a02397fce0e590713ebc359c6352 100644
+--- a/android/core/protocol/src/main/kotlin/app/hapi/protocol/wire/ApiResponses.kt
++++ b/android/core/protocol/src/main/kotlin/app/hapi/protocol/wire/ApiResponses.kt
+@@ -148,6 +148,7 @@ data class QueuedStateResponse(
+     val queuedLocalIds: List<String>,
+     val invokedLocalMessages: List<InvokedLocalMessage>,
+     val indeterminateLocalIds: List<String> = emptyList(),
++    val dispatchingLocalIds: List<String> = emptyList(),
+ )
+
+ @Serializable
+diff --git a/cli/src/claude/claudeRemote.steering.test.ts b/cli/src/claude/claudeRemote.steering.test.ts
+index 5a51053373763287623544f359097620ae7ef46d..d98678c4f8be6fc96745dd9355a9c43250ecd88d 100644
+--- a/cli/src/claude/claudeRemote.steering.test.ts
++++ b/cli/src/claude/claudeRemote.steering.test.ts
+@@ -90,15 +90,21 @@ describe('Claude active-turn stdin injection', () => {
+             h.target.send(h.steer);
+             h.output.push({ type: 'result', subtype: 'success' });
+             await vi.waitFor(() => expect(h.onResult).toHaveBeenCalledOnce());
+-            expect(h.targets.at(-1)).toBeNull();
++            expect(h.targets.at(-1)).toBe(h.target);
++            const second = { ...h.steer, uuid: 'second-guidance', message: { role: 'user' as const, content: 'another correction' } };
++            expect(h.target.send(second)).toBe(true);
++            expect(h.writes).toHaveLength(2);
+             expect(h.onReady).not.toHaveBeenCalled();
+             expect(h.nextMessage).toHaveBeenCalledOnce();
+             expect(h.onThinkingChange).not.toHaveBeenCalledWith(false);
+             h.output.push({ ...h.steer, isReplay: true });
+             await vi.waitFor(() => expect(h.onSteerEcho).toHaveBeenCalledOnce());
+             expect(h.onReady).not.toHaveBeenCalled();
++            h.output.push({ ...second, isReplay: true });
++            await vi.waitFor(() => expect(h.onSteerEcho).toHaveBeenCalledTimes(2));
+             h.output.push({ type: 'result', subtype: 'success' });
+             await vi.waitFor(() => expect(h.onReady).toHaveBeenCalledOnce());
++            expect(h.targets.at(-1)).toBeNull();
+             expect(h.nextMessage).toHaveBeenCalledTimes(2);
+         } finally { await h.finish(); }
+     });
+diff --git a/cli/src/claude/claudeRemote.ts b/cli/src/claude/claudeRemote.ts
+index edf0349b01fdbf475957ce0e690f9cc55120b26e..2c38dec1818100cc2513bd62869bf3cdb22cabe2 100644
+--- a/cli/src/claude/claudeRemote.ts
++++ b/cli/src/claude/claudeRemote.ts
+@@ -324,7 +324,10 @@ export async function claudeRemote(opts: {
+             logger.debugLargeJson(`[claudeRemote] Message ${message.type}`, message);
+
+             if (message.type === 'result') {
+-                closeSteeringTarget();
++                // Written guidance may start the next native turn after this
++                // result. Keep its input channel available until all pending
++                // input has been echoed and the following result completes.
++                if (pendingSteers.size === 0) closeSteeringTarget();
+                 opts.onResult?.();
+             }
+             if (message.type === 'user' && message.isReplay === true && !message.isSynthetic && !message.isMeta
+diff --git a/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts b/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
+index 89e8f01c6b4a2ba8ebde82c32f518b0233b87729..375d62201ea6fad9dd8952dee361c932541307c6 100644
+--- a/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
++++ b/cli/src/claude/claudeRemoteLauncher.modeGate.test.ts
+@@ -145,6 +145,17 @@ describe('claudeRemoteLauncher mode gate after pending delivery', () => {
+         vi.clearAllMocks()
+     })
+
++    it('delivers queued messages separately while retaining the same Claude process', async () => {
++        const client = createClientStub()
++        const { session, queue } = createSession(client)
++        try {
++            for (const text of ['one', 'two', 'three']) queue.push(text, { permissionMode: 'default' }, text)
++            harness.triggerSwitch = () => { client.rpcHandlers.get(RPC_METHODS.Switch)?.() }
++            await claudeRemoteLauncher(session as any)
++            expect(harness.spawns).toEqual([{ permissionMode: 'default', messages: ['one', 'two', 'three'] }])
++        } finally { session.stopKeepAlive() }
++    })
++
+     it('a mode switch after a pending-delivered batch still forces a relaunch', async () => {
+         const client = createClientStub()
+         const { session, queue } = createSession(client)
+diff --git a/cli/src/claude/claudeRemoteLauncher.ts b/cli/src/claude/claudeRemoteLauncher.ts
+index 5bc93a610687523c9f44587eb7f0b84abce2ec0c..20c15a36351047b2dc752375c26c5a1655ee2861 100644
+--- a/cli/src/claude/claudeRemoteLauncher.ts
++++ b/cli/src/claude/claudeRemoteLauncher.ts
+@@ -454,7 +454,7 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
+                                 return { ...p, message: deliveredText };
+                             }
+
+-                            let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
++                            let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal, 1);
+
+                             if (msg) {
+                                 if ((modeHash && msg.hash !== modeHash) || msg.isolate) {
+diff --git a/cli/src/claude/steering.test.ts b/cli/src/claude/steering.test.ts
+index b12b552e0fcc4eb64c007f34ace51b13433f9328..88fee4f2dc7678850c698905ad2ca5a6d6a42e91 100644
+--- a/cli/src/claude/steering.test.ts
++++ b/cli/src/claude/steering.test.ts
+@@ -96,14 +96,11 @@ describe('Claude steer reservations', () => {
+         await h.steering.closeProcess();
+     });
+
+-    it.each(['turn', 'model', 'permission', 'effort'] as const)('restores FIFO if %s changes before the write', async change => {
++    it('restores FIFO if the active turn changes before the write', async () => {
+         const h = harness();
+         h.queue.push('ordinary follow-up', h.target.mode, 'ordinary');
+         h.client.setSteerDeliveryState.mockImplementationOnce(async () => {
+-            if (change === 'turn') h.steering.setTarget({ ...h.target });
+-            if (change === 'model') h.settings.model = 'another-model';
+-            if (change === 'permission') h.settings.permissionMode = 'plan';
+-            if (change === 'effort') h.settings.effort = 'high';
++            h.steering.setTarget({ ...h.target });
+             return true;
+         });
+         expect(await h.steering.steer('guidance')).toMatchObject({ steered: false });
+@@ -205,11 +202,21 @@ describe('Claude steer reservations', () => {
+         expect(h.queue.peekByLocalId('command')?.message).toBe(text);
+     });
+
+-    it('requires the queued item to match the active process configuration', async () => {
++    it('uses the active turn for guidance queued before a model or permission change', async () => {
+         const h = harness();
+-        h.queue.push('different context', { ...h.target.mode, customSystemPrompt: 'changed' }, 'different');
+-        expect(await h.steering.steer('different')).toMatchObject({ steered: false });
+-        expect(h.queue.peekByLocalId('different')).not.toBeNull();
+-        expect(h.send).not.toHaveBeenCalled();
++        h.queue.push('different context', { permissionMode: 'plan', model: 'old-model', effort: 'high' }, 'different');
++        h.settings.model = 'next-turn-model';
++        h.settings.permissionMode = 'acceptEdits';
++        h.client.setSteerDeliveryState.mockImplementationOnce(async () => {
++            h.settings.effort = 'low';
++            return true;
++        });
++        expect(await h.steering.steer('different')).toEqual({ steered: true });
++        expect(h.send).toHaveBeenCalledWith(expect.objectContaining({ message: { role: 'user', content: 'different context' } }));
++        expect(h.settings.model).toBe('next-turn-model');
++        expect(h.settings.permissionMode).toBe('acceptEdits');
++        expect(h.settings.effort).toBe('low');
++        await h.steering.acknowledge(h.uuid());
++        expect(h.client.emitMessagesConsumed).toHaveBeenCalledExactlyOnceWith(['different'], { steered: true });
+     });
+ });
+diff --git a/cli/src/claude/steering.ts b/cli/src/claude/steering.ts
+index f8bde2b9a20c6e3a8a516543f422c27eee31e6f5..c282c2b8502d0da247bd37485d53ed89145f02ac 100644
+--- a/cli/src/claude/steering.ts
++++ b/cli/src/claude/steering.ts
+@@ -47,10 +47,9 @@ export class ClaudeSteering {
+     }
+
+     private matches(target: ClaudeSteerTarget): boolean {
+-        return this.target === target
+-            && (this.session.getPermissionMode() ?? 'default') === target.mode.permissionMode
+-            && (this.session.getModel() ?? undefined) === target.mode.model
+-            && (this.session.getEffort() ?? undefined) === target.mode.effort;
++        // Steer explicitly targets the running turn. The session selection and
++        // a queued message's snapshot may already describe a subsequent turn.
++        return this.target === target;
+     }
+
+     steer(localId: string): Promise<ClaudeSteerResult> {
+@@ -61,7 +60,7 @@ export class ClaudeSteering {
+             return Promise.resolve({ steered, ...(!steered ? { error: 'Steer is already pending or its delivery is uncertain' } : {}) });
+         }
+         if (!localId || !target || !this.matches(target)) {
+-            return Promise.resolve({ steered: false, error: 'No active Claude turn with matching settings' });
++            return Promise.resolve({ steered: false, error: 'No active Claude turn' });
+         }
+         const reservation = session.queue.takeByLocalId(localId);
+         if (!reservation) {
+@@ -72,10 +71,9 @@ export class ClaudeSteering {
+             session.queue.restoreReservation(reservation);
+             return Promise.resolve({ steered: false, error: 'Previous delivery is uncertain; resolve it with Cancel or Retry in the queue' });
+         }
+-        if (reservation.item.isolate || /^\s*\//.test(guidance) || !guidance.trim()
+-            || reservation.item.modeHash !== session.queue.modeHasher(target.mode)) {
++        if (reservation.item.isolate || /^\s*\//.test(guidance) || !guidance.trim()) {
+             session.queue.restoreReservation(reservation);
+-            return Promise.resolve({ steered: false, error: 'Steer requires guidance with the current turn settings; commands stay queued' });
++            return Promise.resolve({ steered: false, error: 'Steer requires guidance text; commands stay queued' });
+         }
+         if (!session.queue.beginReservationDispatch(reservation)) {
+             return Promise.resolve({ steered: false, error: 'Steer was cancelled' });
+@@ -116,7 +114,7 @@ export class ClaudeSteering {
+             }
+             if (delivery.reservation.state !== 'dispatching' || !this.matches(target)) {
+                 await this.restore(localId, delivery);
+-                return { steered: false, error: 'The active Claude turn or its settings changed before dispatch' };
++                return { steered: false, error: 'The active Claude turn changed before dispatch' };
+             }
+             // Once a write is attempted, failure is ambiguous. Only a matching
+             // --replay-user-messages echo may stamp the hub row consumed.
+diff --git a/cli/src/codex/codexRemoteLauncher.test.ts b/cli/src/codex/codexRemoteLauncher.test.ts
+index 83a71a3a4894c6a543698f7bb2379439de58a66e..1d1c22cb8d8dda3484a0647cc1e6df4910139d52 100644
+--- a/cli/src/codex/codexRemoteLauncher.test.ts
++++ b/cli/src/codex/codexRemoteLauncher.test.ts
+@@ -1257,12 +1257,48 @@ function createSessionStub(
+ }
+
+ describe('codexRemoteLauncher', () => {
++    it('waits for each turn and applies the selected model to queued follow-ups separately', async () => {
++        harness.suppressTurnCompletion = true;
++        const { session } = createSessionStub(['first'], createMode(), false, false);
++        const running = codexRemoteLauncher(session as never);
++        await vi.waitFor(() => expect(harness.startTurnParams).toHaveLength(1));
++        session.queue.push('second', createMode());
++        session.queue.push('third', createMode());
++        await new Promise<void>(resolve => setTimeout(resolve, 20));
++        expect(harness.startTurnMessages).toEqual(['first']);
++        expect(session.queue.size()).toBe(2);
++        session.setModel('selected-after-enqueue');
++        session.queue.close();
++        harness.suppressTurnCompletion = false;
++        harness.dispatchNotification?.('turn/completed', { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } });
++        await running;
++        expect(harness.startTurnMessages).toEqual(['first', 'second', 'third']);
++        for (const params of harness.startTurnParams.slice(1)) {
++            expect(params).toMatchObject({ collaborationMode: { settings: { model: 'selected-after-enqueue' } } });
++        }
++    });
++
+     it('invalidates queued steer handlers after abort or cleanup', () => {
+         expect(isCurrentSteerHandler(3, 3, false)).toBe(true);
+         expect(isCurrentSteerHandler(4, 3, false)).toBe(false);
+         expect(isCurrentSteerHandler(3, 3, true)).toBe(false);
+     });
+
++    it('wakes the active-turn wait when a clear command replaces queued follow-ups', async () => {
++        harness.suppressTurnCompletion = true;
++        const { session, resetThreadCalls } = createSessionStub(['first'], createMode(), false, false);
++        const running = codexRemoteLauncher(session as never);
++        await vi.waitFor(() => expect(harness.startTurnMessages).toEqual(['first']));
++        session.queue.push('queued follow-up', createMode());
++        await new Promise<void>(resolve => setTimeout(resolve, 20));
++        session.queue.pushIsolateAndClear('/clear', createMode());
++        session.queue.close();
++        await running;
++        expect(harness.startTurnMessages).toEqual(['first']);
++        expect(harness.interruptedTurns).toEqual([{ threadId: 'thread-1', turnId: 'turn-1' }]);
++        expect(resetThreadCalls).toEqual(['thread-1']);
++    });
++
+     it('steers a queued message into the active turn and acks on dispatch', async () => {
+         harness.suppressTurnCompletion = true;
+         const { session, rpcHandlers, emitMessagesConsumed } = createSessionStub(['first'], createMode(), false, false);
+diff --git a/cli/src/codex/codexRemoteLauncher.ts b/cli/src/codex/codexRemoteLauncher.ts
+index f2290f38a976c199928e06879e5692bdd8b284c6..f3b56355ff9a705fcde29e07896e53c11c2ccf0a 100644
+--- a/cli/src/codex/codexRemoteLauncher.ts
++++ b/cli/src/codex/codexRemoteLauncher.ts
+@@ -1907,6 +1907,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
+             loopWakeWaiter = null;
+             waiter();
+         };
++        session.queue.setOnMessage(wakeLoop);
+
+         appServerClient.setTransportAbandonedHandler(() => {
+             // The old process is gone; its foreground turn cannot deliver more
+@@ -4062,7 +4063,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
+                 continue;
+             }
+
+-            if (!pending && turnInFlight && session.queue.size() === 0) {
++            const queuedText = session.queue.queue[0]?.message;
++            const queuedControl = queuedText !== undefined
++                && (parseGoalCommand(queuedText) !== null || parseCodexSpecialCommand(queuedText).type !== null);
++            if (!pending && turnInFlight && !queuedControl) {
+                 await waitForTurnOrRecovery(this.abortController.signal);
+                 if (this.abortController.signal.aborted && !this.shouldExit) {
+                     logger.debug('[codex]: Internal wait aborted while turn was active; continuing');
+@@ -4079,7 +4083,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
+                 sameThreadCompactAttempt = 0;
+                 activeMessage = null;
+                 const waitSignal = this.abortController.signal;
+-                const batch = await session.queue.waitForMessagesAndGetAsString(waitSignal);
++                const batch = await session.queue.waitForMessagesAndGetAsString(waitSignal, 1);
+                 if (!batch) {
+                     if (waitSignal.aborted && !this.shouldExit) {
+                         logger.debug('[codex]: Wait aborted while idle; ignoring and continuing');
+@@ -4342,6 +4346,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
+
+     protected async cleanup(): Promise<void> {
+         logger.debug('[codex-remote]: cleanup start');
++        this.session.queue.setOnMessage(null);
+         this.appServerClient.setTransportAbandonedHandler(null);
+         this.appServerClient.setStderrHandler(null);
+         try {
+diff --git a/cli/src/codex/shared/runtime.integration.test.ts b/cli/src/codex/shared/runtime.integration.test.ts
+index 1b2a9583b978d4bc83cfe82c59ad3b6076dbe0d7..1b732c8a58b15c487d116206dbb746ccc6983c3e 100644
+--- a/cli/src/codex/shared/runtime.integration.test.ts
++++ b/cli/src/codex/shared/runtime.integration.test.ts
+@@ -9,6 +9,7 @@ import { CodexAppServerClient } from '../codexAppServerClient';
+ import { initializeSharedClient } from './launch';
+ import { record } from './gateway';
+ import { isProcessAlive } from '@/utils/process';
++import { RPC_METHODS } from '@hapi/protocol/rpcMethods';
+
+ const state = vi.hoisted(() => ({ home: '', sessions: new Map<string, MockSession>(), beforeBootstrap: undefined as (() => Promise<void>) | undefined }));
+ class MockSession {
+@@ -101,6 +102,8 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
+         const home = await mkdtemp('/tmp/hapi-shared-test-'); state.home = home;
+         const ch = join(home, 'codex'); const cwd = join(home, 'work'); await mkdir(ch); await mkdir(cwd);
+         const modelRequests: unknown[] = [];
++        let releaseResponse: (() => void) | undefined;
++        let holdResponse = false;
+         const http = createServer((request, response) => {
+             const chunks: Buffer[] = [];
+             request.on('data', chunk => chunks.push(Buffer.from(chunk)));
+@@ -112,7 +115,9 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
+                     { type: 'response.output_item.done', item: { type: 'message', role: 'assistant', id: `msg_${id}`, content: [{ type: 'output_text', text: 'MOCK ANSWER' }] } },
+                     { type: 'response.completed', response: { id, usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 } } }];
+                 response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+-                response.end(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
++                const finish = () => response.end(events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
++                if (holdResponse) releaseResponse = finish;
++                else finish();
+             });
+         });
+         await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve));
+@@ -139,9 +144,57 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
+             const web = state.sessions.get(sessionId)!;
+             expect(web.state.requests).toEqual({});
+             expect(web.state.completedRequests?.['old-worker']?.status).toBe('canceled');
++            const setConfig = web.rpc.get(RPC_METHODS.SetSessionConfig)!;
++            const sendWithModel = async (text: string, localId: string, model: string) => {
++                const before = modelRequests.length;
++                web.user?.({ content: { text } }, localId);
++                await vi.waitFor(() => {
++                    const requests = modelRequests.slice(before).map(record);
++                    expect(requests).toHaveLength(1);
++                    expect(requests[0].model).toBe(model);
++                    const users = (requests[0].input as unknown[]).map(record).filter(item => item.role === 'user');
++                    expect(JSON.stringify(users.at(-1)?.content)).toContain(text);
++                }, { timeout: 15_000 });
++                await vi.waitFor(() => expect(web.consumed).toContain(localId), { timeout: 15_000 });
++                await vi.waitFor(() => expect(web.state.steeringActive).toBe(false), { timeout: 15_000 });
++            };
++            expect(await setConfig({ model: 'switched-mock' })).toMatchObject({ applied: { model: 'switched-mock' } });
++            await sendWithModel('IDLE MODEL SWITCH', 'idle-model', 'switched-mock');
++            await setConfig({ collaborationMode: 'plan' });
++            expect(await setConfig({ model: 'plan-switched-mock' })).toMatchObject({ applied: { model: 'plan-switched-mock', collaborationMode: 'plan' } });
++            await sendWithModel('PLAN MODEL SWITCH', 'plan-model', 'plan-switched-mock');
++            await setConfig({ collaborationMode: 'default' });
++            web.user?.({ content: { text: '/model command-switched-mock' } }, 'model-command');
++            await vi.waitFor(() => expect(web.consumed).toContain('model-command'), { timeout: 15_000 });
++            await sendWithModel('COMMAND MODEL SWITCH', 'command-model', 'command-switched-mock');
++            expect(await setConfig({ model: 'mock-model' })).toMatchObject({ applied: { model: 'mock-model' } });
++            holdResponse = true;
+             web.user?.({ content: { text: 'HELLO FROM WEB' } }, 'web-1');
+             await vi.waitFor(() => expect(web.consumed).toContain('web-1'), { timeout: 15_000 });
++            await vi.waitFor(() => expect(releaseResponse).toBeTypeOf('function'), { timeout: 15_000 });
++            expect(await setConfig({ model: 'busy-switched-mock' })).toMatchObject({ applied: { model: 'busy-switched-mock' } });
++            web.user?.({ content: { text: 'FIRST QUEUED FOLLOWUP' } }, 'fifo-1');
++            web.user?.({ content: { text: 'SECOND QUEUED FOLLOWUP' } }, 'fifo-2');
++            await vi.waitFor(async () => {
++                const queued = record(await first.request('thread/queue/list', { threadId: initial }));
++                expect(queued.data).toHaveLength(2);
++            });
++            holdResponse = false;
++            releaseResponse!();
+             await vi.waitFor(() => expect(web.messages).toContainEqual(expect.objectContaining({ type: 'message', message: 'MOCK ANSWER' })), { timeout: 15_000 });
++            await vi.waitFor(() => expect(web.consumed).toContain('fifo-2'), { timeout: 15_000 });
++            await vi.waitFor(() => {
++                const followups = modelRequests.map(record).flatMap(request => {
++                    const users = (Array.isArray(request.input) ? request.input.map(record) : []).filter(item => item.role === 'user');
++                    const text = JSON.stringify(users.at(-1)?.content);
++                    return text?.includes('QUEUED FOLLOWUP') ? [{ model: request.model, text }] : [];
++                });
++                expect(followups).toEqual([
++                    { model: 'busy-switched-mock', text: expect.stringContaining('FIRST QUEUED FOLLOWUP') },
++                    { model: 'busy-switched-mock', text: expect.stringContaining('SECOND QUEUED FOLLOWUP') },
++                ]);
++                expect(followups[0].text).not.toContain('SECOND QUEUED FOLLOWUP');
++            }, { timeout: 15_000 });
+             const newResponse = record(await first.request('thread/start', { cwd }));
+             const next = String(record(newResponse.thread).id); roots.push(next);
+             expect(next).not.toBe(initial); expect(state.sessions.size).toBe(2);
+@@ -161,6 +214,8 @@ describe.skipIf(process.env.HAPI_RUN_SHARED_CODEX_TESTS !== '1')('installed Code
+             await second.request('thread/archive', { threadId: initial }); roots = [];
+             await running;
+         } finally {
++            holdResponse = false;
++            releaseResponse?.();
+             for (const threadId of roots) {
+                 await clients.at(-1)?.request('thread/archive', { threadId }).catch(() => {});
+             }
+diff --git a/cli/src/utils/MessageQueue2.test.ts b/cli/src/utils/MessageQueue2.test.ts
+index d1dee25e2014e20368d470dad505b1a31b18b7c4..f4eec04cd783e2e93f6bdf9bc19bd87e447edf16 100644
+--- a/cli/src/utils/MessageQueue2.test.ts
++++ b/cli/src/utils/MessageQueue2.test.ts
+@@ -3,6 +3,19 @@ import { MessageQueue2 } from './MessageQueue2';
+ import { hashObject } from './deterministicJson';
+
+ describe('MessageQueue2', () => {
++    it.each([false, true])('consumes one message per turn without isolating commands (waiting=%s)', async waiting => {
++        const queue = new MessageQueue2<string>(mode => mode);
++        const consumed: string[][] = [];
++        queue.onBatchConsumed = ids => consumed.push(ids);
++        const first = waiting ? queue.waitForMessagesAndGetAsString(undefined, 1) : null;
++        queue.push('first', 'same', 'a');
++        queue.push('second', 'same', 'b');
++        expect(await (first ?? queue.waitForMessagesAndGetAsString(undefined, 1))).toMatchObject({ message: 'first', isolate: false });
++        expect(consumed).toEqual([['a']]);
++        expect(queue.peekByLocalId('b')?.message).toBe('second');
++        expect(await queue.waitForMessagesAndGetAsString(undefined, 1)).toMatchObject({ message: 'second', isolate: false });
++        expect(consumed).toEqual([['a'], ['b']]);
++    });
+     it('should create a queue', () => {
+         const queue = new MessageQueue2<string>(mode => mode);
+         expect(queue.size()).toBe(0);
+@@ -692,4 +705,4 @@ describe('MessageQueue2', () => {
+         expect(batch3?.message).toBe('after-isolated');
+         expect(batch3?.mode.type).toBe('B');
+     });
+-});
+\ No newline at end of file
++});
+diff --git a/cli/src/utils/MessageQueue2.ts b/cli/src/utils/MessageQueue2.ts
+index 6c724ba1ae03c812f7648ed9c0762f8347f6d31b..7beb212b88319338509956382d5601a06ed90e77 100644
+--- a/cli/src/utils/MessageQueue2.ts
++++ b/cli/src/utils/MessageQueue2.ts
+@@ -551,10 +551,10 @@ export class MessageQueue2<T> {
+      * Wait for messages and return all messages with the same mode as a single string
+      * Returns { message: string, mode: T } or null if aborted/closed
+      */
+-    async waitForMessagesAndGetAsString(abortSignal?: AbortSignal): Promise<{ message: string, mode: T, isolate: boolean, hash: string, items: Array<{ message: string, localId?: string }> } | null> {
++    async waitForMessagesAndGetAsString(abortSignal?: AbortSignal, maxBatchSize = Infinity): Promise<{ message: string, mode: T, isolate: boolean, hash: string, items: Array<{ message: string, localId?: string }> } | null> {
+         // If we have messages, return them immediately
+         if (this.queue.length > 0) {
+-            return this.collectBatch();
++            return this.collectBatch(maxBatchSize);
+         }
+
+         // If closed or already aborted, return null
+@@ -569,13 +569,13 @@ export class MessageQueue2<T> {
+             return null;
+         }
+
+-        return this.collectBatch();
++        return this.collectBatch(maxBatchSize);
+     }
+
+     /**
+      * Collect a batch of messages with the same mode, respecting isolation requirements
+      */
+-    private collectBatch(): { message: string, mode: T, hash: string, isolate: boolean, items: Array<{ message: string, localId?: string }> } | null {
++    private collectBatch(maxBatchSize: number): { message: string, mode: T, hash: string, isolate: boolean, items: Array<{ message: string, localId?: string }> } | null {
+         if (this.queue.length === 0) {
+             return null;
+         }
+@@ -602,6 +602,7 @@ export class MessageQueue2<T> {
+         } else {
+             // Collect all messages with the same mode until we hit an isolated message
+             while (this.queue.length > 0 &&
++                items.length < maxBatchSize &&
+                 this.queue[0].modeHash === targetModeHash &&
+                 !this.queue[0].isolate) {
+                 const item = this.queue.shift()!;
+diff --git a/docs/api/client-contract/messages.md b/docs/api/client-contract/messages.md
+index b59059664b91159b5e32ec0b16cf678b3f605c7f..dab3c8e346224e0c5d4660517ad1f44b7367fce1 100644
+--- a/docs/api/client-contract/messages.md
++++ b/docs/api/client-contract/messages.md
+@@ -17,7 +17,7 @@ type DecryptedMessage = {
+   createdAt: number           // hub receive time (epoch ms)
+   invokedAt?: number | null   // when the agent consumed it (null = still queued)
+   scheduledAt?: number | null // future-scheduled sends
+-  deliveryState?: 'indeterminate' // steer dispatched, outcome unproven; explicit retry/cancel required
++  deliveryState?: 'dispatching' | 'indeterminate' // waiting for receipt, or delivery outcome unknown
+ }
+ ```
+
+@@ -25,6 +25,12 @@ type DecryptedMessage = {
+ to the hub. Web and Android persist local unknown-delivery holds alongside the
+ window; see [local dismissal](./pagination.md#local-dismissal-of-unknown-deliveries).
+
++`dispatching` means an insertion is still awaiting the native receipt. Keep it
++visible as pending and disable repeat insertion, edit, and cancel until it
++settles. `indeterminate` means that confirmation was lost; explicit resolution
++may be available. Neither state authorizes automatic replay. A receipt clears
++the marker and stamps `invokedAt`, including after a disconnect.
++
+ `content` is deliberately `unknown` on the wire. **Decoding must be total**:
+ never crash on unfamiliar content. Use stringified fallbacks for unknown
+ envelopes, and follow the family-specific skip/validation rules below for
+diff --git a/docs/api/client-contract/pagination.md b/docs/api/client-contract/pagination.md
+index 0efede0c189707ba6169ef4fafea197ddb2f4880..c5a3789dab3dbcfd7f7f1335dec3e26a61266d0f 100644
+--- a/docs/api/client-contract/pagination.md
++++ b/docs/api/client-contract/pagination.md
+@@ -146,15 +146,16 @@ Lifecycle:
+ 2. On POST success: status → `queued` if the session is currently thinking, else `sent`. On failure: drop the row and restore the composer (or keep it as `failed` with a retry affordance when attachments are involved).
+ 3. **Echo**: the hub emits `message-received` carrying the stored row (server `id`, real `seq`, same `localId`). Merging a stored row whose `localId` matches an optimistic row **replaces** the optimistic one, preserving the client-side `status` and any already-known `invokedAt` the server row lacks. Fallback when no `localId` echo matches: drop an optimistic `sent` row when a server user message lands within **10 s** of the same position.
+ 4. **`messages-consumed {localIds, invokedAt}`** (SSE): stamp `invokedAt` and flip status to `sent` on matching rows (skip `failed` ones). Clear `deliveryState` and any local `queueDismissed` hold. This moves a message out of the queued bar and into the thread at its invocation position, even if it was locally dismissed.
+-5. **`messages-indeterminate {localIds}`** (SSE): a native dispatch or queue mutation has an unknown outcome. Keep `invokedAt: null`, mark `deliveryState:'indeterminate'`, and exclude the row from automatic replay. Do not downgrade a known invocation. Retry/Cancel are explicit resolution actions; Retry may remain unavailable, while an already unknown row can be [dismissed locally](#local-dismissal-of-unknown-deliveries).
+-6. **`messages-requeued {localIds}`** (SSE): an explicit Retry restored normal queue delivery; clear `deliveryState` and `queueDismissed`, making the pending row visible again.
+-7. **`message-cancelled {messageId, localId?}`** (SSE): remove all matching server/optimistic copies using both identities when supplied, and persist the removal.
++5. **`messages-dispatching {localIds}`** (SSE): insertion is awaiting its native receipt. Keep `invokedAt: null`, set `deliveryState:'dispatching'`, show a pending label, and disable repeat insertion, edit, and cancel. Do not downgrade a known invocation or automatically replay it.
++6. **`messages-indeterminate {localIds}`** (SSE): a native dispatch or queue mutation has an unknown outcome. Keep `invokedAt: null`, mark `deliveryState:'indeterminate'`, and exclude the row from automatic replay. Do not downgrade a known invocation. Retry/Cancel are explicit resolution actions; Retry may remain unavailable, while an already unknown row can be [dismissed locally](#local-dismissal-of-unknown-deliveries). Unconfirmed dispatches transition here on session end, heartbeat expiry, or Hub restart; a late receipt can still confirm them.
++7. **`messages-requeued {localIds}`** (SSE): an explicit Retry restored normal queue delivery; clear `deliveryState` and `queueDismissed`, making the pending row visible again.
++8. **`message-cancelled {messageId, localId?}`** (SSE): remove all matching server/optimistic copies using both identities when supplied, and persist the removal.
+
+ **Client pending-row semantics**: retain a user row in pending bookkeeping iff
+ `invokedAt === null` **strictly** and `status !== 'failed'`. This includes
+-indeterminate rows, which stay out of automatic delivery and appear in the
++dispatching and indeterminate rows, which stay out of automatic delivery and appear in the
+ unresolved-delivery bar unless `queueDismissed` is true. A normally queued row
+-has no indeterminate delivery marker. `undefined` means already-invoked (rows
++has no delivery marker. `undefined` means already-invoked (rows
+ from pre-V8 hubs omit the field). Server-side, rows sent without a `localId` are
+ stamped invoked at insert and can never be queued.
+
+@@ -164,8 +165,8 @@ After a reconnect whose handshake said `resume: 'gap'` (an `ok` resume replayed
+
+ 1. Finish a tail sync.
+ 2. Collect candidate `localId`s: user rows with `invokedAt === null`, including indeterminate and locally dismissed rows, but excluding optimistic rows still `sending`/`failed`. An unknown optimistic row must participate even if its server echo never arrived.
+-3. `POST /api/sessions/:id/messages/queued-state` with `{"localIds": […]}` (max 1000 per call; batch above that) → `{queuedLocalIds: string[], indeterminateLocalIds: string[], invokedLocalMessages: [{localId, invokedAt}]}`.
+-4. Apply `invokedLocalMessages` exactly like `messages-consumed`; clear unknown/dismissal markers for `queuedLocalIds` as with `messages-requeued`; mark `indeterminateLocalIds` as unresolved delivery. Retain both queued and indeterminate rows; drop only candidates absent from **all three** result groups. An in-flight native dispatch is reported as indeterminate, not as a deleted message.
++3. `POST /api/sessions/:id/messages/queued-state` with `{"localIds": […]}` (max 1000 per call; batch above that) → `{queuedLocalIds: string[], dispatchingLocalIds: string[], indeterminateLocalIds: string[], invokedLocalMessages: [{localId, invokedAt}]}`.
++4. Apply `invokedLocalMessages` exactly like `messages-consumed`; clear delivery/dismissal markers for `queuedLocalIds` as with `messages-requeued`; mark `dispatchingLocalIds` as waiting for a receipt and `indeterminateLocalIds` as unresolved delivery. Retain all pending groups; drop only candidates absent from **all four** result groups.
+
+ Android also reconciles on ordinary chat entry after tail synchronization, so
+ confirmed Web deletions made while the app was closed clear persisted rows.
+diff --git a/docs/api/client-contract/rest.md b/docs/api/client-contract/rest.md
+index 247e63bea31ad298e1259816a1bcfa4c75806ae9..a981a6fee849e82c5bb7d5b70ded2f3b04a4685a 100644
+--- a/docs/api/client-contract/rest.md
++++ b/docs/api/client-contract/rest.md
+@@ -73,7 +73,7 @@ Source: `hub/src/web/routes/messages.ts`; schemas `MessagesQuerySchema`, `SendMe
+ | `DELETE /api/sessions/:id/messages/:messageId` | — | `{status: 'cancelled', localId}` \| `{status: 'invoked', message}` \| `{status: 'busy', localId}` (cancel; `busy` = native delivery/removal is unresolved) |
+ | `POST /api/sessions/:id/messages/:messageId/steer` | — | `{status: 'steered', localId}` \| `{status: 'invoked', message}` \| `{status: 'failed', error, localId}` |
+ | `POST /api/sessions/:id/messages/:messageId/retry` | — | `{status: 'retried', localId}` \| `{status: 'already-queued', localId}` \| `{status: 'retry-unavailable', localId}` \| `{status: 'invoked', message}` \| `{status: 'not-found'}` — explicit retry only; never automatic replay |
+-| `POST /api/sessions/:id/messages/queued-state` | `{localIds: string[]}` (≤ 1000, deduped) | `{queuedLocalIds: string[], indeterminateLocalIds: string[], invokedLocalMessages: [{localId, invokedAt}]}` — resync after reconnect; preserve indeterminate rows without auto-replaying them |
++| `POST /api/sessions/:id/messages/queued-state` | `{localIds: string[]}` (≤ 1000, deduped) | `{queuedLocalIds: string[], dispatchingLocalIds: string[], indeterminateLocalIds: string[], invokedLocalMessages: [{localId, invokedAt}]}` — resync after reconnect; preserve dispatching and indeterminate rows without auto-replaying them |
+
+ The hub stamps `sentFrom: 'webapp'` on REST-sent messages server-side; the request body has no such field.
+
+diff --git a/docs/api/client-contract/sse.md b/docs/api/client-contract/sse.md
+index f88c349dbb0daa91e251ae570ee326f2b67883dc..0806f5f0ea759eb9212a7a3e9be62e0fc232c729 100644
+--- a/docs/api/client-contract/sse.md
++++ b/docs/api/client-contract/sse.md
+@@ -121,16 +121,16 @@ Hub-side delivery (`SSEManager.shouldSend`):
+ | `heartbeat` | every connection |
+ | `toast` | every **visible** connection in the namespace, regardless of filter (no `id`, never replayed) |
+ | `message-received`, `scheduled-matured` | `all=true` connections + matching `sessionId` connections |
+-| `session-added` / `session-updated` / `session-removed` / `session-ended` / `messages-invalidated` / `messages-consumed` / `messages-indeterminate` / `messages-requeued` / `message-cancelled` | `all=true` connections + matching `sessionId` connections |
++| `session-added` / `session-updated` / `session-removed` / `session-ended` / `messages-invalidated` / `messages-consumed` / `messages-dispatching` / `messages-indeterminate` / `messages-requeued` / `message-cancelled` | `all=true` connections + matching `sessionId` connections |
+ | `machine-updated`, `machine-agy-models-updated` | `all=true` connections + matching `machineId` connections |
+
+-**The global connection must also handle the message-stream events** (`message-received`, `messages-consumed`, `messages-indeterminate`, `messages-requeued`, `message-cancelled`, `scheduled-matured`): while a session connection is down (reconnect gap) or the session isn't open, the global pipe is the only one alive, and it must still keep queued/optimistic bookkeeping correct — mark local messages consumed, remove cancelled rows, and refresh session-list scheduled counts. The session-scoped connection additionally ingests `message-received` into the message window.
++**The global connection must also handle the message-stream events** (`message-received`, `messages-consumed`, `messages-dispatching`, `messages-indeterminate`, `messages-requeued`, `message-cancelled`, `scheduled-matured`): while a session connection is down (reconnect gap) or the session isn't open, the global pipe is the only one alive, and it must still keep queued/optimistic bookkeeping correct — mark local messages consumed, remove cancelled rows, and refresh session-list scheduled counts. The session-scoped connection additionally ingests `message-received` into the message window.
+
+ The two connections have **no ordering relationship with each other** — the same `session-updated` patch can arrive on both, in either order. That is why the versioned-patch gate below exists.
+
+ ---
+
+-## SyncEvent union (16 types)
++## SyncEvent union (17 types)
+
+ Schema: `SyncEventSchema` in `shared/src/schemas.ts` (discriminated on `type`). All events except `connection-changed` carry `namespace?: string`. Ignore unknown event types.
+
+@@ -147,6 +147,7 @@ Schema: `SyncEventSchema` in `shared/src/schemas.ts` (discriminated on `type`).
+ | `machine-agy-models-updated` | `machineId` | The machine's `agy models` listing changed on a background re-check. Refetch `GET /api/machines/:id/agy-models` for that machine (answered from the machine's cache; it starts no `agy` run and produces no further event). Emitted when the re-check changes what that route would answer — a different listing, or a sign-in warning that appeared or cleared — never for the machine's first listing. |
+ | `toast` | `data: {title, body, sessionId, url}` | Show as in-app toast/banner. Only delivered to visible connections (see [Visibility](#visibility)). |
+ | `messages-consumed` | `sessionId`, `localIds: string[]`, `invokedAt: number` | The agent consumed queued user messages: stamp `invokedAt`, flip status to `sent`, clear unknown/dismissal markers and move into the transcript. |
++| `messages-dispatching` | `sessionId`, `localIds: string[]` | Keep uninvoked rows visible as waiting for a native receipt; disable repeat insertion, edit, and cancel. Do not overwrite a known invocation or automatically replay the input. |
+ | `messages-indeterminate` | `sessionId`, `localIds: string[]` | A native dispatch/queue mutation has an unknown outcome. Keep an uninvoked row unresolved without auto-replay; preserve any local dismissal. Do not downgrade a known invocation. See [resolution actions](./pagination.md#local-dismissal-of-unknown-deliveries). |
+ | `messages-requeued` | `sessionId`, `localIds: string[]` | An explicit Retry restored delivery to the normal queue. Clear the indeterminate marker and local dismissal; show the pending row again. |
+ | `message-cancelled` | `sessionId`, `messageId`, `localId?` | A queued message was cancelled: remove all matching server/optimistic copies by `messageId` **or** `localId`, and persist the removal in both global and session handlers. |
+diff --git a/hub/src/socket/handlers/cli/sessionHandlers.ts b/hub/src/socket/handlers/cli/sessionHandlers.ts
+index dd1c24a463c6965a2d9816b20a9222239b2e3a2f..0ce80699c49ca533b08780d0debe5c694e15e4b2 100644
+--- a/hub/src/socket/handlers/cli/sessionHandlers.ts
++++ b/hub/src/socket/handlers/cli/sessionHandlers.ts
+@@ -511,6 +511,8 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
+             reply({ ok })
+             if (ok && data.state === 'queued') {
+                 onWebappEvent?.({ type: 'messages-requeued', sessionId: data.sid, localIds })
++            } else if (ok && data.state === 'dispatching') {
++                onWebappEvent?.({ type: 'messages-dispatching', sessionId: data.sid, localIds })
+             }
+         } catch (err) {
+             console.error('recordSteerDeliveryState failed', err)
+diff --git a/hub/src/store/messages.test.ts b/hub/src/store/messages.test.ts
+index 45065bb1522d6b83dbb1ae4fb7161e47191858fc..121ddb4fe89d96b0137e173dfbbede7a2d449245 100644
+--- a/hub/src/store/messages.test.ts
++++ b/hub/src/store/messages.test.ts
+@@ -561,7 +561,7 @@ describe('content codec integration', () => {
+         expect(store.messages.setMessagesDeliveryState(session.id, ['lid-retry'], 'indeterminate')).toBe(1)
+         expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(0)
+         const claimed = store.messages.claimIndeterminateMessage(session.id, msg.id)
+-        expect(claimed).toMatchObject({ id: msg.id, invokedAt: null, deliveryState: 'indeterminate' })
++        expect(claimed).toMatchObject({ id: msg.id, invokedAt: null, deliveryState: 'dispatching' })
+         expect(store.messages.claimIndeterminateMessage(session.id, msg.id)).toBeNull()
+         expect(store.messages.getDeliverableMessagesAfter(session.id, 0, Date.now())).toHaveLength(0)
+         expect(store.messages.setMessagesDeliveryState(session.id, ['lid-retry'], 'queued')).toBe(1)
+diff --git a/hub/src/store/messages.ts b/hub/src/store/messages.ts
+index 56bc094403b947421c7571db77622f945d5b29a1..5608d691c482b81f3aff327378c1a47640bee835 100644
+--- a/hub/src/store/messages.ts
++++ b/hub/src/store/messages.ts
+@@ -93,7 +93,8 @@ function toStoredMessage(row: DbMessageRow): StoredMessage {
+         localId: row.local_id,
+         invokedAt: row.invoked_at ?? null,
+         scheduledAt: row.scheduled_at ?? null,
+-        ...(row.delivery_state && row.delivery_state !== 'queued' ? { deliveryState: 'indeterminate' as const } : {})
++        ...(row.delivery_state === 'dispatching' || row.delivery_state === 'indeterminate'
++            ? { deliveryState: row.delivery_state } : {})
+     }
+ }
+
+diff --git a/hub/src/store/types.ts b/hub/src/store/types.ts
+index 5a44d7ef17eb86d602d48b1bcc659a8b7a6a2d38..10b77c1817386c0f789f95d2fb4ce49c01d36876 100644
+--- a/hub/src/store/types.ts
++++ b/hub/src/store/types.ts
+@@ -38,7 +38,7 @@ export type StoredMachine = {
+     seq: number
+ }
+
+-export type MessageDeliveryState = 'indeterminate'
++export type MessageDeliveryState = 'dispatching' | 'indeterminate'
+
+ export type StoredMessage = {
+     id: string
+diff --git a/hub/src/sync/messageService.test.ts b/hub/src/sync/messageService.test.ts
+index b3df37d5ff47a09e507b7cacbbe02f6a6af4062c..53b56a490d223851af8cb96e2d60b9168b2b3b39 100644
+--- a/hub/src/sync/messageService.test.ts
++++ b/hub/src/sync/messageService.test.ts
+@@ -524,6 +524,10 @@ describe('MessageService.getQueuedState', () => {
+         const otherSession = makeSession(store, 'queued-state-other')
+         store.messages.addMessage(session.id, 'queued', 'local-queued')
+         store.messages.addMessage(session.id, 'invoked', 'local-invoked')
++        store.messages.addMessage(session.id, 'waiting for receipt', 'local-dispatching')
++        store.messages.addMessage(session.id, 'lost receipt', 'local-indeterminate')
++        store.messages.setMessagesDeliveryState(session.id, ['local-dispatching'], 'dispatching')
++        store.messages.markMessagesIndeterminate(session.id, ['local-indeterminate'])
+         store.messages.addMessage(
+             session.id,
+             'future scheduled',
+@@ -540,17 +544,27 @@ describe('MessageService.getQueuedState', () => {
+             'local-invoked',
+             'local-absent',
+             'local-future',
+-            'local-other'
++            'local-other',
++            'local-dispatching',
++            'local-indeterminate'
+         ])).toEqual({
+             queuedLocalIds: ['local-queued', 'local-future'],
+-            indeterminateLocalIds: [],
++            dispatchingLocalIds: ['local-dispatching'],
++            indeterminateLocalIds: ['local-indeterminate'],
+             invokedLocalMessages: [{ localId: 'local-invoked', invokedAt: 1_000 }]
+         })
+         expect(service.getQueuedState(session.id, [])).toEqual({
+             queuedLocalIds: [],
++            dispatchingLocalIds: [],
+             indeterminateLocalIds: [],
+             invokedLocalMessages: []
+         })
++        expect(service.getMessages(session.id).find(message => message.localId === 'local-dispatching')?.deliveryState).toBe('dispatching')
++        store.messages.markMessagesInvoked(session.id, ['local-dispatching'], 2_000)
++        expect(service.getQueuedState(session.id, ['local-dispatching'])).toEqual({
++            queuedLocalIds: [], dispatchingLocalIds: [], indeterminateLocalIds: [],
++            invokedLocalMessages: [{ localId: 'local-dispatching', invokedAt: 2_000 }]
++        })
+     })
+ })
+
+diff --git a/hub/src/sync/messageService.ts b/hub/src/sync/messageService.ts
+index 5657fe9561f6449d93f9306e295fa42decf5af2b..868763da81fee8ad468dbdaafec9573e8a481ac3 100644
+--- a/hub/src/sync/messageService.ts
++++ b/hub/src/sync/messageService.ts
+@@ -198,8 +198,11 @@ export class MessageService {
+             queuedLocalIds: states
+                 .filter((state) => state.invokedAt === null && state.deliveryState !== 'indeterminate' && state.deliveryState !== 'dispatching')
+                 .map((state) => state.localId),
++            dispatchingLocalIds: states
++                .filter((state) => state.invokedAt === null && state.deliveryState === 'dispatching')
++                .map((state) => state.localId),
+             indeterminateLocalIds: states
+-                .filter((state) => state.invokedAt === null && (state.deliveryState === 'indeterminate' || state.deliveryState === 'dispatching'))
++                .filter((state) => state.invokedAt === null && state.deliveryState === 'indeterminate')
+                 .map((state) => state.localId),
+             invokedLocalMessages: states.flatMap((state) => state.invokedAt === null
+                 ? []
+@@ -897,8 +900,7 @@ export class MessageService {
+             ? msg.content
+             : contentForDeferredDelivery(msg.content)
+         const shouldEmitToCli = (inserted.inserted || msg.invokedAt === null)
+-            // StoredMessage maps durable dispatching to indeterminate as well.
+-            && msg.deliveryState !== 'indeterminate'
++            && !msg.deliveryState
+         this.onSessionActivity?.(actualSessionId, msg.createdAt)
+
+         // Only emit to CLI if the message is not scheduled for the future.
+@@ -946,6 +948,19 @@ export class MessageService {
+         return { actualSessionId, createdAt: msg.createdAt }
+     }
+
++    /** A lost runtime cannot confirm dispatch; hold those rows for reconciliation. */
++    markPendingSteersIndeterminate(sessionId: string): void {
++        const session = this.store.sessions.getSession(sessionId)
++        if (!session) return
++        const localIds = this.store.messages.getUninvokedLocalMessages(sessionId)
++            .filter((message) => message.deliveryState === 'dispatching')
++            .map((message) => message.localId)
++            .filter((id): id is string => typeof id === 'string')
++        if (localIds.length === 0) return
++        this.store.recordMessagesIndeterminate(sessionId, localIds, session.namespace)
++        this.publisher.emit({ type: 'messages-indeterminate', sessionId, localIds })
++    }
++
+     /**
+      * Force-invoke all immediate-queued messages for a session at session end.
+      *
+diff --git a/hub/src/sync/steerQueuedMessage.test.ts b/hub/src/sync/steerQueuedMessage.test.ts
+index 4ebf2646ba00f4f0970adfd18f1d0011983fb9aa..bdb165fc088ce493a0298a3c1a46c89a0ff10784 100644
+--- a/hub/src/sync/steerQueuedMessage.test.ts
++++ b/hub/src/sync/steerQueuedMessage.test.ts
+@@ -2,9 +2,9 @@ import { describe, expect, it, spyOn } from 'bun:test'
+ import { Store } from '../store'
+ import { RpcRegistry } from '../socket/rpcRegistry'
+ import { SyncEngine } from './syncEngine'
++import type { SyncEvent } from '@hapi/protocol/types'
+
+-function createEngine() {
+-    const store = new Store(':memory:')
++function createEngine(store = new Store(':memory:')) {
+     const io = {
+         of: () => ({
+             to: () => ({ emit: () => {} })
+@@ -15,6 +15,65 @@ function createEngine() {
+ }
+
+ describe('SyncEngine.steerQueuedMessage', () => {
++    it('reconciles persisted dispatches after the hub restarts', () => {
++        const store = new Store(':memory:')
++        const session = store.sessions.getOrCreateSession('restart-pending', { path: '/tmp/project' }, null, 'default')
++        store.messages.addMessage(session.id, 'waiting for receipt', 'pending-steer')
++        store.messages.setMessagesDeliveryState(session.id, ['pending-steer'], 'dispatching')
++        const { engine } = createEngine(store)
++        try {
++            expect(store.messages.lookupQueuedMessage(session.id, 'pending-steer').status).toBe('indeterminate')
++            expect(store.messages.getImmediateQueuedLocalMessages(session.id)).toEqual([])
++        } finally {
++            engine.stop()
++        }
++    })
++
++    it.each(['end', 'expire'] as const)('holds an unconfirmed steer after session %s and accepts a late receipt', (reason) => {
++        const { store, engine } = createEngine()
++        try {
++            const session = engine.getOrCreateSession(
++                `steer-${reason}`,
++                { path: '/tmp/project', host: 'localhost', flavor: 'claude' },
++                { steeringActive: true, controlledByUser: false },
++                'default'
++            )
++            const other = engine.getOrCreateSession('other', { path: '/tmp/other', host: 'localhost' }, null, 'default')
++            store.messages.addMessage(session.id, 'waiting for receipt', 'pending-steer')
++            store.messages.addMessage(session.id, 'ordinary queue', 'queued')
++            store.messages.addMessage(session.id, 'already accepted', 'accepted')
++            store.messages.addMessage(other.id, 'another session', 'other-steer')
++            store.messages.setMessagesDeliveryState(session.id, ['pending-steer', 'accepted'], 'dispatching')
++            store.messages.setMessagesDeliveryState(other.id, ['other-steer'], 'dispatching')
++            store.recordMessagesConsumed(session.id, ['accepted'], 1_000, 'default')
++            const events: SyncEvent[] = []
++            engine.subscribe(event => events.push(event))
++
++            if (reason === 'end') {
++                engine.handleSessionEnd({ sid: session.id, time: Date.now() })
++            } else {
++                const cached = engine.getSessionByNamespace(session.id, 'default')!
++                cached.active = true
++                cached.activeAt = Date.now() - 120_000
++                engine['expireInactive']()
++            }
++
++            expect(events.filter(event => event.type === 'messages-indeterminate')).toEqual([
++                { type: 'messages-indeterminate', sessionId: session.id, localIds: ['pending-steer'], namespace: 'default' }
++            ])
++            expect(store.messages.lookupQueuedMessage(session.id, 'pending-steer').status).toBe('indeterminate')
++            expect(store.messages.getImmediateQueuedLocalMessages(session.id).map(message => message.localId)).toEqual(['queued'])
++            expect(store.messages.getUninvokedLocalMessages(other.id)[0]?.deliveryState).toBe('dispatching')
++
++            store.recordMessagesConsumed(session.id, ['pending-steer'], 2_000, 'default')
++            const received = store.messages.getAllMessages(session.id).find(message => message.localId === 'pending-steer')
++            expect(received?.invokedAt).toBe(2_000)
++            expect(received?.deliveryState).toBeUndefined()
++        } finally {
++            engine.stop()
++        }
++    })
++
+     it('routes a Claude steer to the CLI without treating dispatch as consumption', async () => {
+         const { store, engine } = createEngine()
+         const steer = spyOn(engine['rpcGateway'], 'steerQueuedMessage').mockResolvedValue({ steered: true })
+diff --git a/hub/src/sync/syncEngine.ts b/hub/src/sync/syncEngine.ts
+index 1f946490fba6f44ce6e778153642b70fcf2f14c7..e5c99567420a039acb3c67f061b0bddacddc30f8 100644
+--- a/hub/src/sync/syncEngine.ts
++++ b/hub/src/sync/syncEngine.ts
+@@ -236,6 +236,9 @@ export class SyncEngine {
+         this.titleSuggestionService = createTitleSuggestionService(store)
+         this.rpcGateway = new RpcGateway(io, rpcRegistry)
+         this.reloadAll()
++        for (const session of this.sessionCache.getSessions()) {
++            this.messageService.markPendingSteersIndeterminate(session.id)
++        }
+         this.inactivityTimer = setInterval(() => this.expireInactive(), 5_000)
+     }
+
+@@ -580,6 +583,7 @@ export class SyncEngine {
+         const shouldRetryDedup = !ownsPiAttempt && !isPiAttemptChild && (!isCursorAcp || this.sessionReadyIds.has(payload.sid))
+
+         this.sessionCache.handleSessionEnd(payload)
++        this.messageService.markPendingSteersIndeterminate(payload.sid)
+         this.eventPublisher.emit({
+             type: 'session-ended',
+             sessionId: payload.sid,
+@@ -956,6 +960,7 @@ export class SyncEngine {
+             .filter((s): s is NonNullable<typeof s> => s != null)
+             .sort((a, b) => (b.activeAt - a.activeAt) || (b.updatedAt - a.updatedAt))
+         for (const session of sorted) {
++            this.messageService.markPendingSteersIndeterminate(session.id)
+             this.triggerDedupIfNeeded(session.id)
+         }
+         this.machineCache.expireInactive?.()
+diff --git a/ios/Packages/HapiKit/Sources/HapiClient/Stores/MessageWindowController.swift b/ios/Packages/HapiKit/Sources/HapiClient/Stores/MessageWindowController.swift
+index fbddf6ab9e833a4952c46ae514b274ecbd19b528..84076f55121f7d11089a491b11ee230f7c6ce788 100644
+--- a/ios/Packages/HapiKit/Sources/HapiClient/Stores/MessageWindowController.swift
++++ b/ios/Packages/HapiKit/Sources/HapiClient/Stores/MessageWindowController.swift
+@@ -599,6 +599,7 @@ public actor MessageWindowController {
+         let candidateLocalIds = queuedReconcileCandidateLocalIds()
+         guard !candidateLocalIds.isEmpty else { return }
+         var queuedLocalIds: [String] = []
++        var dispatchingLocalIds: [String] = []
+         var indeterminateLocalIds: [String] = []
+         var invokedLocalMessages: [(localId: String, invokedAt: Int)] = []
+         var start = 0
+@@ -607,6 +608,7 @@ public actor MessageWindowController {
+             let batch = Array(candidateLocalIds[start..<end])
+             let response = try await provider.queuedState(sessionId: sessionId, localIds: batch)
+             queuedLocalIds += response.queuedLocalIds
++            dispatchingLocalIds += response.dispatchingLocalIds ?? []
+             indeterminateLocalIds += response.indeterminateLocalIds ?? []
+             invokedLocalMessages += response.invokedLocalMessages.map { ($0.localId, $0.invokedAt) }
+             start = end
+@@ -621,7 +623,7 @@ public actor MessageWindowController {
+             markConsumed(localIds: localIdsByTimestamp[invokedAt]!, invokedAt: invokedAt)
+         }
+         markIndeterminate(localIds: indeterminateLocalIds)
+-        reconcileQueuedLocalIds(candidateLocalIds: candidateLocalIds, queuedLocalIds: queuedLocalIds + indeterminateLocalIds)
++        reconcileQueuedLocalIds(candidateLocalIds: candidateLocalIds, queuedLocalIds: queuedLocalIds + dispatchingLocalIds + indeterminateLocalIds)
+     }
+
+     // MARK: - Lifecycle transitions
+diff --git a/ios/Packages/HapiKit/Sources/HapiProtocol/Models/ApiResponses.swift b/ios/Packages/HapiKit/Sources/HapiProtocol/Models/ApiResponses.swift
+index 57ec6faabec7ce725495fbb1cc0a99a8ca40f4a6..49401e210fe8e8863b61edf2f87cc1f187f7191f 100644
+--- a/ios/Packages/HapiKit/Sources/HapiProtocol/Models/ApiResponses.swift
++++ b/ios/Packages/HapiKit/Sources/HapiProtocol/Models/ApiResponses.swift
+@@ -259,15 +259,18 @@ public struct QueuedStateResponse: Codable, Equatable, Sendable {
+     public var queuedLocalIds: [String]
+     public var invokedLocalMessages: [InvokedLocalMessage]
+     public var indeterminateLocalIds: [String]?
++    public var dispatchingLocalIds: [String]?
+
+     public init(
+         queuedLocalIds: [String],
+         invokedLocalMessages: [InvokedLocalMessage],
+-        indeterminateLocalIds: [String]? = nil
++        indeterminateLocalIds: [String]? = nil,
++        dispatchingLocalIds: [String]? = nil
+     ) {
+         self.queuedLocalIds = queuedLocalIds
+         self.invokedLocalMessages = invokedLocalMessages
+         self.indeterminateLocalIds = indeterminateLocalIds
++        self.dispatchingLocalIds = dispatchingLocalIds
+     }
+ }
+
+diff --git a/ios/Packages/HapiKit/Tests/HapiClientTests/MessageWindowControllerTests.swift b/ios/Packages/HapiKit/Tests/HapiClientTests/MessageWindowControllerTests.swift
+index 2587b2ac1385f70a8db70b2d5ca8d8092d30c21e..07c71ac899449e5a55222693ff6d372c7e8d68b8 100644
+--- a/ios/Packages/HapiKit/Tests/HapiClientTests/MessageWindowControllerTests.swift
++++ b/ios/Packages/HapiKit/Tests/HapiClientTests/MessageWindowControllerTests.swift
+@@ -11,6 +11,25 @@ import Testing
+ @Suite("MessageWindowController")
+ struct MessageWindowControllerTests {
+
++    @Test func reconnectRetainsSteerAwaitingNativeReceipt() async throws {
++        let provider = GatedMessagesProvider()
++        let response = try JSONDecoder().decode(QueuedStateResponse.self, from: Data(
++            #"{"queuedLocalIds":[],"dispatchingLocalIds":["local"],"invokedLocalMessages":[]}"#.utf8
++        ))
++        await provider.setQueuedState(response)
++        let pending = DecryptedMessage(
++            id: "server", seq: 1, localId: "local",
++            content: ["role": "user", "content": ["type": "text", "text": "guidance"]],
++            createdAt: 1000, deliveryState: "dispatching"
++        )
++        await provider.release(latestPage([pending], epoch: 1))
++        let controller = MessageWindowController(sessionId: "s", provider: provider)
++        try await controller.reconcileQueuedState()
++        let state = await controller.state
++        #expect(state.messages.map(\.id) == ["server"])
++        #expect(await controller.queuedReconcileCandidateLocalIds() == ["local"])
++    }
++
+     // MARK: - Response builders
+
+     private func agentRow(id: String, seq: Int, at: Int) -> DecryptedMessage {
+@@ -531,7 +550,13 @@ actor GatedMessagesProvider: MessagesProviding {
+     }
+
+     func queuedState(sessionId: String, localIds: [String]) async throws -> QueuedStateResponse {
+-        QueuedStateResponse(queuedLocalIds: [], invokedLocalMessages: [])
++        queuedResponse
++    }
++
++    private var queuedResponse = QueuedStateResponse(queuedLocalIds: [], invokedLocalMessages: [])
++
++    func setQueuedState(_ response: QueuedStateResponse) {
++        queuedResponse = response
+     }
+
+     /// Answer the oldest parked request, or buffer for the next one.
+diff --git a/shared/src/apiTypes.ts b/shared/src/apiTypes.ts
+index 7e6b7fa276f6a63d249ce7ba05210ffc31bba6d3..112e05d23966f552d1652152195ed43f2e9c1fd0 100644
+--- a/shared/src/apiTypes.ts
++++ b/shared/src/apiTypes.ts
+@@ -619,6 +619,7 @@ export type QueuedStateRequest = z.infer<typeof QueuedStateRequestSchema>
+
+ export type QueuedStateResponse = {
+     queuedLocalIds: string[]
++    dispatchingLocalIds?: string[]
+     indeterminateLocalIds?: string[]
+     invokedLocalMessages: Array<{
+         localId: string
+diff --git a/shared/src/schemas.ts b/shared/src/schemas.ts
+index 85d835a96351bc743457a1779866f626efe9152f..f6874745dc5177619ab89a06e420cdd2e56564f9 100644
+--- a/shared/src/schemas.ts
++++ b/shared/src/schemas.ts
+@@ -314,9 +314,8 @@ export const DecryptedMessageSchema = z.object({
+     createdAt: z.number(),
+     invokedAt: z.number().nullable().optional(),
+     scheduledAt: z.number().nullable().optional(),
+-    // The agent was sent the steer but its final outcome could not be proven.
+-    // The row stays uninvoked and requires an explicit user resolution.
+-    deliveryState: z.literal('indeterminate').optional(),
++    // Dispatching waits for native receipt; indeterminate requires user resolution.
++    deliveryState: z.enum(['dispatching', 'indeterminate']).optional(),
+     // Live signal via messages-consumed (steered:true); not persisted by the hub.
+     steered: z.boolean().optional()
+ })
+@@ -613,6 +612,10 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
+         // True when messages were steered into an active turn (not a normal queue drain).
+         steered: z.boolean().optional()
+     }),
++    SessionChangedSchema.extend({
++        type: z.literal('messages-dispatching'),
++        localIds: z.array(z.string())
++    }),
+     SessionChangedSchema.extend({
+         type: z.literal('messages-indeterminate'),
+         localIds: z.array(z.string())
+diff --git a/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx b/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
+index 794a48518817b30d3db4614378995aa6312b6884..44b512de8a1e6a07b92c7113423c0b70ab2b8967 100644
+--- a/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
++++ b/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
+@@ -496,7 +496,7 @@ describe('QueuedMessagesBar edit restore', () => {
+     })
+
+     it('does not prefill when editing an indeterminate row whose cancel returns busy', async () => {
+-        // Hub may still be mid-dispatch (serialized as indeterminate). Prefilling
++        // The runtime may still confirm an ambiguous dispatch. Prefilling
+         // would invite a duplicate send if the original later lands.
+         mocks.messageWindowState = {
+             messages: [makeQueuedMessage(null, 'server-message-id', { deliveryState: 'indeterminate' })],
+@@ -777,6 +777,25 @@ describe('formatScheduledTime', () => {
+ })
+
+ describe('QueuedMessagesBar steer action', () => {
++    it('keeps pending insertion visible and disables edits until receipt is known', () => {
++        const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
++        const view = renderQueuedMessage(null, null, 0, false, api)
++        mocks.messageWindowState = {
++            messages: [makeQueuedMessage(null, 'server-message-id', { deliveryState: 'dispatching' })],
++        }
++        view.rerender(null)
++
++        expect(screen.getByText('queuedMessages.steerPending')).toBeVisible()
++        expect(screen.queryByText('queuedMessages.steerOutcomeUnknown')).toBeNull()
++        for (const name of ['Steer queued message', 'Edit queued message', 'Cancel queued message']) {
++            const button = screen.getByRole('button', { name })
++            expect(button).toBeDisabled()
++            fireEvent.click(button)
++        }
++        expect(mocks.steerMessage).not.toHaveBeenCalled()
++        expect(mocks.mutateAsync).not.toHaveBeenCalled()
++    })
++
+     // The real useSteerQueuedMessage hook runs here (only the cancel hook is
+     // module-mocked); pass a fake api whose steerMessage resolves on demand.
+     function renderSteerable(canSteer = true) {
+diff --git a/web/src/components/AssistantChat/QueuedMessagesBar.tsx b/web/src/components/AssistantChat/QueuedMessagesBar.tsx
+index 17478eb32e084fdbdfaad4cbb606f66f62ef98dc..6dbd9244bfe294cd8248179d56ea60d012f27c51 100644
+--- a/web/src/components/AssistantChat/QueuedMessagesBar.tsx
++++ b/web/src/components/AssistantChat/QueuedMessagesBar.tsx
+@@ -352,7 +352,8 @@ export function QueuedMessagesBar({
+                         const hasAttachments = attachmentNames.length > 0
+                         const localId = msg.localId ?? msg.id
+                         const isPending = cancelMutation.isPending || queuedOperationPending
+-                        const canCancel = computeCanCancel({ id: msg.id, localId: msg.localId, isPending })
++                        const dispatching = msg.deliveryState === 'dispatching'
++                        const canCancel = !dispatching && computeCanCancel({ id: msg.id, localId: msg.localId, isPending })
+
+                         const handleCancel = () => {
+                             if (!canCancel) return
+@@ -375,15 +376,15 @@ export function QueuedMessagesBar({
+                         // Edit/Cancel, and never offered for future-scheduled rows
+                         // (the hub rejects those).
+                         const canSteerRow = Boolean(
+-                            canSteer
++                            (canSteer || dispatching)
+                             && msg.deliveryState !== 'indeterminate'
+                             && msg.scheduledAt == null
+-                            && canCancel
++                            && (canCancel || dispatching)
+                         )
+                         const steerPending = steerMutation.isPending
+                             && steerMutation.variables?.messageId === msg.id
+                         const handleSteer = () => {
+-                            if (!canSteerRow) return
++                            if (!canSteerRow || dispatching) return
+                             const token = beginQueuedOperation(sessionId)
+                             if (!token) return
+                             void steerMutation.mutateAsync({
+@@ -523,6 +524,11 @@ export function QueuedMessagesBar({
+                                             {t('queuedMessages.steerOutcomeUnknown')}
+                                         </div>
+                                     ) : null}
++                                    {dispatching ? (
++                                        <div className="mt-1 text-xs text-[var(--app-hint)]" role="status">
++                                            {t('queuedMessages.steerPending')}
++                                        </div>
++                                    ) : null}
+                                     {hasAttachments ? (
+                                         <div className={text ? 'mt-1 flex flex-wrap gap-1' : 'flex flex-wrap gap-1'}>
+                                             {attachmentNames.map((name, index) => (
+@@ -564,8 +570,8 @@ export function QueuedMessagesBar({
+                                         <button
+                                             type="button"
+                                             aria-label="Steer queued message"
+-                                            title={t('queuedMessages.steer')}
+-                                            disabled={steerPending}
++                                            title={t(dispatching ? 'queuedMessages.steerPending' : 'queuedMessages.steer')}
++                                            disabled={steerPending || dispatching}
+                                             onClick={handleSteer}
+                                             onMouseDown={(e) => e.preventDefault()}
+                                             className="flex h-6 w-6 items-center justify-center rounded text-[var(--app-hint)] transition-colors hover:bg-[var(--app-border)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-40"
+diff --git a/web/src/hooks/useSSE.ts b/web/src/hooks/useSSE.ts
+index 22180120834763d0c3ecc69d42eb63ccd73fb269..a244d0e68d49d7a9890cbbdafaee212769819b6a 100644
+--- a/web/src/hooks/useSSE.ts
++++ b/web/src/hooks/useSSE.ts
+@@ -22,7 +22,7 @@ import type {
+ } from '@/types/api'
+ import { queryKeys } from '@/lib/query-keys'
+ import { applyAgyCatalogAnnouncement } from '@/lib/agyCatalogAnnouncement'
+-import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, markMessagesIndeterminate, markMessagesRequeued, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
++import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, markMessagesDispatching, markMessagesIndeterminate, markMessagesRequeued, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
+ import { applySessionDetailPatch } from '@/lib/sessionPatch'
+
+ // Pure patch-application rules live in @/lib/sessionPatch (React-free, shared
+@@ -41,6 +41,7 @@ export type SSEScope = 'global' | 'full'
+ const MESSAGE_STREAM_EVENT_TYPES = new Set<SyncEvent['type']>([
+     'message-received',
+     'messages-consumed',
++    'messages-dispatching',
+     'messages-indeterminate',
+     'messages-requeued',
+     'message-cancelled',
+@@ -683,6 +684,7 @@ export function useSSE(options: {
+                 if (
+                     event.type === 'message-cancelled'
+                     || event.type === 'messages-consumed'
++                    || event.type === 'messages-dispatching'
+                     || event.type === 'messages-indeterminate'
+                     || event.type === 'messages-requeued'
+                     || event.type === 'scheduled-matured'
+@@ -699,6 +701,9 @@ export function useSSE(options: {
+                 if (event.type === 'messages-indeterminate') {
+                     markMessagesIndeterminate(event.sessionId, event.localIds)
+                 }
++                if (event.type === 'messages-dispatching') {
++                    markMessagesDispatching(event.sessionId, event.localIds)
++                }
+                 if (event.type === 'messages-requeued') {
+                     markMessagesRequeued(event.sessionId, event.localIds)
+                 }
+@@ -716,6 +721,9 @@ export function useSSE(options: {
+             if (event.type === 'messages-indeterminate') {
+                 markMessagesIndeterminate(event.sessionId, event.localIds)
+             }
++            if (event.type === 'messages-dispatching') {
++                markMessagesDispatching(event.sessionId, event.localIds)
++            }
+
+             if (event.type === 'messages-requeued') {
+                 markMessagesRequeued(event.sessionId, event.localIds)
+diff --git a/web/src/lib/locales/en.ts b/web/src/lib/locales/en.ts
+index f407dd07fac8825f8e164fec809b918f612b96c6..2272f4a25f0241acd8f7d2b5d6cb8b8858a8b0e9 100644
+--- a/web/src/lib/locales/en.ts
++++ b/web/src/lib/locales/en.ts
+@@ -680,6 +680,7 @@ export default {
+   'queuedMessages.steer': 'Deliver into the running turn now',
+   'queuedMessages.steerFailed': 'Steer failed — message stays queued',
+   'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
++  'queuedMessages.steerPending': 'Inserting. Waiting for the agent to confirm receipt…',
+   'queuedMessages.retryOutcome': 'Retry uncertain delivery',
+   'queuedMessages.retryFailed': 'Retry failed',
+   'queuedMessages.retryMissing': 'The message is no longer available',
+diff --git a/web/src/lib/locales/zh-CN.ts b/web/src/lib/locales/zh-CN.ts
+index 3c06f4b4d64cd7360f9604ebb6f56a062d0b0f62..83865fe2fd74b79d6ada2db1010b5ed8592c3738 100644
+--- a/web/src/lib/locales/zh-CN.ts
++++ b/web/src/lib/locales/zh-CN.ts
+@@ -678,6 +678,7 @@ export default {
+   'queuedMessages.steer': '立即插入当前回合',
+   'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
+   'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',
++  'queuedMessages.steerPending': '正在插入，等待助手确认接收…',
+   'queuedMessages.retryOutcome': '重试不确定的消息发送',
+   'queuedMessages.retryFailed': '重试失败',
+   'queuedMessages.retryMissing': '消息已不存在',
+diff --git a/web/src/lib/message-window-store.ts b/web/src/lib/message-window-store.ts
+index 3c677d40dd932ee0a094a75bf9e6db12e86afb36..ad4eb8562554204b630b026fe1920a223939b3ef 100644
+--- a/web/src/lib/message-window-store.ts
++++ b/web/src/lib/message-window-store.ts
+@@ -1276,22 +1276,30 @@ export function removeOptimisticMessage(sessionId: string, localId: string): voi
+     }, true)
+ }
+
+-export function markMessagesIndeterminate(sessionId: string, localIds: string[]): void {
++function markMessagesDeliveryState(sessionId: string, localIds: string[], deliveryState: 'dispatching' | 'indeterminate'): void {
+     if (localIds.length === 0) return
+     const idSet = new Set(localIds)
+     updateState(sessionId, (previous) => {
+         let changed = false
+         const messages = previous.messages.map((message) => {
+-            if (!message.localId || !idSet.has(message.localId) || message.deliveryState === 'indeterminate') {
++            if (!message.localId || !idSet.has(message.localId) || message.invokedAt !== null || message.deliveryState === deliveryState) {
+                 return message
+             }
+             changed = true
+-            return { ...message, deliveryState: 'indeterminate' as const }
++            return { ...message, deliveryState }
+         })
+         return changed ? buildState(previous, { messages }) : previous
+     }, true)
+ }
+
++export function markMessagesDispatching(sessionId: string, localIds: string[]): void {
++    markMessagesDeliveryState(sessionId, localIds, 'dispatching')
++}
++
++export function markMessagesIndeterminate(sessionId: string, localIds: string[]): void {
++    markMessagesDeliveryState(sessionId, localIds, 'indeterminate')
++}
++
+ export function markMessagesRequeued(sessionId: string, localIds: string[]): void {
+     if (localIds.length === 0) return
+     const idSet = new Set(localIds)
+diff --git a/web/src/lib/queued-state-reconciliation.test.ts b/web/src/lib/queued-state-reconciliation.test.ts
+index c325f205d5f00fd64fffc216afa491234669d84b..80e304facd99d3437ff94cb22d25af305b2f657e 100644
+--- a/web/src/lib/queued-state-reconciliation.test.ts
++++ b/web/src/lib/queued-state-reconciliation.test.ts
+@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
+ vi.mock('./message-window-store', () => ({
+     getQueuedReconcileCandidateLocalIds: vi.fn(),
+     markMessagesConsumed: vi.fn(),
++    markMessagesDispatching: vi.fn(),
+     markMessagesIndeterminate: vi.fn(),
+     markMessagesRequeued: vi.fn(),
+     reconcileQueuedLocalIds: vi.fn(),
+@@ -13,6 +14,7 @@ vi.mock('./message-window-store', () => ({
+ import {
+     getQueuedReconcileCandidateLocalIds,
+     markMessagesConsumed,
++    markMessagesDispatching,
+     markMessagesIndeterminate,
+     markMessagesRequeued,
+     reconcileQueuedLocalIds,
+@@ -37,6 +39,18 @@ function createMockApi(
+ }
+
+ describe('reconcileQueuedStateAfterConnect', () => {
++    it('retains a dispatch awaiting receipt separately from an uncertain outcome', async () => {
++        mockGetCandidates.mockReturnValueOnce(['sending', 'unknown'])
++        const getQueuedState = vi.fn(async () => ({
++            queuedLocalIds: [], dispatchingLocalIds: ['sending'],
++            indeterminateLocalIds: ['unknown'], invokedLocalMessages: []
++        }))
++        await reconcileQueuedStateAfterConnect(createMockApi(getQueuedState), 'session-pending')
++        expect(markMessagesDispatching).toHaveBeenCalledWith('session-pending', ['sending'])
++        expect(mockMarkMessagesIndeterminate).toHaveBeenCalledWith('session-pending', ['unknown'])
++        expect(mockReconcileQueuedLocalIds).toHaveBeenCalledWith('session-pending', ['sending', 'unknown'], ['sending', 'unknown'])
++        expect(getQueuedState).toHaveBeenCalledOnce()
++    })
+     beforeEach(() => {
+         vi.clearAllMocks()
+         mockSyncTailMessages.mockResolvedValue(undefined)
+diff --git a/web/src/lib/queued-state-reconciliation.ts b/web/src/lib/queued-state-reconciliation.ts
+index b526b04044f53ed7b79d3bae722ecc308e74120d..1fc903a9c9480e3a6eba7448d6d278a684b11273 100644
+--- a/web/src/lib/queued-state-reconciliation.ts
++++ b/web/src/lib/queued-state-reconciliation.ts
+@@ -2,6 +2,7 @@ import type { ApiClient } from '@/api/client'
+ import {
+     getQueuedReconcileCandidateLocalIds,
+     markMessagesConsumed,
++    markMessagesDispatching,
+     markMessagesIndeterminate,
+     markMessagesRequeued,
+     reconcileQueuedLocalIds,
+@@ -20,12 +21,14 @@ export async function reconcileQueuedStateAfterConnect(
+         return
+     }
+     const queuedLocalIds: string[] = []
++    const dispatchingLocalIds: string[] = []
+     const indeterminateLocalIds: string[] = []
+     const invokedLocalMessages: Array<{ localId: string; invokedAt: number }> = []
+     for (let index = 0; index < candidateLocalIds.length; index += QUEUED_STATE_BATCH_SIZE) {
+         const batch = candidateLocalIds.slice(index, index + QUEUED_STATE_BATCH_SIZE)
+         const state = await api.getQueuedState(sessionId, batch)
+         queuedLocalIds.push(...state.queuedLocalIds)
++        dispatchingLocalIds.push(...(state.dispatchingLocalIds ?? []))
+         indeterminateLocalIds.push(...(state.indeterminateLocalIds ?? []))
+         invokedLocalMessages.push(...state.invokedLocalMessages)
+     }
+@@ -41,6 +44,7 @@ export async function reconcileQueuedStateAfterConnect(
+     // Clear force-dismiss holds for rows that returned to ordinary FIFO while
+     // SSE was down (#1839 queueDismissed).
+     markMessagesRequeued(sessionId, queuedLocalIds)
++    markMessagesDispatching(sessionId, dispatchingLocalIds)
+     markMessagesIndeterminate(sessionId, indeterminateLocalIds)
+-    reconcileQueuedLocalIds(sessionId, candidateLocalIds, [...queuedLocalIds, ...indeterminateLocalIds])
++    reconcileQueuedLocalIds(sessionId, candidateLocalIds, [...queuedLocalIds, ...dispatchingLocalIds, ...indeterminateLocalIds])
+ }

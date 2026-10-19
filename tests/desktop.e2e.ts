@@ -2468,7 +2468,10 @@ test('Claude direct and queued steering wait for native acknowledgement and neve
   const queue = chat.getByRole('region', { name: '排队消息', exact: true })
   await expect(queue).toContainText('Claude 普通消息先排队')
   await queue.getByRole('button', { name: '优先插入', exact: true }).click()
-  await expect(queue).toContainText('尚未确认消息是否送达')
+  await expect(queue).toContainText('正在插入，等待助手确认接收…')
+  await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toBeDisabled()
+  await expect(queue.getByRole('button', { name: '编辑排队消息', exact: true })).toBeDisabled()
+  await expect(queue.getByRole('button', { name: '取消排队消息', exact: true })).toBeDisabled()
   await chat.getByRole('textbox').fill('Claude 当前轮的新方向')
   await chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true }).click()
   await expect(queue).toContainText('Claude 当前轮的新方向')
@@ -2481,7 +2484,11 @@ test('Claude direct and queued steering wait for native acknowledgement and neve
   expect(pending).toHaveLength(2)
   await page.reload()
   await expect(queue).toContainText('Claude 当前轮的新方向')
-  await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(0)
+  await expect(queue.getByText('正在插入，等待助手确认接收…', { exact: true })).toHaveCount(2)
+  await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(2)
+  await expect(queue.getByRole('button', { name: '优先插入', exact: true }).first()).toBeDisabled()
+  await expect(chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true })).toBeVisible()
+  await expect(queue.getByRole('button', { name: '重试发送', exact: true })).toHaveCount(0)
   expect(sends()).toHaveLength(2)
   expect(steers()).toHaveLength(1)
   for (const message of pending) {
@@ -2498,6 +2505,7 @@ test('Claude direct and queued steering wait for native acknowledgement and neve
   await expect(queue).toHaveCount(0)
   await expect(chat.getByText('Claude 当前轮的新方向', { exact: true })).toHaveCount(1)
   await expect(chat.getByText('Claude 普通消息先排队', { exact: true })).toHaveCount(1)
+  await expect(chat.getByText('↳ 已介入', { exact: true })).toHaveCount(2)
   expect(sends()).toHaveLength(2)
   expect(errors).toEqual([])
 })
@@ -4031,6 +4039,61 @@ test('Markdown embedded code stays inert and external diagram images are blocked
     })
     .toBe(true)
   expect(externalResponses).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('workspace group ordering follows settings, persists after reload and keeps collapse choices', async () => {
+  const paths = ['/workspaces/Alpha/z-last', '/workspaces/beta/project', '/workspaces/zeta/a-first']
+  const timestamp = Date.now()
+  const beta = server.sessions.get('history')!
+  beta.metadata!.path = paths[1]
+  beta.updatedAt = timestamp + 200
+  const alpha = fixtureSession('order-alpha', 'Alpha history', 'codex', false)
+  alpha.metadata!.path = paths[0]
+  alpha.updatedAt = timestamp
+  const zeta = fixtureSession('order-zeta', 'Zeta history', 'claude', false)
+  zeta.metadata!.path = paths[2]
+  zeta.updatedAt = timestamp + 100
+  for (const session of [alpha, zeta]) {
+    server.sessions.set(session.id, session)
+    server.messages.set(session.id, [])
+  }
+  await page.reload()
+  const headings = page.getByTestId('sessions-history').locator('.workspace-group-heading .group-path')
+  await expect(headings).toHaveText(paths)
+  const alphaGroup = page.locator('.session-group').filter({ has: page.getByTestId('session-order-alpha') })
+  await alphaGroup.locator('.workspace-group-toggle').click()
+  await expect(alphaGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const order = page.getByRole('combobox', { name: '目录分组排序', exact: true })
+  await expect(order).toHaveValue('path-asc')
+  await order.selectOption('path-desc')
+  await expect(headings).toHaveText([...paths].reverse())
+  expect(JSON.parse(await readFile(join(dataDirectory, 'settings.json'), 'utf8')).workspaceGroupSort).toBe(
+    'path-desc',
+  )
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(headings).toHaveText([...paths].reverse())
+  await expect(alphaGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
+
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await expect(order).toHaveValue('path-desc')
+  await order.selectOption('recent')
+  await expect(headings).toHaveText([paths[1], paths[2], paths[0]])
+  await page.keyboard.press('Escape')
+  alpha.updatedAt = timestamp + 300
+  server.emit({ type: 'session-updated', sessionId: alpha.id, data: alpha })
+  await expect(headings).toHaveText([paths[0], paths[1], paths[2]])
+
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await order.selectOption('path-asc')
+  await page.keyboard.press('Escape')
+  beta.updatedAt = timestamp + 400
+  server.emit({ type: 'session-updated', sessionId: beta.id, data: beta })
+  await expect(headings).toHaveText(paths)
+  await expect(alphaGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
   expect(errors).toEqual([])
 })
 

@@ -14,6 +14,7 @@ import {
   ingestIncomingMessages,
   invalidateMessageWindow,
   markMessagesConsumed,
+  markMessagesDispatching,
   markMessagesIndeterminate,
   markMessagesRequeued,
   removeOptimisticMessage,
@@ -169,6 +170,10 @@ export function applyDesktopEvent(event: DesktopEvent) {
     case 'messages-indeterminate':
       flushIncoming(id)
       markMessagesIndeterminate(id, data.localIds)
+      break
+    case 'messages-dispatching':
+      flushIncoming(id)
+      markMessagesDispatching(id, data.localIds)
       break
     case 'messages-requeued':
       flushIncoming(id)

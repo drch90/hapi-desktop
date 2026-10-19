@@ -10,6 +10,7 @@ export const defaultSettings: Settings = {
   theme: 'system',
   enterBehavior: 'newline',
   fontSize: 'normal',
+  workspaceGroupSort: 'path-asc',
   collapseHistoryByDefault: true,
   codexExplorationCollapsed: true,
   notifications: true,

@@ -198,6 +198,7 @@ export const settingsUpdateSchema = z
     theme: z.enum(['system', 'light', 'dark']).optional(),
     enterBehavior: z.enum(['newline', 'send']).optional(),
     fontSize: z.enum(['small', 'normal', 'large', 'extra-large']).optional(),
+    workspaceGroupSort: z.enum(['path-asc', 'path-desc', 'recent']).optional(),
     collapseHistoryByDefault: z.boolean().optional(),
     codexExplorationCollapsed: z.boolean().optional(),
     notifications: z.boolean().optional(),

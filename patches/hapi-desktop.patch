@@ -53,13 +53,21 @@ index a5d2ce8..1361a87 100644
          case 'pi':
              return null
 diff --git a/vendor/hapi/shared/src/apiTypes.ts b/vendor/hapi/shared/src/apiTypes.ts
-index 4a871fa..28d185b 100644
+index 4a871fa..811d4d4 100644
 --- a/vendor/hapi/shared/src/apiTypes.ts
 +++ b/vendor/hapi/shared/src/apiTypes.ts
-@@ -803,6 +803,20 @@ export type OpencodeModelVariantsResponse = {
+@@ -619,6 +619,7 @@ export type QueuedStateRequest = z.infer<typeof QueuedStateRequestSchema>
+
+ export type QueuedStateResponse = {
+     queuedLocalIds: string[]
++    dispatchingLocalIds?: string[]
+     indeterminateLocalIds?: string[]
+     invokedLocalMessages: Array<{
+         localId: string
+@@ -803,6 +804,20 @@ export type OpencodeModelVariantsResponse = {
      error?: string
  }
- 
+
 +export type HermesModelSummary = {
 +    modelId: string
 +    name?: string
@@ -156,7 +164,7 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..cc8db239e1f87cb6b789396caf7f22b9
      }
      if (metadata?.flavor !== 'cursor') {
 diff --git a/vendor/hapi/shared/src/schemas.ts b/vendor/hapi/shared/src/schemas.ts
-index 9177c80..148566f 100644
+index 9177c80..3852fb6 100644
 --- a/vendor/hapi/shared/src/schemas.ts
 +++ b/vendor/hapi/shared/src/schemas.ts
 @@ -72,6 +72,7 @@ export const MetadataSchema = z.object({
@@ -167,6 +175,29 @@ index 9177c80..148566f 100644
      agySessionId: z.string().optional(),
      cursorSessionId: z.string().optional(),
      cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
+@@ -306,9 +307,8 @@ export const DecryptedMessageSchema = z.object({
+     createdAt: z.number(),
+     invokedAt: z.number().nullable().optional(),
+     scheduledAt: z.number().nullable().optional(),
+-    // The agent was sent the steer but its final outcome could not be proven.
+-    // The row stays uninvoked and requires an explicit user resolution.
+-    deliveryState: z.literal('indeterminate').optional(),
++    // Dispatching waits for native receipt; indeterminate requires user resolution.
++    deliveryState: z.enum(['dispatching', 'indeterminate']).optional(),
+     // Live signal via messages-consumed (steered:true); not persisted by the hub.
+     steered: z.boolean().optional()
+ })
+@@ -605,6 +605,10 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
+         // True when messages were steered into an active turn (not a normal queue drain).
+         steered: z.boolean().optional()
+     }),
++    SessionChangedSchema.extend({
++        type: z.literal('messages-dispatching'),
++        localIds: z.array(z.string())
++    }),
+     SessionChangedSchema.extend({
+         type: z.literal('messages-indeterminate'),
+         localIds: z.array(z.string())
 diff --git a/vendor/hapi/shared/src/sessionSummary.ts b/vendor/hapi/shared/src/sessionSummary.ts
 index f2d787e..26636a1 100644
 --- a/vendor/hapi/shared/src/sessionSummary.ts
@@ -841,11 +872,11 @@ index 1b5b505..6d635dc 100644
  
  /**
 diff --git a/vendor/hapi/web/src/lib/message-window-store.ts b/vendor/hapi/web/src/lib/message-window-store.ts
-index 912d4e1..743e735 100644
+index 912d4e1..241566e 100644
 --- a/vendor/hapi/web/src/lib/message-window-store.ts
 +++ b/vendor/hapi/web/src/lib/message-window-store.ts
 @@ -140,7 +140,7 @@ function getStorageKey(sessionId: string): string {
- 
+
  function isSessionStorageAvailable(): boolean {
      try {
 -        return typeof sessionStorage?.getItem === 'function'
@@ -853,6 +884,40 @@ index 912d4e1..743e735 100644
      } catch {
          return false
      }
+@@ -1271,22 +1271,30 @@ export function removeOptimisticMessage(sessionId: string, localId: string): voi
+     }, true)
+ }
+
+-export function markMessagesIndeterminate(sessionId: string, localIds: string[]): void {
++function markMessagesDeliveryState(sessionId: string, localIds: string[], deliveryState: 'dispatching' | 'indeterminate'): void {
+     if (localIds.length === 0) return
+     const idSet = new Set(localIds)
+     updateState(sessionId, (previous) => {
+         let changed = false
+         const messages = previous.messages.map((message) => {
+-            if (!message.localId || !idSet.has(message.localId) || message.deliveryState === 'indeterminate') {
++            if (!message.localId || !idSet.has(message.localId) || message.invokedAt !== null || message.deliveryState === deliveryState) {
+                 return message
+             }
+             changed = true
+-            return { ...message, deliveryState: 'indeterminate' as const }
++            return { ...message, deliveryState }
+         })
+         return changed ? buildState(previous, { messages }) : previous
+     }, true)
+ }
+
++export function markMessagesDispatching(sessionId: string, localIds: string[]): void {
++    markMessagesDeliveryState(sessionId, localIds, 'dispatching')
++}
++
++export function markMessagesIndeterminate(sessionId: string, localIds: string[]): void {
++    markMessagesDeliveryState(sessionId, localIds, 'indeterminate')
++}
++
+ export function markMessagesRequeued(sessionId: string, localIds: string[]): void {
+     if (localIds.length === 0) return
+     const idSet = new Set(localIds)
 diff --git a/vendor/hapi/web/src/lib/sessionReference.ts b/vendor/hapi/web/src/lib/sessionReference.ts
 index 6aec0cc..604aa6d 100644
 --- a/vendor/hapi/web/src/lib/sessionReference.ts
@@ -1804,7 +1869,7 @@ index 0000000..00c0b74
 +    )
 +}
 diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/locales/en.ts
-index fb62fac..1c1eed1 100644
+index fb62fac..048a7fd 100644
 --- a/vendor/hapi/web/src/lib/locales/en.ts
 +++ b/vendor/hapi/web/src/lib/locales/en.ts
 @@ -1,4 +1,13 @@
@@ -1821,8 +1886,16 @@ index fb62fac..1c1eed1 100644
    // Loading states
    'loading': 'Loading…',
    'authorizing': 'Authorizing…',
+@@ -672,6 +681,7 @@ export default {
+   'queuedMessages.steer': 'Deliver into the running turn now',
+   'queuedMessages.steerFailed': 'Steer failed — message stays queued',
+   'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
++  'queuedMessages.steerPending': 'Inserting. Waiting for the agent to confirm receipt…',
+   'queuedMessages.retryOutcome': 'Retry uncertain delivery',
+   'queuedMessages.retryFailed': 'Retry failed',
+   'queuedMessages.retryMissing': 'The message is no longer available',
 diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/locales/zh-CN.ts
-index 1633362..ac2fe3e 100644
+index 1633362..7c7d005 100644
 --- a/vendor/hapi/web/src/lib/locales/zh-CN.ts
 +++ b/vendor/hapi/web/src/lib/locales/zh-CN.ts
 @@ -1,4 +1,13 @@
@@ -1839,6 +1912,14 @@ index 1633362..ac2fe3e 100644
    // Loading states
    'loading': '加载中…',
    'authorizing': '认证中…',
+@@ -670,6 +679,7 @@ export default {
+   'queuedMessages.steer': '立即插入当前回合',
+   'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
+   'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',
++  'queuedMessages.steerPending': '正在插入，等待助手确认接收…',
+   'queuedMessages.retryOutcome': '重试不确定的消息发送',
+   'queuedMessages.retryFailed': '重试失败',
+   'queuedMessages.retryMissing': '消息已不存在',
 diff --git a/vendor/hapi/web/src/lib/text-rendering.ts b/vendor/hapi/web/src/lib/text-rendering.ts
 new file mode 100644
 index 0000000..f1c93d9
@@ -1922,3 +2003,222 @@ index 185b41e..737fa72 100644
          const text = new TextDecoder('utf-8').decode(bytes)
          return { text, ok: true }
      } catch {
+diff --git a/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx b/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
+index 794a48518817b30d3db4614378995aa6312b6884..44b512de8a1e6a07b92c7113423c0b70ab2b8967 100644
+--- a/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
++++ b/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.test.tsx
+@@ -496,7 +496,7 @@ describe('QueuedMessagesBar edit restore', () => {
+     })
+
+     it('does not prefill when editing an indeterminate row whose cancel returns busy', async () => {
+-        // Hub may still be mid-dispatch (serialized as indeterminate). Prefilling
++        // The runtime may still confirm an ambiguous dispatch. Prefilling
+         // would invite a duplicate send if the original later lands.
+         mocks.messageWindowState = {
+             messages: [makeQueuedMessage(null, 'server-message-id', { deliveryState: 'indeterminate' })],
+@@ -777,6 +777,25 @@ describe('formatScheduledTime', () => {
+ })
+
+ describe('QueuedMessagesBar steer action', () => {
++    it('keeps pending insertion visible and disables edits until receipt is known', () => {
++        const api = { steerMessage: mocks.steerMessage } as unknown as ApiClient
++        const view = renderQueuedMessage(null, null, 0, false, api)
++        mocks.messageWindowState = {
++            messages: [makeQueuedMessage(null, 'server-message-id', { deliveryState: 'dispatching' })],
++        }
++        view.rerender(null)
++
++        expect(screen.getByText('queuedMessages.steerPending')).toBeVisible()
++        expect(screen.queryByText('queuedMessages.steerOutcomeUnknown')).toBeNull()
++        for (const name of ['Steer queued message', 'Edit queued message', 'Cancel queued message']) {
++            const button = screen.getByRole('button', { name })
++            expect(button).toBeDisabled()
++            fireEvent.click(button)
++        }
++        expect(mocks.steerMessage).not.toHaveBeenCalled()
++        expect(mocks.mutateAsync).not.toHaveBeenCalled()
++    })
++
+     // The real useSteerQueuedMessage hook runs here (only the cancel hook is
+     // module-mocked); pass a fake api whose steerMessage resolves on demand.
+     function renderSteerable(canSteer = true) {
+diff --git a/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.tsx b/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.tsx
+index 17478eb32e084fdbdfaad4cbb606f66f62ef98dc..6dbd9244bfe294cd8248179d56ea60d012f27c51 100644
+--- a/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.tsx
++++ b/vendor/hapi/web/src/components/AssistantChat/QueuedMessagesBar.tsx
+@@ -352,7 +352,8 @@ export function QueuedMessagesBar({
+                         const hasAttachments = attachmentNames.length > 0
+                         const localId = msg.localId ?? msg.id
+                         const isPending = cancelMutation.isPending || queuedOperationPending
+-                        const canCancel = computeCanCancel({ id: msg.id, localId: msg.localId, isPending })
++                        const dispatching = msg.deliveryState === 'dispatching'
++                        const canCancel = !dispatching && computeCanCancel({ id: msg.id, localId: msg.localId, isPending })
+
+                         const handleCancel = () => {
+                             if (!canCancel) return
+@@ -375,15 +376,15 @@ export function QueuedMessagesBar({
+                         // Edit/Cancel, and never offered for future-scheduled rows
+                         // (the hub rejects those).
+                         const canSteerRow = Boolean(
+-                            canSteer
++                            (canSteer || dispatching)
+                             && msg.deliveryState !== 'indeterminate'
+                             && msg.scheduledAt == null
+-                            && canCancel
++                            && (canCancel || dispatching)
+                         )
+                         const steerPending = steerMutation.isPending
+                             && steerMutation.variables?.messageId === msg.id
+                         const handleSteer = () => {
+-                            if (!canSteerRow) return
++                            if (!canSteerRow || dispatching) return
+                             const token = beginQueuedOperation(sessionId)
+                             if (!token) return
+                             void steerMutation.mutateAsync({
+@@ -523,6 +524,11 @@ export function QueuedMessagesBar({
+                                             {t('queuedMessages.steerOutcomeUnknown')}
+                                         </div>
+                                     ) : null}
++                                    {dispatching ? (
++                                        <div className="mt-1 text-xs text-[var(--app-hint)]" role="status">
++                                            {t('queuedMessages.steerPending')}
++                                        </div>
++                                    ) : null}
+                                     {hasAttachments ? (
+                                         <div className={text ? 'mt-1 flex flex-wrap gap-1' : 'flex flex-wrap gap-1'}>
+                                             {attachmentNames.map((name, index) => (
+@@ -564,8 +570,8 @@ export function QueuedMessagesBar({
+                                         <button
+                                             type="button"
+                                             aria-label="Steer queued message"
+-                                            title={t('queuedMessages.steer')}
+-                                            disabled={steerPending}
++                                            title={t(dispatching ? 'queuedMessages.steerPending' : 'queuedMessages.steer')}
++                                            disabled={steerPending || dispatching}
+                                             onClick={handleSteer}
+                                             onMouseDown={(e) => e.preventDefault()}
+                                             className="flex h-6 w-6 items-center justify-center rounded text-[var(--app-hint)] transition-colors hover:bg-[var(--app-border)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-40"
+diff --git a/vendor/hapi/web/src/hooks/useSSE.ts b/vendor/hapi/web/src/hooks/useSSE.ts
+index 22180120834763d0c3ecc69d42eb63ccd73fb269..a244d0e68d49d7a9890cbbdafaee212769819b6a 100644
+--- a/vendor/hapi/web/src/hooks/useSSE.ts
++++ b/vendor/hapi/web/src/hooks/useSSE.ts
+@@ -22,7 +22,7 @@ import type {
+ } from '@/types/api'
+ import { queryKeys } from '@/lib/query-keys'
+ import { applyAgyCatalogAnnouncement } from '@/lib/agyCatalogAnnouncement'
+-import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, markMessagesIndeterminate, markMessagesRequeued, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
++import { clearMessageWindow, getMessageWindowState, ingestIncomingMessages, markMessagesConsumed, markMessagesDispatching, markMessagesIndeterminate, markMessagesRequeued, removeOptimisticMessage, updateMessageStatus } from '@/lib/message-window-store'
+ import { applySessionDetailPatch } from '@/lib/sessionPatch'
+
+ // Pure patch-application rules live in @/lib/sessionPatch (React-free, shared
+@@ -41,6 +41,7 @@ export type SSEScope = 'global' | 'full'
+ const MESSAGE_STREAM_EVENT_TYPES = new Set<SyncEvent['type']>([
+     'message-received',
+     'messages-consumed',
++    'messages-dispatching',
+     'messages-indeterminate',
+     'messages-requeued',
+     'message-cancelled',
+@@ -683,6 +684,7 @@ export function useSSE(options: {
+                 if (
+                     event.type === 'message-cancelled'
+                     || event.type === 'messages-consumed'
++                    || event.type === 'messages-dispatching'
+                     || event.type === 'messages-indeterminate'
+                     || event.type === 'messages-requeued'
+                     || event.type === 'scheduled-matured'
+@@ -699,6 +701,9 @@ export function useSSE(options: {
+                 if (event.type === 'messages-indeterminate') {
+                     markMessagesIndeterminate(event.sessionId, event.localIds)
+                 }
++                if (event.type === 'messages-dispatching') {
++                    markMessagesDispatching(event.sessionId, event.localIds)
++                }
+                 if (event.type === 'messages-requeued') {
+                     markMessagesRequeued(event.sessionId, event.localIds)
+                 }
+@@ -716,6 +721,9 @@ export function useSSE(options: {
+             if (event.type === 'messages-indeterminate') {
+                 markMessagesIndeterminate(event.sessionId, event.localIds)
+             }
++            if (event.type === 'messages-dispatching') {
++                markMessagesDispatching(event.sessionId, event.localIds)
++            }
+
+             if (event.type === 'messages-requeued') {
+                 markMessagesRequeued(event.sessionId, event.localIds)
+diff --git a/vendor/hapi/web/src/lib/queued-state-reconciliation.test.ts b/vendor/hapi/web/src/lib/queued-state-reconciliation.test.ts
+index c325f205d5f00fd64fffc216afa491234669d84b..80e304facd99d3437ff94cb22d25af305b2f657e 100644
+--- a/vendor/hapi/web/src/lib/queued-state-reconciliation.test.ts
++++ b/vendor/hapi/web/src/lib/queued-state-reconciliation.test.ts
+@@ -4,6 +4,7 @@ import type { ApiClient } from '@/api/client'
+ vi.mock('./message-window-store', () => ({
+     getQueuedReconcileCandidateLocalIds: vi.fn(),
+     markMessagesConsumed: vi.fn(),
++    markMessagesDispatching: vi.fn(),
+     markMessagesIndeterminate: vi.fn(),
+     markMessagesRequeued: vi.fn(),
+     reconcileQueuedLocalIds: vi.fn(),
+@@ -13,6 +14,7 @@ vi.mock('./message-window-store', () => ({
+ import {
+     getQueuedReconcileCandidateLocalIds,
+     markMessagesConsumed,
++    markMessagesDispatching,
+     markMessagesIndeterminate,
+     markMessagesRequeued,
+     reconcileQueuedLocalIds,
+@@ -37,6 +39,18 @@ function createMockApi(
+ }
+
+ describe('reconcileQueuedStateAfterConnect', () => {
++    it('retains a dispatch awaiting receipt separately from an uncertain outcome', async () => {
++        mockGetCandidates.mockReturnValueOnce(['sending', 'unknown'])
++        const getQueuedState = vi.fn(async () => ({
++            queuedLocalIds: [], dispatchingLocalIds: ['sending'],
++            indeterminateLocalIds: ['unknown'], invokedLocalMessages: []
++        }))
++        await reconcileQueuedStateAfterConnect(createMockApi(getQueuedState), 'session-pending')
++        expect(markMessagesDispatching).toHaveBeenCalledWith('session-pending', ['sending'])
++        expect(mockMarkMessagesIndeterminate).toHaveBeenCalledWith('session-pending', ['unknown'])
++        expect(mockReconcileQueuedLocalIds).toHaveBeenCalledWith('session-pending', ['sending', 'unknown'], ['sending', 'unknown'])
++        expect(getQueuedState).toHaveBeenCalledOnce()
++    })
+     beforeEach(() => {
+         vi.clearAllMocks()
+         mockSyncTailMessages.mockResolvedValue(undefined)
+diff --git a/vendor/hapi/web/src/lib/queued-state-reconciliation.ts b/vendor/hapi/web/src/lib/queued-state-reconciliation.ts
+index b526b04044f53ed7b79d3bae722ecc308e74120d..1fc903a9c9480e3a6eba7448d6d278a684b11273 100644
+--- a/vendor/hapi/web/src/lib/queued-state-reconciliation.ts
++++ b/vendor/hapi/web/src/lib/queued-state-reconciliation.ts
+@@ -2,6 +2,7 @@ import type { ApiClient } from '@/api/client'
+ import {
+     getQueuedReconcileCandidateLocalIds,
+     markMessagesConsumed,
++    markMessagesDispatching,
+     markMessagesIndeterminate,
+     markMessagesRequeued,
+     reconcileQueuedLocalIds,
+@@ -20,12 +21,14 @@ export async function reconcileQueuedStateAfterConnect(
+         return
+     }
+     const queuedLocalIds: string[] = []
++    const dispatchingLocalIds: string[] = []
+     const indeterminateLocalIds: string[] = []
+     const invokedLocalMessages: Array<{ localId: string; invokedAt: number }> = []
+     for (let index = 0; index < candidateLocalIds.length; index += QUEUED_STATE_BATCH_SIZE) {
+         const batch = candidateLocalIds.slice(index, index + QUEUED_STATE_BATCH_SIZE)
+         const state = await api.getQueuedState(sessionId, batch)
+         queuedLocalIds.push(...state.queuedLocalIds)
++        dispatchingLocalIds.push(...(state.dispatchingLocalIds ?? []))
+         indeterminateLocalIds.push(...(state.indeterminateLocalIds ?? []))
+         invokedLocalMessages.push(...state.invokedLocalMessages)
+     }
+@@ -41,6 +44,7 @@ export async function reconcileQueuedStateAfterConnect(
+     // Clear force-dismiss holds for rows that returned to ordinary FIFO while
+     // SSE was down (#1839 queueDismissed).
+     markMessagesRequeued(sessionId, queuedLocalIds)
++    markMessagesDispatching(sessionId, dispatchingLocalIds)
+     markMessagesIndeterminate(sessionId, indeterminateLocalIds)
+-    reconcileQueuedLocalIds(sessionId, candidateLocalIds, [...queuedLocalIds, ...indeterminateLocalIds])
++    reconcileQueuedLocalIds(sessionId, candidateLocalIds, [...queuedLocalIds, ...dispatchingLocalIds, ...indeterminateLocalIds])
+ }

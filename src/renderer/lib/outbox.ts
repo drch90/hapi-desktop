@@ -79,6 +79,7 @@ export async function checkDelivery(
     throw new Error('INVALID_RESPONSE')
   if (
     result.queuedLocalIds.includes(attempt.localId) ||
+    result.dispatchingLocalIds?.includes(attempt.localId) ||
     result.invokedLocalMessages.some((m) => m.localId === attempt.localId)
   )
     return 'accepted'

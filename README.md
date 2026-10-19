@@ -46,6 +46,8 @@
 
 会话菜单支持复制引用、重命名、全局置顶、项目置顶、标为未读、归档和删除。置顶通过 Hub 与 Web 同步，未读状态保存在本机并按账户隔离。支持机器筛选、仅看未读、全部标为已读，以及匹配标题、摘要、路径、工作树、机器、CLI 类型和会话 ID 的搜索。折叠侧栏中的待处理按钮会直接打开并定位待处理会话，聚焦审批或问答区域；必要时清除遮挡该会话的筛选。归档和删除需确认，失败保留本地状态并允许重试。
 
+历史目录分组默认按完整路径 A–Z 排序，忽略大小写，数字按自然顺序排列。在“设置 → 目录分组排序”中可选择“路径（A–Z）”“路径（Z–A）”或“最近更新”，立即生效并保存在本机。项目置顶的分组优先显示，缺少路径的分组在路径排序时放在最后；搜索按匹配相关度排列，清空搜索后恢复所选排序规则。
+
 | 快捷键                    | 操作                         |
 | ------------------------- | ---------------------------- |
 | Ctrl+W                    | 关闭当前栏的当前标签         |
@@ -163,7 +165,23 @@ Electron 界面测试使用构建后的应用和临时模拟 Hub。在 Linux 安
 xvfb-run -a bun run test:e2e
 ```
 
-验证脚本将进程树限制在允许使用的前两个逻辑 CPU，Vitest 最多两个 worker，Playwright 一个 worker。界面测试不会连接实际部署的 Hub；测试中的 `--no-sandbox` 仅用于 root 运行的 Linux 测试环境，生产窗口启用 Chromium sandbox。Windows 系统通知、系统凭据存储、托盘和开机启动仍需在目标系统验证。
+界面测试不会连接实际部署的 Hub；测试中的 `--no-sandbox` 仅用于 root 运行的 Linux 测试环境，生产窗口启用 Chromium sandbox。Windows 系统通知、系统凭据存储、托盘和开机启动仍需在目标系统验证。
+
+### CPU 资源限制
+
+**所有测试及其子进程最多使用 2 个可用逻辑 CPU**，包括单元、协议、集成、Electron 和真实 CLI 验证。构建、打包、类型检查也遵守相同上限，重型任务按组串行执行。
+
+上面的 `typecheck`、`test`、`build`、`test:e2e` 和 `package:win` 已调用 [CPU 限制脚本](scripts/limit-cpu.mjs)。Linux 使用 `taskset`，Windows 使用进程 affinity，将整个进程树限制在允许使用的前两个 CPU；不足两个时使用已有核心，并设置 `GOMAXPROCS=2`。Vitest 最多两个 worker，Playwright 一个 worker；worker 数不能替代进程 CPU 限制。
+
+单独执行工具或验证同级 HAPI 源码时也需经过限制脚本，例如在桌面仓库根目录执行：
+
+```sh
+node scripts/limit-cpu.mjs node --test scripts/release.test.mjs
+node scripts/limit-cpu.mjs bun run --cwd ../hapi test:cli
+node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
+```
+
+### 本地安装包
 
 生成 Windows x64 NSIS 安装包：
 
@@ -199,7 +217,7 @@ git push origin v1.0.3
 可在本地检查发布信息和准备文件：
 
 ```sh
-node --test scripts/release.test.mjs
+node scripts/limit-cpu.mjs node --test scripts/release.test.mjs
 node scripts/release.mjs check
 bun run package:win
 node scripts/release.mjs prepare

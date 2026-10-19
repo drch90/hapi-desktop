@@ -69,6 +69,26 @@ describe('streaming message batches', () => {
     expect(getMessageWindowState(sessionId).messages.map((message) => message.id)).toEqual(['queued'])
   })
 
+  it('shows dispatching separately and never replaces a confirmed receipt with a late pending event', () => {
+    receive({ ...fixtureMessage('stored', 1, 'guidance', true), localId: 'guidance', invokedAt: null })
+    const dispatching = { type: 'messages-dispatching' as const, sessionId, localIds: ['guidance'] }
+    applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
+    expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBe('dispatching')
+    applyDesktopEvent({
+      type: 'sync',
+      replay: false,
+      event: { type: 'messages-consumed', sessionId, localIds: ['guidance'], invokedAt: 42, steered: true },
+    })
+    applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
+    applyDesktopEvent({
+      type: 'sync',
+      replay: false,
+      event: { type: 'messages-indeterminate', sessionId, localIds: ['guidance'] },
+    })
+    expect(getMessageWindowState(sessionId).messages[0]).toMatchObject({ invokedAt: 42, steered: true })
+    expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBeUndefined()
+  })
+
   it.each(['indeterminate', 'requeued', 'cancelled'] as const)(
     'keeps REST %s reconciliation newer than an earlier user-message snapshot',
     (outcome) => {

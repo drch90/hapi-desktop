@@ -663,7 +663,10 @@ export class FixtureHub {
       const candidates = (this.messages.get(id) ?? []).filter((m) => m.localId && ids.includes(m.localId))
       reply({
         queuedLocalIds: candidates
-          .filter((m) => m.invokedAt === null && m.deliveryState !== 'indeterminate')
+          .filter((m) => m.invokedAt === null && !m.deliveryState)
+          .map((m) => m.localId),
+        dispatchingLocalIds: candidates
+          .filter((m) => m.invokedAt === null && m.deliveryState === 'dispatching')
           .map((m) => m.localId),
         indeterminateLocalIds: candidates
           .filter((m) => m.invokedAt === null && m.deliveryState === 'indeterminate')
@@ -683,9 +686,8 @@ export class FixtureHub {
       }
       if (queueAction[2] === 'steer') {
         if (this.steerOutcome === 'pending') {
-          // The real hub exposes durable dispatching as unconfirmed until the
-          // CLI receives the native echo. A successful RPC alone is not an ACK.
-          message.deliveryState = 'indeterminate'
+          message.deliveryState = 'dispatching'
+          this.emit({ type: 'messages-dispatching', sessionId: id, localIds: [message.localId!] })
           reply({ status: 'steered', localId: message.localId })
           return
         }
@@ -772,7 +774,7 @@ export class FixtureHub {
           },
           localId: String(body.localId),
           invokedAt: pendingSteer || (this.holdMessages && body.deliveryMode !== 'steer') ? null : Date.now(),
-          ...(pendingSteer ? { deliveryState: 'indeterminate' as const } : {}),
+          ...(pendingSteer ? { deliveryState: 'dispatching' as const } : {}),
         }
         if (this.failSend !== 'absent') {
           this.messages.set(id, [...(this.messages.get(id) ?? []), message])

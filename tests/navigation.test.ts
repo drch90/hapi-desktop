@@ -396,6 +396,53 @@ describe('session lenses', () => {
     ).toEqual(['b', 'c'])
     expect(selectSessionList({ ...options, machine: 'missing' })).toEqual([])
   })
+  it('orders history groups by full paths with natural numbers, pins and selectable direction or recency', () => {
+    const history = (id: string, path: string, updatedAt: number) => ({
+      ...c,
+      id,
+      updatedAt,
+      metadata: { ...c.metadata!, path },
+    })
+    const sessions = [
+      history('ten', '/repo10/a-first', 100),
+      history('two', '/repo2/middle', 500),
+      history('one', '/Repo1/z-last', 300),
+      { ...history('pin', '/z/pinned', 1), pinned: true },
+      { ...c, id: 'unknown', updatedAt: 1000, metadata: null },
+    ]
+    const paths = (workspaceGroupSort?: 'path-asc' | 'path-desc' | 'recent') =>
+      selectSessionList({ ...options, sessions, workspaceGroupSort })[0].groups.map(([, group]) => group.path)
+    expect(paths()).toEqual(['/z/pinned', '/Repo1/z-last', '/repo2/middle', '/repo10/a-first', '—'])
+    expect(paths('path-desc')).toEqual([
+      '/z/pinned',
+      '/repo10/a-first',
+      '/repo2/middle',
+      '/Repo1/z-last',
+      '—',
+    ])
+    expect(paths('recent')).toEqual(['/z/pinned', '—', '/repo2/middle', '/Repo1/z-last', '/repo10/a-first'])
+  })
+  it('retains search relevance ahead of the configured path order', () => {
+    const exact = {
+      ...c,
+      id: 'exact',
+      updatedAt: 1,
+      metadata: { ...c.metadata!, name: 'needle', path: '/z' },
+    }
+    const prefix = {
+      ...c,
+      id: 'prefix',
+      updatedAt: 2,
+      metadata: { ...c.metadata!, name: 'needle follow-up', path: '/a' },
+    }
+    const sections = selectSessionList({
+      ...options,
+      sessions: [prefix, exact],
+      search: 'needle',
+      workspaceGroupSort: 'path-asc',
+    })
+    expect(sections[0].groups.map(([, group]) => group.path)).toEqual(['/z', '/a'])
+  })
   it('matches session IDs and worktree paths while preserving pinned grouping during search', () => {
     expect(selectSessionList({ ...options, search: 'a' })[0].key).toBe('global-pinned')
     const worktree = {

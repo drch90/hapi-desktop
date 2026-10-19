@@ -489,6 +489,7 @@ it('normalizes interface language tags for session dates', () => {
 describe('uncertain sends', () => {
   it.each([
     [{ queuedLocalIds: ['local-1'], invokedLocalMessages: [] }, 'accepted'],
+    [{ queuedLocalIds: [], dispatchingLocalIds: ['local-1'], invokedLocalMessages: [] }, 'accepted'],
     [{ queuedLocalIds: [], invokedLocalMessages: [{ localId: 'local-1', invokedAt: 8 }] }, 'accepted'],
     [{ queuedLocalIds: [], indeterminateLocalIds: ['local-1'], invokedLocalMessages: [] }, 'indeterminate'],
     [{ queuedLocalIds: [], invokedLocalMessages: [] }, 'absent'],
