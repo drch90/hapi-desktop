@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,6 +20,8 @@ import {
   Clock,
   Shield,
   Brain,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { SessionSchema, type Session } from '@hapi/protocol/schemas'
 import { Button } from '@/components/ui/button'
@@ -153,6 +155,9 @@ export function Chat({
   const fileInput = useRef<HTMLInputElement>(null)
   const messages = useMessages(api, id)
   const [draft, setDraft] = useState(() => loadDraft(scope, id))
+  const [composerExpanded, setComposerExpanded] = useState(false)
+  const composerEnterBehavior = composerExpanded ? 'newline' : enterBehavior
+  const composerId = useId()
   const [commandMenuOpen, setCommandMenuOpen] = useState(false)
   const [dismissedCommandQuery, setDismissedCommandQuery] = useState<string | null>(null)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
@@ -199,6 +204,11 @@ export function Chat({
   const draftRevision = useRef(0)
   const migrated = useRef(false)
   const alive = useRef(true)
+  function toggleComposer() {
+    setComposerExpanded((value) => !value)
+    // Keep the same textarea so selection and the browser undo history survive.
+    requestAnimationFrame(() => composer.current?.focus({ preventScroll: true }))
+  }
   useEffect(() => {
     registerComposer(id, (path) => {
       const previous = latestDraft.current.text.trimEnd()
@@ -452,7 +462,10 @@ export function Chat({
         if (typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId.length > 256)
           throw new Error('INVALID_RESPONSE')
         target = result.sessionId
-        if (draftRevision.current === revision) updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+        if (draftRevision.current === revision) {
+          updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+          setComposerExpanded(false)
+        }
         return
       }
       const uploaded = await attachments.prepare(target, selectedAttachments)
@@ -472,7 +485,7 @@ export function Chat({
             }
           : {
               localId: crypto.randomUUID(),
-              text: submitted.text.trim(),
+              text: submitted.text,
               createdAt: submittedAt,
               status: 'unconfirmed',
               ...(uploaded.length ? { attachments: uploaded } : {}),
@@ -497,10 +510,12 @@ export function Chat({
       storeAttempt(scope, id, null, outgoing.localId)
       if (
         draftRevision.current === revision &&
-        latestDraft.current.text.trim() === outgoing.text &&
+        latestDraft.current.text === outgoing.text &&
         (!outgoing.draftRevision || latestDraft.current.revision === outgoing.draftRevision)
-      )
+      ) {
         updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+        setComposerExpanded(false)
+      }
       navigation.followLatest()
       if (target === id) await messages.refetch()
     } catch (error) {
@@ -604,10 +619,12 @@ export function Chat({
       if (status === 'accepted') {
         await attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
         if (
-          latestDraft.current.text.trim() === attempt.text &&
+          latestDraft.current.text === attempt.text &&
           (!attempt.draftRevision || latestDraft.current.revision === attempt.draftRevision)
-        )
+        ) {
           updateDraft({ text: '', scheduledAt: null })
+          setComposerExpanded(false)
+        }
         storeAttempt(scope, id, null, attempt.localId)
       } else {
         const next = { ...attempt, status }
@@ -725,7 +742,7 @@ export function Chat({
   return (
     <LinkContext.Provider value={links}>
       <div
-        className={`chat ${hasQuestions && questionsExpanded ? 'questions-expanded' : ''}`}
+        className={`chat ${hasQuestions && questionsExpanded ? 'questions-expanded' : ''} ${composerExpanded ? 'composer-expanded' : ''}`}
         data-testid={`chat-${id}`}
       >
         <header className="chat-header">
@@ -1115,6 +1132,26 @@ export function Chat({
               void send()
             }}
           >
+            <div
+              className="composer-editor-bar"
+              title={t('Double-click the top bar to expand or collapse the editor')}
+              onDoubleClick={(event) => {
+                if (!(event.target as HTMLElement).closest('button')) toggleComposer()
+              }}
+            >
+              <span className="composer-editor-grip" aria-hidden="true" />
+              <button
+                type="button"
+                className="composer-editor-toggle"
+                aria-expanded={composerExpanded}
+                aria-controls={composerId}
+                title={`${t(composerExpanded ? 'Collapse editor' : 'Expand editor')} · Ctrl+Shift+E`}
+                onClick={toggleComposer}
+              >
+                {composerExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                {t(composerExpanded ? 'Collapse editor' : 'Expand editor')}
+              </button>
+            </div>
             <input
               ref={fileInput}
               type="file"
@@ -1157,6 +1194,7 @@ export function Chat({
             )}
             <textarea
               ref={composer}
+              id={composerId}
               aria-label={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
               placeholder={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
               value={draft.text}
@@ -1184,6 +1222,12 @@ export function Chat({
               }}
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!e.repeat) toggleComposer()
+                  return
+                }
                 if (suggestions.length > 0 && !attempt) {
                   if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                     e.preventDefault()
@@ -1211,12 +1255,22 @@ export function Chat({
                     return
                   }
                 }
+                if (e.key === 'Escape' && composerExpanded) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  toggleComposer()
+                  return
+                }
                 if (e.key !== 'Enter') return
                 if (e.repeat) {
                   e.preventDefault()
                   return
                 }
-                if (!e.shiftKey && !e.altKey && (e.ctrlKey || e.metaKey || enterBehavior === 'send')) {
+                if (
+                  !e.shiftKey &&
+                  !e.altKey &&
+                  (e.ctrlKey || e.metaKey || composerEnterBehavior === 'send')
+                ) {
                   e.preventDefault()
                   void send()
                 }
@@ -1339,10 +1393,10 @@ export function Chat({
                   {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}
                   {t(
                     scratchlistOpen
-                      ? enterBehavior === 'send'
+                      ? composerEnterBehavior === 'send'
                         ? 'Enter saves · Shift+Enter adds a line'
                         : 'Enter adds a line · Ctrl+Enter saves'
-                      : enterBehavior === 'send'
+                      : composerEnterBehavior === 'send'
                         ? 'Enter sends · Shift+Enter adds a line'
                         : 'Enter adds a line · Ctrl+Enter sends',
                   )}
@@ -1650,7 +1704,7 @@ const MessageBlock = memo(function MessageBlock({
             role={block.kind === 'user-text' ? 'user' : 'assistant'}
           />
         </div>
-        <MarkdownRenderer content={block.text} preserveSingleLineBreaks={block.kind === 'user-text'} />
+        <MarkdownRenderer content={block.text} userMessage={block.kind === 'user-text'} />
         {block.kind === 'user-text' && block.attachments && (
           <MessageAttachments attachments={block.attachments} />
         )}

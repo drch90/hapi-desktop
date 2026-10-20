@@ -1,6 +1,6 @@
 {
   "name": "hapi-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A Windows workbench for your HAPI sessions",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -24,6 +24,10 @@
     "@assistant-ui/react": "^0.14.29",
     "@assistant-ui/react-markdown": "^0.14.7",
     "@assistant-ui/tap": "^0.9.8",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
     "@elevenlabs/react": "^0.13.0",
     "@hapi/protocol": "workspace:*",
     "@lobehub/icons": "^5.14.0",

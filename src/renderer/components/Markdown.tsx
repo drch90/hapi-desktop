@@ -23,6 +23,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { unwrap } from '../lib/api'
 import { parseSessionPathHref } from '@/lib/sessionReference'
 import { MermaidBlock } from './MermaidBlock'
+import { remarkUserIndentation } from '../lib/remark-user-indentation'
 
 const remarkPlugins: PluggableList = [
   [remarkGfm, { singleTilde: false }],
@@ -32,6 +33,7 @@ const remarkPlugins: PluggableList = [
   [remarkMath, { singleDollarTextMath: false }],
 ]
 const remarkPluginsWithBreaks: PluggableList = [...remarkPlugins, remarkBreaks]
+const userRemarkPlugins: PluggableList = [...remarkPluginsWithBreaks, remarkUserIndentation]
 const rehypePlugins: PluggableList = [rehypeKatex]
 
 export const LinkContext = createContext<{
@@ -140,10 +142,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
   className,
   preserveSingleLineBreaks = false,
+  userMessage = false,
 }: {
   content: string
   className?: string
   preserveSingleLineBreaks?: boolean
+  userMessage?: boolean
   [key: string]: unknown
 }) {
   // Parsing Markdown (including GFM tables and math) is synchronous. Large
@@ -158,7 +162,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   return (
     <div className={`markdown ${className ?? ''}`}>
       <ReactMarkdown
-        remarkPlugins={preserveSingleLineBreaks ? remarkPluginsWithBreaks : remarkPlugins}
+        remarkPlugins={
+          userMessage ? userRemarkPlugins : preserveSingleLineBreaks ? remarkPluginsWithBreaks : remarkPlugins
+        }
         rehypePlugins={rehypePlugins}
         components={components}
       >

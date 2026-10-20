@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 import { resolve } from 'node:path'
 
 const alias = {
+  '@/components/CodeBlock': resolve('src/renderer/components/CodeBlock.tsx'),
   '@/components/MarkdownRenderer': resolve('src/renderer/components/Markdown.tsx'),
   '@': resolve('vendor/hapi/web/src'),
 }

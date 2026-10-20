@@ -6,6 +6,7 @@
     "esModuleInterop": true, "allowImportingTsExtensions": true, "noEmit": true,
     "types": ["node", "vite/client"], "baseUrl": ".",
     "paths": {
+      "@/components/CodeBlock": ["src/renderer/components/CodeBlock.tsx"],
       "@/*": ["vendor/hapi/web/src/*"],
       "@desktop/*": ["src/*"],
       "@/components/MarkdownRenderer": ["src/renderer/components/Markdown.tsx"]

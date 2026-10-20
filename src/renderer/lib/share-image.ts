@@ -2,6 +2,26 @@
 export function createShareSnapshot(source: HTMLElement | null): string {
   if (!source) return ''
   const snapshot = source.cloneNode(true) as HTMLElement
+  for (const block of snapshot.querySelectorAll<HTMLElement>('[data-virtual-text-content]')) {
+    // Virtual editors contain large offscreen spacers, not the whole document.
+    // Turn the rendered excerpt into static text before cloning for an image.
+    const text = [...block.querySelectorAll('.cm-line')]
+      .slice(0, 300)
+      .map((line) => line.textContent)
+      .join('\n')
+    const excerpt = document.createElement('pre')
+    excerpt.className = 'virtual-text-excerpt'
+    excerpt.textContent = text.slice(0, 24_000).replace(/[\uD800-\uDBFF]$/, '')
+    block.querySelector('.virtual-text-editor')?.replaceWith(excerpt)
+    const label = document.createElement('span')
+    label.textContent = block.dataset.hapiShareExcerptLabel ?? ''
+    block.querySelector('.virtual-text-toolbar')?.append(label)
+    const wrapper = block.closest<HTMLElement>('.virtual-text-block')
+    if (wrapper) {
+      wrapper.style.height = 'auto'
+      wrapper.style.maxHeight = 'none'
+    }
+  }
   for (const checkbox of snapshot.querySelectorAll<HTMLInputElement>(
     '.task-list-item input[type="checkbox"]',
   )) {

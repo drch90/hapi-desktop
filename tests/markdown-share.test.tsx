@@ -31,6 +31,19 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('Markdown image sharing', () => {
+  it('flattens virtual text into a bounded, labelled excerpt without offscreen spacers', () => {
+    const source = document.createElement('div')
+    source.innerHTML =
+      '<div class="virtual-text-block" style="height:420px"><div data-virtual-text-content data-hapi-share-excerpt-label="Visible excerpt"><div class="virtual-text-toolbar"></div><div class="virtual-text-editor"><div class="cm-content" style="height:4000000px"><div class="cm-line">  visible first line</div><div class="cm-line">last line</div></div></div></div></div>'
+    const snapshot = document.createElement('div')
+    snapshot.innerHTML = createShareSnapshot(source)
+    expect(snapshot.textContent).toContain('Visible excerpt')
+    expect(snapshot.querySelector('pre')?.textContent).toBe('  visible first line\nlast line')
+    expect(snapshot.querySelector('.cm-content, .virtual-text-editor')).toBeNull()
+    expect(snapshot.querySelector<HTMLElement>('.virtual-text-block')?.style.height).toBe('auto')
+    expect(source.querySelector('.cm-content')).not.toBeNull()
+  })
+
   it('retains diagrams and task states while turning a live message into a static snapshot', () => {
     const { container } = render(
       <MarkdownRenderer content={'- [x] Done\n- [ ] Pending\n\n```mermaid\nflowchart LR\n A --> B\n```'} />,

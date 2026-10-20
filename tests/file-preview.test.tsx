@@ -1,9 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { FilePreview } from '../src/renderer/components/FilePreview'
 import { api } from '../src/renderer/lib/api'
 import * as utils from '@/lib/utils'
+
+const { virtualContent } = vi.hoisted(() => ({ virtualContent: vi.fn() }))
+vi.mock('../src/renderer/components/VirtualTextContent', () => ({
+  VirtualTextContent: (props: unknown) => {
+    virtualContent(props)
+    return <div data-virtual-text-content />
+  },
+}))
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/lib/use-translation', () => ({
@@ -42,17 +50,17 @@ describe('large file previews', () => {
     })
     const decode = vi.spyOn(utils, 'decodeBase64')
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { container, getByRole, unmount } = render(
+    const { container, unmount } = render(
       <QueryClientProvider client={client}>
         <FilePreview {...props} path="large.ts" />
       </QueryClientProvider>,
     )
-    await waitFor(() => expect(container.querySelector('[data-text-pager]')).not.toBeNull())
-    expect(container.querySelectorAll('[data-code-cell]').length).toBeLessThanOrEqual(300)
-    const decodes = decode.mock.calls.length
-    fireEvent.click(getByRole('button', { name: 'text.preview.last' }))
-    expect(container.textContent).toContain('// END OF FILE')
-    expect(decode).toHaveBeenCalledTimes(decodes)
+    await waitFor(() => expect(container.querySelector('[data-virtual-text-content]')).not.toBeNull())
+    expect(container.querySelector('[data-text-pager]')).toBeNull()
+    expect(virtualContent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ code: content, canCopy: false }),
+    )
+    expect(decode.mock.calls.filter(([text]) => text.length > 0)).toHaveLength(1)
     expect(container.querySelector('[data-hapi-code-copy]')).toBeNull()
     unmount()
     await waitFor(() =>

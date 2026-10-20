@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Copy, RefreshCw } from 'lucide-react'
@@ -18,6 +18,9 @@ import {
 import { api, fileErrorKey } from '../lib/api'
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { SaveFileButton } from './SaveFileButton'
+import { isLargeText } from '@/lib/text-rendering'
+
+import { VirtualTextContent } from './CodeBlock'
 
 export function FilePreview(props: {
   sessionId: string
@@ -75,6 +78,9 @@ export function FilePreview(props: {
     [file.isSuccess, binary, decoded.text],
   )
   const showDiff = mode === 'diff' && Boolean(diff.data) && !imageMime
+  const largeFile = useMemo(() => isLargeText(decoded.text), [decoded.text])
+  const largeDiff = useMemo(() => isLargeText(diff.data ?? ''), [diff.data])
+  const virtualized = showDiff ? largeDiff : !imageMime && !binary && largeFile
   const metadata = formatFileMetadata(file.data?.size, file.data?.modified, locale)
   useLayoutEffect(() => {
     if (restored.current || file.isPending || (mode === 'diff' && diff.isPending && !imageMime)) return
@@ -149,8 +155,12 @@ export function FilePreview(props: {
               <Button
                 key={value}
                 size="sm"
-                variant={markdownMode === value ? 'secondary' : 'outline'}
-                aria-pressed={markdownMode === value}
+                variant={(largeFile ? 'source' : markdownMode) === value ? 'secondary' : 'outline'}
+                aria-pressed={(largeFile ? 'source' : markdownMode) === value}
+                disabled={value === 'preview' && largeFile}
+                title={
+                  value === 'preview' && largeFile ? t('Large Markdown files are shown as source') : undefined
+                }
                 onClick={() => {
                   setMarkdownMode(value)
                   persistMarkdownPreviewMode(value)
@@ -163,7 +173,7 @@ export function FilePreview(props: {
         )}
       </div>
       <div
-        className="file-preview-body"
+        className={`file-preview-body ${virtualized ? 'file-preview-virtual' : ''}`}
         ref={viewport}
         onScroll={() => {
           if (restored.current && viewport.current)
@@ -175,54 +185,77 @@ export function FilePreview(props: {
             {web('file.error.diffUnavailable')}
           </p>
         )}
-        {showDiff ? (
-          <div className="unified-diff">
-            <DiffDisplay diffContent={diff.data!} />
-          </div>
-        ) : file.isPending ? (
-          <p className="muted">{t('Loading…')}</p>
-        ) : file.isError ? (
-          <p className="error" role="alert">
-            {t(fileErrorKey(file.error))}
-          </p>
-        ) : imageMime && file.data?.content ? (
-          <div onErrorCapture={() => setImageFailed(true)}>
-            {imageFailed ? (
-              <p role="alert">{t('Unable to preview this image. Download it to open locally.')}</p>
-            ) : (
-              <ImagePreview
-                src={`data:${imageMime};base64,${file.data.content}`}
-                fileName={fileName}
-                label={fileName}
-              />
-            )}
-          </div>
-        ) : binary ? (
-          <p className="muted">{t('Binary file cannot be previewed')}</p>
-        ) : decoded.text.length === 0 ? (
-          <p className="muted">{web('file.page.empty')}</p>
-        ) : isMarkdownFile(props.path) && markdownMode === 'preview' ? (
-          <>
-            {canCopy && (
-              <Button size="sm" variant="outline" onClick={() => void copy(decoded.text)}>
-                {web('file.page.copyContent')}
-              </Button>
-            )}
-            <LinkContext.Provider
-              value={{
-                openSession: props.onOpenSession,
-                openFile: (path) =>
-                  props.onOpenFile(
-                    path.startsWith('/') ? path : props.path.slice(0, props.path.lastIndexOf('/') + 1) + path,
-                  ),
-              }}
-            >
-              <MarkdownRenderer content={decoded.text} />
-            </LinkContext.Provider>
-          </>
-        ) : (
-          <CodeBlock code={decoded.text} language={resolveLanguage(props.path)} showCopyButton={canCopy} />
-        )}
+        <Suspense fallback={<p className="muted">{t('Loading…')}</p>}>
+          {showDiff && largeDiff ? (
+            <VirtualTextContent
+              code={diff.data!}
+              language="diff"
+              diff
+              ariaLabel={t('Read-only file content')}
+              searchLabel={t('Find in file')}
+              canCopy={diff.data!.length <= 1_000_000}
+              scrollKey={`${scrollKey}:diff`}
+            />
+          ) : showDiff ? (
+            <div className="unified-diff">
+              <DiffDisplay diffContent={diff.data!} />
+            </div>
+          ) : file.isPending ? (
+            <p className="muted">{t('Loading…')}</p>
+          ) : file.isError ? (
+            <p className="error" role="alert">
+              {t(fileErrorKey(file.error))}
+            </p>
+          ) : imageMime && file.data?.content ? (
+            <div onErrorCapture={() => setImageFailed(true)}>
+              {imageFailed ? (
+                <p role="alert">{t('Unable to preview this image. Download it to open locally.')}</p>
+              ) : (
+                <ImagePreview
+                  src={`data:${imageMime};base64,${file.data.content}`}
+                  fileName={fileName}
+                  label={fileName}
+                />
+              )}
+            </div>
+          ) : binary ? (
+            <p className="muted">{t('Binary file cannot be previewed')}</p>
+          ) : decoded.text.length === 0 ? (
+            <p className="muted">{web('file.page.empty')}</p>
+          ) : largeFile ? (
+            <VirtualTextContent
+              code={decoded.text}
+              language={resolveLanguage(props.path)}
+              ariaLabel={t('Read-only file content')}
+              searchLabel={t('Find in file')}
+              canCopy={canCopy}
+              scrollKey={`${scrollKey}:source`}
+            />
+          ) : isMarkdownFile(props.path) && markdownMode === 'preview' ? (
+            <>
+              {canCopy && (
+                <Button size="sm" variant="outline" onClick={() => void copy(decoded.text)}>
+                  {web('file.page.copyContent')}
+                </Button>
+              )}
+              <LinkContext.Provider
+                value={{
+                  openSession: props.onOpenSession,
+                  openFile: (path) =>
+                    props.onOpenFile(
+                      path.startsWith('/')
+                        ? path
+                        : props.path.slice(0, props.path.lastIndexOf('/') + 1) + path,
+                    ),
+                }}
+              >
+                <MarkdownRenderer content={decoded.text} />
+              </LinkContext.Provider>
+            </>
+          ) : (
+            <CodeBlock code={decoded.text} language={resolveLanguage(props.path)} showCopyButton={canCopy} />
+          )}
+        </Suspense>
       </div>
     </section>
   )

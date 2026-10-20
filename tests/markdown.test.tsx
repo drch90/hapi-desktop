@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { LinkContext, MarkdownRenderer } from '../src/renderer/components/Markdown'
+import { nginxConfig } from './fixtures/nginx'
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 vi.mock('@/lib/use-translation', () => ({
@@ -17,6 +18,39 @@ function codeLines(container: HTMLElement) {
 }
 
 describe('desktop Markdown', () => {
+  it('preserves pasted user configuration verbatim without implicit Markdown code frames', () => {
+    const { container, rerender } = render(<MarkdownRenderer content={nginxConfig} userMessage />)
+    expect(container.querySelector('.user-text-literal')?.textContent).toBe(nginxConfig)
+    expect(container.querySelector('pre, code, [data-hapi-code-block], .katex, h1')).toBeNull()
+    rerender(<MarkdownRenderer content={nginxConfig} />)
+    expect(container.querySelector('[data-hapi-code-block]')).not.toBeNull()
+  })
+
+  it('keeps tab indentation and Markdown-looking source literal while retaining explicit user Markdown', () => {
+    const raw = '\t# comment\r\n\t\\(literal\\) **raw** <img src=x>\r\n\t\t$host$uri'
+    const { container } = render(
+      <MarkdownRenderer
+        userMessage
+        content={`First\nsecond\n\n${raw}\n\n[Session](/sessions/example)\n\n\`\`\`\nfenced\n\`\`\`\n\n~~~nginx\n  allow all;\n~~~`}
+      />,
+    )
+    expect(container.querySelector('.user-text-literal')?.textContent).toBe(raw)
+    expect(container.querySelectorAll('br')).toHaveLength(1)
+    expect(container.querySelectorAll('[data-hapi-code-block]')).toHaveLength(2)
+    expect(codeLines(container)).toEqual(['fenced', '  allow all;'])
+    expect(container.querySelector('a')?.getAttribute('href')).toBe('/sessions/example')
+    expect(container.querySelector('img, .katex, strong')).toBeNull()
+  })
+
+  it('preserves intentional nested Markdown code in user lists and quotes', () => {
+    const { container } = render(
+      <MarkdownRenderer userMessage content={'- Example\n\n      nested\n\n>     quoted'} />,
+    )
+    expect(container.querySelector('li [data-hapi-code-block]')).not.toBeNull()
+    expect(container.querySelector('blockquote [data-hapi-code-block]')).not.toBeNull()
+    expect(codeLines(container)).toEqual(['nested', 'quoted'])
+  })
+
   it('keeps multiline inline code inline and single-line indented code in a code block', () => {
     const { container } = render(
       <MarkdownRenderer content={'Inline `first\nsecond` stays in a paragraph.\n\n    one indented line'} />,

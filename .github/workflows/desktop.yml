@@ -37,7 +37,7 @@ jobs:
         id: release
         run: node scripts/release.mjs check
       - name: Test release preparation
-        run: node --test scripts/release.test.mjs
+        run: node scripts/limit-cpu.mjs node --test scripts/release.test.mjs
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
       - name: Check types

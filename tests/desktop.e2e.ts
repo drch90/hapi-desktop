@@ -6,6 +6,7 @@ import { FixtureHub, fixtureSession, fixtureMessage, fixtureCodexEvent } from '.
 import { closeTestElectron } from './electron-cleanup'
 import { version as appVersion } from '../package.json'
 import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
+import { nginxConfig } from './fixtures/nginx'
 
 let electron: ElectronApplication
 let page: Page
@@ -151,7 +152,7 @@ test('session mentions search by ID and title, insert at the cursor, persist and
     .poll(() => server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages')).length)
     .toBe(1)
   expect(server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.text).toBe(
-    text.trim(),
+    text,
   )
   expect(errors).toEqual([])
 })
@@ -263,12 +264,13 @@ test('large OpenCode history and streaming output keep the composer responsive',
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
   const last = chat.locator('.agent-message').last()
-  await expect(last.locator('[data-text-pager]')).toBeVisible()
-  await last.getByRole('button', { name: '末段', exact: true }).click()
+  await expect(last.locator('[data-virtual-text-content]')).toBeVisible()
+  await expect(last.locator('[data-text-pager]')).toHaveCount(0)
+  await last.getByRole('button', { name: '跳到末尾', exact: true }).click()
   await expect(last).toContainText('const result11999')
   // The full history contains hundreds of thousands of lines. Only the
-  // bounded sections should create code rows or enter the Markdown parser.
-  expect(await chat.locator('[data-code-cell]').count()).toBeLessThan(10_000)
+  // Only lines around each visible viewport should create text nodes.
+  expect(await chat.locator('.cm-line').count()).toBeLessThan(5_000)
 
   const input = chat.locator('.composer textarea')
   await input.fill('输出期间保留的草稿')
@@ -286,10 +288,119 @@ test('large OpenCode history and streaming output keep the composer responsive',
   await input.fill('仍可继续输入')
   await expect(input).toHaveValue('仍可继续输入')
   await expect(chat.locator('.agent-message')).toHaveCount(history.length)
-  await chat.locator('.agent-message').last().getByRole('button', { name: '末段', exact: true }).click()
+  await chat.locator('.agent-message').last().getByRole('button', { name: '跳到末尾', exact: true }).click()
   await expect(chat.locator('.agent-message').last()).toContainText('LIVE 59')
   await page.getByTestId('session-review').click()
   await expect(page.getByTestId('chat-review')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('continuous chat output follows the tail, preserves reading position and copies the complete stream', async () => {
+  let text = Array.from({ length: 2_000 }, (_, index) => `Line ${index + 1}: preserved output`).join('\n')
+  const createdAt = Date.now()
+  server.messages.set('design', [
+    fixtureCodexEvent('live-continuous', 1, { type: 'message', message: text }, createdAt),
+  ])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const block = chat.locator('.agent-message').last()
+  const content = block.getByRole('textbox', { name: '只读文本' })
+  const scroller = block.locator('.cm-scroller')
+  await block.getByRole('button', { name: '跳到末尾', exact: true }).click()
+  await expect(content).toContainText('Line 2000: preserved output')
+  await content.evaluate((element) => element.setAttribute('data-instance', 'original'))
+  const append = (addition: string) => {
+    text += addition
+    server.emit({
+      type: 'message-received',
+      sessionId: 'design',
+      message: fixtureCodexEvent('live-continuous', 1, { type: 'message', message: text }, createdAt),
+    })
+  }
+  append('\n' + 'APPENDED STREAM\n'.repeat(100) + 'TAIL ONE')
+  await expect(content).toContainText('TAIL ONE')
+  await expect(content.getByText('TAIL ONE', { exact: true })).toBeInViewport({ ratio: 1 })
+  await expect(content).toHaveAttribute('data-instance', 'original')
+  await content.press('Control+Home')
+  await expect(content).toContainText('Line 1: preserved output')
+  const top = await scroller.evaluate((element) => element.scrollTop)
+  append('\nTAIL TWO')
+  await expect(block.locator('.virtual-text-label')).toContainText('2102')
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(top)
+  await expect(content).toContainText('Line 1: preserved output')
+  await block.getByRole('button', { name: '跳到末尾', exact: true }).click()
+  await expect(content).toContainText('TAIL TWO')
+  append('\r')
+  await expect(block.locator('.virtual-text-label')).toContainText('2103')
+  append('\nCRLF END')
+  await expect(content).toContainText('CRLF END')
+  await expect(block.locator('.virtual-text-label')).toContainText('2103')
+  await block.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(text)
+  await block.locator('.message-actions').getByRole('button', { name: '分享', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('当前内容节选')
+  await expect(dialog).toContainText('CRLF END')
+  await expect(dialog.locator('.cm-editor')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('large tool output and file replacements use continuous viewers in expanded details', async () => {
+  const output = 'tool output\n'.repeat(10_000) + 'END OF TOOL OUTPUT'
+  const before = 'before\n'.repeat(10_000) + 'END BEFORE'
+  const after = 'after\n'.repeat(10_000) + 'END AFTER'
+  server.messages.set('design', [
+    fixtureCodexEvent('large-tool-call', 1, {
+      type: 'tool-call',
+      callId: 'large-tool',
+      name: 'Bash',
+      input: { command: 'cat output.log' },
+    }),
+    fixtureCodexEvent('large-tool-result', 2, {
+      type: 'tool-call-result',
+      callId: 'large-tool',
+      output: { stdout: output, exit_code: 0 },
+    }),
+    fixtureMessage('between-tools', 3, 'Updating the file.'),
+    fixtureCodexEvent('large-edit-call', 4, {
+      type: 'tool-call',
+      callId: 'large-edit',
+      name: 'Edit',
+      input: { file_path: '/repo/large.txt', old_string: before, new_string: after },
+    }),
+    fixtureCodexEvent('large-edit-result', 5, {
+      type: 'tool-call-result',
+      callId: 'large-edit',
+      output: 'Updated',
+    }),
+  ])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const tool = chat.locator('.message-tool').first()
+  await tool.locator('button.disclosure').click()
+  const viewer = tool.locator('[data-virtual-text-content]')
+  await expect(viewer).toHaveCount(1)
+  await viewer.getByRole('button', { name: '跳到末尾', exact: true }).click()
+  await expect(viewer).toContainText('END OF TOOL OUTPUT')
+  await viewer.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(output)
+  expect(await viewer.locator('.cm-line').count()).toBeLessThan(200)
+  const edit = chat.locator('.message-tool').last()
+  await edit.locator('button.disclosure').click()
+  const replacements = edit.locator('[data-large-diff] [data-virtual-text-content]')
+  await expect(replacements).toHaveCount(2)
+  for (const [index, ending, source] of [
+    [0, 'END BEFORE', before],
+    [1, 'END AFTER', after],
+  ] as const) {
+    const replacement = replacements.nth(index)
+    await replacement.getByRole('button', { name: '跳到末尾', exact: true }).click()
+    await expect(replacement).toContainText(ending)
+    await replacement.locator('[data-hapi-code-copy]').click()
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(source)
+    expect(await replacement.locator('.cm-line').count()).toBeLessThan(200)
+  }
+  await expect(chat.locator('[data-text-pager]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -308,23 +419,180 @@ test('multi-megabyte files, minified lines and large diffs remain browsable', as
   await page.getByRole('button', { name: '文件', exact: true }).click()
   const panel = page.locator('.file-panel')
   await panel.getByRole('button', { name: 'large.ts', exact: true }).click()
-  await expect(panel.locator('[data-text-pager]')).toBeVisible()
-  expect(await panel.locator('[data-code-cell]').count()).toBeLessThanOrEqual(300)
-  await panel.getByRole('button', { name: '末段', exact: true }).click()
-  await expect(panel.locator('[data-hapi-code-block]')).toContainText('// END OF LARGE FILE')
+  const content = panel.getByRole('textbox', { name: '只读文件内容' })
+  await expect(content).toBeVisible()
+  await expect(panel.locator('[data-text-pager]')).toHaveCount(0)
+  expect(await panel.locator('.cm-line').count()).toBeLessThan(200)
+  await content.press('Control+End')
+  await expect(content).toContainText('// END OF LARGE FILE')
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await panel.getByRole('button', { name: 'large.ts', exact: true }).click()
+  await expect(panel.locator('.cm-scroller')).toBeVisible()
+  await expect(content).toContainText('// END OF LARGE FILE')
   await panel.locator('.file-preview-modes').getByRole('button', { name: 'Diff', exact: true }).click()
-  await panel.getByRole('button', { name: '末段', exact: true }).click()
-  await expect(panel.locator('.unified-diff')).toContainText('+END OF LARGE DIFF')
-  expect(await panel.locator('.unified-diff *').count()).toBeLessThan(400)
+  await content.press('Control+End')
+  await expect(content).toContainText('+END OF LARGE DIFF')
+  await expect(content.locator('.diff-add').last()).toContainText('+END OF LARGE DIFF')
+  expect(await panel.locator('.cm-line').count()).toBeLessThan(200)
   await panel.getByRole('button', { name: '返回文件列表' }).click()
   await panel.getByRole('button', { name: 'bundle.json', exact: true }).click()
-  await expect(panel.locator('[data-text-pager]')).toBeVisible()
-  await panel.getByRole('button', { name: '末段', exact: true }).click()
-  await expect(panel.locator('[data-hapi-code-block]')).toContainText('MINIFIED END')
-  expect(await panel.locator('[data-code-cell]').count()).toBe(1)
+  await expect(content).toBeVisible()
+  await content.press('Control+End')
+  await expect(content).toContainText('MINIFIED END')
+  expect((await content.textContent())!.length).toBeLessThan(50_000)
+  await panel.locator('[data-hapi-code-wrap-toggle]').click()
+  await content.press('Control+End')
+  await expect(content).toContainText('MINIFIED END')
+  expect((await content.textContent())!.length).toBeLessThan(50_000)
   await page.getByTestId('chat-design').locator('.composer textarea').fill('大文件预览后仍可输入')
   await panel.getByRole('button', { name: '返回文件列表' }).click()
   await expect(panel.getByRole('button', { name: 'large.ts', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('continuous file previews search the whole file, go to a line, copy source and remain read-only', async () => {
+  const source = Array.from(
+    { length: 10_000 },
+    (_, index) => `const row${index + 1} = "${index === 7776 ? 'FIND_TARGET' : 'value'}";`,
+  ).join('\r\n')
+  server.fileContents.set('searchable.ts', Buffer.from(source))
+  server.fileDiffs.set('searchable.ts', '')
+  server.directoryEntries.set('', [{ name: 'searchable.ts', type: 'file' }])
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  const panel = page.locator('.file-panel')
+  await panel.getByRole('button', { name: 'searchable.ts', exact: true }).click()
+  const content = panel.getByRole('textbox', { name: '只读文件内容' })
+  await content.press('Control+f')
+  const search = panel.getByRole('textbox', { name: '在文件中查找', exact: true })
+  await search.fill('FIND_TARGET')
+  await search.press('Enter')
+  await expect(content).toContainText('const row7777 = "FIND_TARGET";')
+  expect(await panel.locator('.cm-line').count()).toBeLessThan(200)
+  await search.press('Escape')
+  await content.press('Control+g')
+  const line = panel.locator('.cm-goto-line input')
+  await line.fill('4321')
+  await line.press('Enter')
+  await expect(content).toContainText('const row4321 = "value";')
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await panel.getByRole('button', { name: 'searchable.ts', exact: true }).click()
+  await expect(content.getByText('const row4321 = "value";', { exact: true })).toBeInViewport({ ratio: 1 })
+  await content.pressSequentially('UNEXPECTED_EDIT')
+  await expect(content).not.toContainText('UNEXPECTED_EDIT')
+  await content.press('Control+Home')
+  await content.press('Control+Shift+End')
+  await content.press('Control+c')
+  await expect
+    .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(source.replaceAll('\r\n', '\n'))
+  await panel.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(source)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+  await content.press('Control+End')
+  await expect(content).toContainText('const row10000 = "value";')
+  await expect(panel.getByRole('button', { name: '在文件中查找', exact: true })).toBeInViewport()
+  await expect(panel.getByRole('button', { name: '跳转到行', exact: true })).toBeInViewport()
+  expect(await panel.locator('.cm-line').count()).toBeLessThan(200)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1480, 940))
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'light', fontSize: 'normal' }))
+  await content.press('Control+Home')
+  const composer = page.getByTestId('chat-design').locator('.composer textarea')
+  await composer.fill(nginxConfig)
+  await page.getByTestId('chat-design').getByRole('button', { name: '展开编辑', exact: true }).click()
+  await page.screenshot({ path: 'build/continuous-editing-preview.png', animations: 'disabled' })
+  expect(errors).toEqual([])
+})
+
+test('pasted user configuration preserves whitespace in delivery, rendering, copying and reloads', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const input = chat.locator('.composer textarea')
+  const text = nginxConfig + '\n\n'
+  await input.fill(text)
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  expect(
+    server.requests.find((request) => request.method === 'POST' && request.path.endsWith('/messages'))?.body
+      .text,
+  ).toBe(text)
+  const message = chat.locator('.user-message').last()
+  await expect(message.locator('[data-hapi-code-block]')).toHaveCount(0)
+  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(nginxConfig)
+  await message.getByRole('button', { name: '复制', exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(text)
+  await page.reload()
+  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(nginxConfig)
+  await expect(message.locator('[data-hapi-code-block]')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('composer grows and expands without losing selection, undo, autocomplete or drafts', async () => {
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const input = chat.locator('.composer textarea')
+  const compactHeight = await input.evaluate((element) => element.clientHeight)
+  await input.fill(nginxConfig)
+  expect(await input.evaluate((element) => element.clientHeight)).toBeGreaterThan(compactHeight)
+  await input.dblclick()
+  await expect(chat.getByRole('button', { name: '展开编辑', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  )
+  await input.evaluate((element: HTMLTextAreaElement) => {
+    element.dataset.instance = 'original'
+    element.setSelectionRange(12, 45, 'backward')
+  })
+  await chat.getByRole('button', { name: '展开编辑', exact: true }).click()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveAttribute('data-instance', 'original')
+  expect(
+    await input.evaluate((element: HTMLTextAreaElement) => [
+      element.selectionStart,
+      element.selectionEnd,
+      element.selectionDirection,
+    ]),
+  ).toEqual([12, 45, 'backward'])
+  expect(await input.evaluate((element) => element.clientHeight)).toBeGreaterThan(200)
+  await input.press('Control+Shift+e')
+  await expect(chat.getByRole('button', { name: '展开编辑', exact: true })).toBeVisible()
+  await chat.locator('.composer-editor-bar').dblclick({ position: { x: 8, y: 8 } })
+  await expect(chat.getByRole('button', { name: '收起编辑', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await input.fill('undo')
+  await input.press('End')
+  await input.press('x')
+  await input.press('Escape')
+  await input.press('Control+z')
+  await expect(input).toHaveValue('undo')
+  await input.press('Control+Shift+e')
+  await input.fill('@')
+  await expect(chat.getByRole('region', { name: '会话引用', exact: true })).toBeVisible()
+  await input.press('Escape')
+  await expect(chat.getByRole('region', { name: '会话引用', exact: true })).toHaveCount(0)
+  await expect(chat.getByRole('button', { name: '收起编辑', exact: true })).toBeVisible()
+  await page.evaluate(() => window.desktop.updateSettings({ enterBehavior: 'send' }))
+  await input.fill('展开时安全换行')
+  await input.press('End')
+  await input.press('Enter')
+  await expect(input).toHaveValue('展开时安全换行\n')
+  await input.fill(nginxConfig)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await expect(chat.locator('.composer button[type="submit"]')).toBeInViewport()
+  expect(
+    server.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/messages')),
+  ).toHaveLength(0)
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  await expect(chat.getByRole('button', { name: '展开编辑', exact: true })).toBeVisible()
+  expect(
+    server.requests.find((request) => request.method === 'POST' && request.path.endsWith('/messages'))?.body
+      .text,
+  ).toBe(nginxConfig)
   expect(errors).toEqual([])
 })
 

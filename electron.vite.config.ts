@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import manifest from './package.json'
 
 const alias = {
+  '@/components/CodeBlock': resolve('src/renderer/components/CodeBlock.tsx'),
   '@/components/MarkdownRenderer': resolve('src/renderer/components/Markdown.tsx'),
   '@': resolve('vendor/hapi/web/src'),
   '@desktop': resolve('src'),
