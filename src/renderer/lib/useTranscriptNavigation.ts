@@ -19,6 +19,7 @@ export function useTranscriptNavigation(props: {
   const following = useRef(props.initialScrollTop < 0)
   const lastScrollTop = useRef(0)
   const scrollIntent = useRef({ direction: 0, until: 0, pointerDown: false })
+  const contentInteraction = useRef({ pointerDown: false, followPending: false })
   const restored = useRef(false)
   const active = useRef(false)
   const navigation = useRef(0)
@@ -38,9 +39,23 @@ export function useTranscriptNavigation(props: {
     if (viewport.current) props.onPosition(viewport.current.scrollTop)
   }
 
+  function scrollFollowingToBottom() {
+    const el = viewport.current
+    if (!el || !restored.current || !following.current) return
+    // Streaming must not move a pressed button before the pointer is released.
+    if (contentInteraction.current.pointerDown) {
+      contentInteraction.current.followPending = true
+      return
+    }
+    contentInteraction.current.followPending = false
+    el.scrollTop = el.scrollHeight
+    lastScrollTop.current = el.scrollTop
+  }
+
   useLayoutEffect(() => {
     active.current = true
     const el = viewport.current
+    let pointerReleaseFrame = 0
     // A scroll event alone cannot distinguish reading from browser anchoring,
     // content shrinkage, or a focused element being brought into view.
     const nestedScrollerConsumes = (target: EventTarget | null, direction: number) => {
@@ -82,6 +97,8 @@ export function useTranscriptNavigation(props: {
       if (direction && !nestedScrollerConsumes(event.target, direction)) noteIntent(direction)
     }
     const onPointerDown = (event: PointerEvent) => {
+      cancelAnimationFrame(pointerReleaseFrame)
+      contentInteraction.current.pointerDown = true
       // Mouse clicks on message/tool content are not scrollbar gestures.
       if (!el || event.target !== el || event.pointerType === 'touch') return
       const gutter = Math.max(12, el.offsetWidth - el.clientWidth)
@@ -89,6 +106,14 @@ export function useTranscriptNavigation(props: {
       scrollIntent.current = { direction: 0, until: Date.now() + 750, pointerDown: true }
     }
     const onPointerUp = () => {
+      if (contentInteraction.current.pointerDown) {
+        cancelAnimationFrame(pointerReleaseFrame)
+        // The click event follows pointerup. Resume after its handler has run.
+        pointerReleaseFrame = requestAnimationFrame(() => {
+          contentInteraction.current.pointerDown = false
+          if (contentInteraction.current.followPending) scrollFollowingToBottom()
+        })
+      }
       if (!scrollIntent.current.pointerDown) return
       scrollIntent.current.pointerDown = false
       scrollIntent.current.until = Date.now() + 750
@@ -112,19 +137,17 @@ export function useTranscriptNavigation(props: {
     el?.addEventListener('touchmove', onTouchMove, { passive: true })
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', onPointerUp)
-    const observer = new ResizeObserver(() => {
-      const el = viewport.current
-      if (!el || !restored.current || !following.current) return
-      // Images, expanded tools, font changes and the composer can resize after render.
-      el.scrollTop = el.scrollHeight
-      lastScrollTop.current = el.scrollTop
-    })
+    window.addEventListener('blur', onPointerUp)
+    // Images, expanded tools, font changes and the composer can resize after render.
+    const observer = new ResizeObserver(scrollFollowingToBottom)
     if (viewport.current) observer.observe(viewport.current)
     if (content.current) observer.observe(content.current)
     return () => {
       active.current = false
       navigation.current++
       pendingHistory.current = null
+      cancelAnimationFrame(pointerReleaseFrame)
+      contentInteraction.current = { pointerDown: false, followPending: false }
       observer.disconnect()
       el?.removeEventListener('wheel', onWheel)
       el?.removeEventListener('keydown', onKeyDown)
@@ -133,6 +156,7 @@ export function useTranscriptNavigation(props: {
       el?.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', onPointerUp)
+      window.removeEventListener('blur', onPointerUp)
     }
   }, [])
 
@@ -148,7 +172,7 @@ export function useTranscriptNavigation(props: {
       el.scrollTop = props.initialScrollTop < 0 ? el.scrollHeight : props.initialScrollTop
       restored.current = true
       if (!following.current) setMessageViewMode(props.sessionId, 'history')
-    } else if (following.current) el.scrollTop = el.scrollHeight
+    } else if (following.current) scrollFollowingToBottom()
     lastScrollTop.current = el.scrollTop
     props.onPosition(following.current ? -1 : el.scrollTop)
   }, [props.blocks, props.messages.messages, props.messages.historyVersion])

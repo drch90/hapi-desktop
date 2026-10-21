@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.4**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.4 版本说明](docs/release-notes/v1.0.4.md)，main 分支的后续改动见 [未发布更新](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.5**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.5 版本说明](docs/release-notes/v1.0.5.md)，main 分支的后续改动见 [未发布更新](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -113,9 +113,13 @@
 
 代码支持反引号/波浪线围栏和缩进代码块，保留缩进、空行和复制内容，提供行号与换行切换。高亮按需加载，补充 C++、Ruby、Vue、Svelte、JSONC/JSON5、Windows 批处理、Dart、Lua、R、Objective-C、CMake、Nginx、Protobuf、HTTP、dotenv、LaTeX、Mermaid 等常用格式；识别 `C++`、`C#`、`pwsh`、`console` 等别名。文件预览也识别 Dockerfile、Makefile、CMakeLists.txt、`.env`、tsconfig.json 等文件名；未知语言保留纯文本显示。
 
-超长消息、工具输出、差异和文件源码使用连续滚动的只读文本视图，取消“上一段／下一段”操作。超过 300 行或 2.4 万字符后，只渲染视口附近的内容，长单行也会省略屏外的渲染节点；全文仍可浏览、选取和搜索。工具卡片的折叠摘要保持简短，打开详情即可连续阅读；大段 Markdown 显示原文，超长代码跳过语法高亮。
+正文和代码增大字号、减少两侧留白，代码及长文的默认高度随窗口调整，长文和大段代码可拖动底边增高。消息、代码块和文件预览提供“放大阅读”，在接近整个窗口的视图中阅读和复制内容，按 Esc 关闭并返回原入口。
 
-文本视图提供查找（Ctrl+F）、跳转到行（Ctrl+G）、换行开关和“跳到末尾”。聊天输出在读到末尾时继续跟随新增内容，向上翻阅时保留阅读位置。大文件和大段 Git diff 使用同样的连续浏览方式，关闭再打开后恢复滚动位置；文件内搜索覆盖全文，关闭预览后释放内容缓存。较小的 Markdown 文件仍支持格式化预览，大型 Markdown 文件直接显示源码。
+超长消息、工具输出、差异和文件源码使用连续滚动的只读文本视图，取消“上一段／下一段”操作。超过 300 行或 2.4 万字符后，只渲染视口附近的内容，长单行也会省略屏外的渲染节点；全文仍可浏览、选取和搜索。工具卡片的折叠摘要保持简短，打开详情即可连续阅读；超长代码跳过语法高亮。
+
+文本视图提供查找（Ctrl+F）、跳转到行（Ctrl+G）、换行开关和“跳到末尾”。聊天输出在读到末尾时继续跟随新增内容，向上翻阅时保留阅读位置。大文件和大段 Git diff 使用同样的连续浏览方式，关闭再打开后恢复滚动位置；文件内搜索覆盖全文，关闭预览后释放内容缓存。在放大阅读中，Esc 先关闭查找或跳转面板，再次按下才关闭阅读窗口。
+
+长 Markdown 消息默认显示源码，可直接切换“预览”；放大消息时默认渲染。大型 Markdown 文件也支持“预览／源码”切换，并沿用文件预览的模式偏好。长文预览在后台解析，只显示当前可见范围附近的标题、列表、表格、代码、公式和图表；长表格连续显示并重复列标题，脚注可跳转到尚未显示的内容。源码模式保留全文查找和复制，切换模式后保留各自的阅读位置。
 
 消息和代码的复制按钮仍复制全文，文件也可下载到本机查看。长内容的分享图片展示当前渲染的内容节选，并标明“当前内容节选”；文字复制保留完整原文。
 
@@ -139,7 +143,7 @@ HAPI 的 `display_image`、`display_video`、`display_media` 消息可显示图�
 
 会话顶部展示模式、权限、思考强度及创建/更新时间。会话设置通过 HAPI 原生 API 修改，成功后读取服务端状态，失败保留原值。归档会话需先恢复，断线或终端独占控制时禁用设置。
 
-自 1.0.3 起已适配 Claude 的轮次中途引导（steer），1.0.4 包含后续模型与队列修复。需覆盖安装新版桌面，并在远端应用配套 CLI/Hub 补丁；桌面可使用输入框或排队消息上的“优先插入”，Web 重新构建部署后可对排队消息点击 Steer。当前工具不中断，引导在下一次模型调用前接收，普通发送仍然排队。旧桌面包内的能力判断不会随 Hub 更新，必须重新打包安装。各端升级要求、送达状态及验证边界见 [Claude steer 适配说明](docs/claude-steer.md)。
+自 1.0.3 起已适配 Claude 的轮次中途引导（steer），自 1.0.4 起包含后续模型与队列修复。需覆盖安装新版桌面，并在远端应用配套 CLI/Hub 补丁；桌面可使用输入框或排队消息上的“优先插入”，Web 重新构建部署后可对排队消息点击 Steer。当前工具不中断，引导在下一次模型调用前接收，普通发送仍然排队。旧桌面包内的能力判断不会随 Hub 更新，必须重新打包安装。各端升级要求、送达状态及验证边界见 [Claude steer 适配说明](docs/claude-steer.md)。
 
 通过 PM2 运行 Hub/runner 时，按 [PM2 服务更新](docs/claude-steer.md#pm2-服务更新)核对启动入口，备份并替换实际二进制，再重启对应服务。
 
@@ -207,11 +211,11 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-当前产物路径为 `build/HAPI-Desktop-1.0.4-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+当前产物路径为 `build/HAPI-Desktop-1.0.5-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 ### 本地产物保留与清理
 
-安装包只保存在被 Git 忽略的 `build/` 下。需要留存的构建按版本或日期归档，保留安装包、`SHA256SUMS.txt`、打包日志及验证记录；最新构建和上一份可回退构建各保留一份即可。本次构建位置及校验值见 [1.0.4 安装包记录](docs/release-notes/v1.0.4.md#本机安装包)。
+安装包只保存在被 Git 忽略的 `build/` 下。需要留存的构建按版本或日期归档，保留安装包、`SHA256SUMS.txt`、打包日志及验证记录；最新构建和上一份可回退构建各保留一份即可。本次构建位置及校验值见 [1.0.5 安装包记录](docs/release-notes/v1.0.5.md#本机安装包)。
 
 确认安装包已归档后，可清理 `build/` 中重复的安装包、旧备份、`win-unpacked/` 解包目录，以及 `release/` 发布准备副本、过期截图、日志和测试报告。`out/` 可由 `bun run build` 重新生成，清理后运行 Electron 测试前需先构建。保留 `node_modules/` 可继续使用现有依赖；本地 Agent 工作树包含源码，按工作树单独管理。
 
@@ -219,7 +223,7 @@ bun run package:win
 
 [Desktop CI and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 在推送 `main`、提交 PR 或手动运行时，执行类型检查、上游来源校验、本地化检查、单元/协议测试、生产构建和 Electron 界面测试；通过后在 Windows runner 生成 x64 安装包。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前 main 使用 1.0.4 版本号，包含长文本编辑、消息缩进、连续浏览，以及此前搜索、暂存、目录排序、性能和会话状态等改动。获取构建时，请核对 Actions 对应提交和安装包的 SHA-256；main 构建不会替换已经公开的 Release 文件，公开发布状态以 Releases 为准。旧的 1.0.3 安装包需要覆盖安装新版才能使用这些桌面改动。
+当前 main 使用 1.0.5 版本号，新增更大的输出区域、放大阅读和长 Markdown 渲染预览，修复流式更新期间按钮点击丢失，并包含此前编辑、搜索、暂存及会话管理改动。获取构建时，请核对 Actions 对应提交和安装包的 SHA-256；main 构建不会替换已经公开的 Release 文件，公开发布状态以 Releases 为准。1.0.4 及更早的安装包需要覆盖安装新版才能使用本次阅读改进。
 
 Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断产物 7 天，包含 Playwright trace 和失败页面上下文。此前连续失败的原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
@@ -230,11 +234,11 @@ Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断�
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.4 -m "HAPI Desktop 1.0.4"
-git push origin v1.0.4
+git tag -a v1.0.5 -m "HAPI Desktop 1.0.5"
+git push origin v1.0.5
 ```
 
-推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.4-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.5-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 

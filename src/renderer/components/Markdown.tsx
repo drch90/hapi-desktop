@@ -5,17 +5,16 @@ import {
   createContext,
   useContext,
   useState,
+  lazy,
+  Suspense,
+  useMemo,
   type ComponentPropsWithoutRef,
 } from 'react'
+import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
+import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
+import type { Root, RootContent } from 'hast'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
-import type { PluggableList } from 'unified'
-import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
-import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
-import remarkRepairTables from '@/lib/remark-repair-tables'
+import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps } from 'react-markdown'
 import { Table } from '@/components/assistant-ui/markdown-text'
 import { CodeBlock } from '@/components/CodeBlock'
 import { isLargeText } from '@/lib/text-rendering'
@@ -23,18 +22,10 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { unwrap } from '../lib/api'
 import { parseSessionPathHref } from '@/lib/sessionReference'
 import { MermaidBlock } from './MermaidBlock'
-import { remarkUserIndentation } from '../lib/remark-user-indentation'
+import { getRemarkPlugins, rehypePlugins, type MarkdownOptions } from '../lib/markdown-plugins'
 
-const remarkPlugins: PluggableList = [
-  [remarkGfm, { singleTilde: false }],
-  remarkRepairTables,
-  remarkLatexBracketMath,
-  // Match Web: currency stays literal; use \(…\), \[…\] or $$…$$ for math.
-  [remarkMath, { singleDollarTextMath: false }],
-]
-const remarkPluginsWithBreaks: PluggableList = [...remarkPlugins, remarkBreaks]
-const userRemarkPlugins: PluggableList = [...remarkPluginsWithBreaks, remarkUserIndentation]
-const rehypePlugins: PluggableList = [rehypeKatex]
+const LongMarkdown = lazy(() => import('./LongMarkdown'))
+export const MarkdownAnchorContext = createContext<((id: string) => void) | null>(null)
 
 export const LinkContext = createContext<{
   openSession: (id: string) => void
@@ -47,6 +38,7 @@ function DesktopTable({ children }: ComponentPropsWithoutRef<'table'>) {
 
 function DesktopLink({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<'a'> & ExtraProps) {
   const links = useContext(LinkContext)
+  const openAnchor = useContext(MarkdownAnchorContext)
   const { t } = useTranslation()
   const { copied, copy } = useCopyToClipboard()
   const [failed, setFailed] = useState(false)
@@ -66,7 +58,7 @@ function DesktopLink({ href, children, node: _node, ...props }: ComponentPropsWi
           target.scrollIntoView({ block: 'nearest' })
           if (target.tabIndex < 0) target.tabIndex = -1
           target.focus({ preventScroll: true })
-        }
+        } else openAnchor?.(id)
         return
       }
       if (/^https?:\/\//i.test(external)) {
@@ -136,6 +128,23 @@ const components: Components = {
   pre: DesktopPre,
 }
 
+/** Render the same desktop components from a tree parsed in the background. */
+export const MarkdownTree = memo(function MarkdownTree({ tree }: { tree: Root }) {
+  return useMemo(() => {
+    // Match react-markdown's URL policy. Raw HTML is discarded by remark-rehype.
+    function clean(node: RootContent) {
+      if (node.type !== 'element') return
+      for (const key of ['href', 'src']) {
+        const value = node.properties[key]
+        if (typeof value === 'string') node.properties[key] = defaultUrlTransform(value)
+      }
+      node.children.forEach(clean)
+    }
+    tree.children.forEach(clean)
+    return toJsxRuntime(tree, { Fragment, jsx, jsxs, components, passKeys: true, passNode: true })
+  }, [tree])
+})
+
 // Desktop links never navigate the privileged renderer. Markdown has no raw
 // HTML support and remote images cannot make hidden network requests.
 export const MarkdownRenderer = memo(function MarkdownRenderer({
@@ -143,28 +152,47 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   className,
   preserveSingleLineBreaks = false,
   userMessage = false,
+  largeMode,
+  fillHeight = false,
+  scrollKey,
+  canCopy = true,
+  initialMode,
 }: {
   content: string
   className?: string
   preserveSingleLineBreaks?: boolean
   userMessage?: boolean
+  largeMode?: 'source' | 'preview'
+  fillHeight?: boolean
+  scrollKey?: string
+  canCopy?: boolean
+  initialMode?: 'source' | 'preview'
   [key: string]: unknown
 }) {
-  // Parsing Markdown (including GFM tables and math) is synchronous. Large
-  // output must be bounded before it reaches the parser, not just clipped
-  // after React has created every node.
+  const { t } = useTranslation()
+  const options: MarkdownOptions = { preserveSingleLineBreaks, userMessage }
+  // Long content keeps its continuous source view, with an on-demand preview
+  // that parses off the UI thread and only mounts visible Markdown sections.
   if (isLargeText(content))
     return (
-      <div className={`markdown ${className ?? ''}`}>
-        <CodeBlock code={content} language="text" scrollY />
+      <div className={`markdown ${fillHeight ? 'markdown-fill' : ''} ${className ?? ''}`}>
+        <Suspense fallback={<p className="muted">{t('Loading…')}</p>}>
+          <LongMarkdown
+            content={content}
+            {...options}
+            mode={largeMode}
+            fillHeight={fillHeight}
+            scrollKey={scrollKey}
+            canCopy={canCopy}
+            initialMode={initialMode}
+          />
+        </Suspense>
       </div>
     )
   return (
     <div className={`markdown ${className ?? ''}`}>
       <ReactMarkdown
-        remarkPlugins={
-          userMessage ? userRemarkPlugins : preserveSingleLineBreaks ? remarkPluginsWithBreaks : remarkPlugins
-        }
+        remarkPlugins={getRemarkPlugins(options)}
         rehypePlugins={rehypePlugins}
         components={components}
       >

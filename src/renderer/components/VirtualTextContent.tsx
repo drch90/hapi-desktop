@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Compartment, EditorSelection, EditorState, type Range } from '@codemirror/state'
 import {
@@ -67,7 +67,7 @@ const editorTheme = EditorView.theme({
     height: '100%',
     color: 'var(--app-fg)',
     backgroundColor: 'var(--app-code-bg)',
-    fontSize: 'calc(12px * var(--desk-font-scale))',
+    fontSize: 'calc(13px * var(--desk-font-scale))',
   },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
@@ -131,6 +131,8 @@ export function VirtualTextContent(props: {
   ariaLabel?: string
   searchLabel?: string
   scrollKey?: string
+  toolbarStart?: ReactNode
+  toolbarActions?: ReactNode
 }) {
   const { t } = useTranslation()
   const { t: web } = useHapiTranslation()
@@ -334,6 +336,7 @@ export function VirtualTextContent(props: {
       data-hapi-share-excerpt-label={t('Visible excerpt')}
     >
       <div className="virtual-text-toolbar">
+        {props.toolbarStart}
         <span className="virtual-text-label">
           {props.title || props.language || 'text'} · {t('{{count}} lines', { count: lineCount })}
         </span>
@@ -342,6 +345,7 @@ export function VirtualTextContent(props: {
           data-hapi-share-export-exclude="true"
           onClick={(event) => event.stopPropagation()}
         >
+          {props.toolbarActions}
           <button
             type="button"
             title={t('Jump to end')}

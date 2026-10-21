@@ -31,6 +31,19 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('Markdown image sharing', () => {
+  it('exports rendered long Markdown as a labelled excerpt without virtual positioning', () => {
+    const source = document.createElement('div')
+    source.innerHTML =
+      '<div class="long-markdown" style="height:600px"><div class="virtual-markdown-content"><div class="virtual-text-toolbar"></div><div data-virtual-markdown-content data-hapi-share-excerpt-label="Visible excerpt"><div class="virtual-markdown-size" style="height:400000px"><div class="virtual-markdown-section" style="transform:translateY(25000px)"><h2>Visible heading</h2><p>Visible paragraph</p></div></div></div></div></div>'
+    const snapshot = document.createElement('div')
+    snapshot.innerHTML = createShareSnapshot(source)
+    expect(snapshot.textContent).toContain('Visible excerpt')
+    expect(snapshot.querySelector('h2')?.textContent).toBe('Visible heading')
+    expect(snapshot.querySelector<HTMLElement>('.virtual-markdown-size')?.style.height).toBe('auto')
+    expect(snapshot.querySelector<HTMLElement>('.virtual-markdown-section')?.style.transform).toBe('none')
+    expect(snapshot.querySelector<HTMLElement>('.virtual-markdown-section')?.style.position).toBe('static')
+    expect(snapshot.querySelector<HTMLElement>('.long-markdown')?.style.height).toBe('auto')
+  })
   it('flattens virtual text into a bounded, labelled excerpt without offscreen spacers', () => {
     const source = document.createElement('div')
     source.innerHTML =

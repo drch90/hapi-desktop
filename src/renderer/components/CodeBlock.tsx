@@ -1,9 +1,10 @@
 import { lazy, memo, Suspense, type ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, Maximize2 } from 'lucide-react'
 import { CodeBlock as SharedCodeBlock } from '../../../vendor/hapi/web/src/components/CodeBlock'
 import { isLargeText, paginateText, TEXT_PAGE_CHARS } from '@/lib/text-rendering'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { ContentDialog, useExpandedContent } from './ContentDialog'
 
 export const VirtualTextContent = lazy(() =>
   import('./VirtualTextContent').then((module) => ({ default: module.VirtualTextContent })),
@@ -48,7 +49,38 @@ function LargeCodePreview(props: CodeBlockProps) {
 
 export const CodeBlock = memo(function CodeBlock(props: CodeBlockProps) {
   const { t } = useTranslation()
-  if (!isLargeText(props.code)) return <SharedCodeBlock {...props} />
+  const expanded = useExpandedContent()
+  const canExpand = !expanded && props.showWrapToggle !== false
+  const expand = canExpand && (
+    <ContentDialog
+      title={props.title || props.language || t('Expanded view')}
+      trigger={
+        <button
+          type="button"
+          className="code-expand-button"
+          title={t('Expand view')}
+          aria-label={t('Expand view')}
+          data-hapi-share-export-exclude="true"
+        >
+          <Maximize2 size={14} />
+        </button>
+      }
+    >
+      <CodeBlock {...props} collapseLongContent={false} scrollY />
+    </ContentDialog>
+  )
+  if (!isLargeText(props.code))
+    return (
+      <div
+        className={`desktop-code-block ${canExpand ? 'code-can-expand' : ''}`}
+        data-auto-height={
+          !props.collapseLongContent && props.scrollY && props.maxHeight === undefined ? 'true' : undefined
+        }
+      >
+        <SharedCodeBlock {...props} size={props.size ?? 'comfortable'} />
+        {expand}
+      </div>
+    )
   if (props.showWrapToggle === false && (props.collapseLongContent || props.showCopyButton === false))
     return <LargeCodePreview {...props} />
   return (
@@ -56,7 +88,11 @@ export const CodeBlock = memo(function CodeBlock(props: CodeBlockProps) {
       className="virtual-text-block"
       data-hapi-code-block="true"
       style={{
-        height: props.collapseLongContent ? (props.collapsedHeight ?? 260) : (props.maxHeight ?? 420),
+        height: expanded
+          ? '100%'
+          : props.collapseLongContent
+            ? (props.collapsedHeight ?? 260)
+            : props.maxHeight,
       }}
     >
       <Suspense fallback={<p className="muted">{t('Loading…')}</p>}>
@@ -68,6 +104,7 @@ export const CodeBlock = memo(function CodeBlock(props: CodeBlockProps) {
           canCopy={props.showCopyButton !== false}
           showWrapToggle={props.showWrapToggle}
           startLineNumber={props.startLineNumber}
+          toolbarActions={expand}
         />
       </Suspense>
     </div>

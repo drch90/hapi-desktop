@@ -16,11 +16,24 @@ export function createShareSnapshot(source: HTMLElement | null): string {
     const label = document.createElement('span')
     label.textContent = block.dataset.hapiShareExcerptLabel ?? ''
     block.querySelector('.virtual-text-toolbar')?.append(label)
-    const wrapper = block.closest<HTMLElement>('.virtual-text-block')
+    const wrapper = block.closest<HTMLElement>('.virtual-text-block, .long-markdown')
     if (wrapper) {
       wrapper.style.height = 'auto'
       wrapper.style.maxHeight = 'none'
     }
+  }
+  for (const block of snapshot.querySelectorAll<HTMLElement>('[data-virtual-markdown-content]')) {
+    const size = block.querySelector<HTMLElement>('.virtual-markdown-size')
+    if (size) size.style.height = 'auto'
+    for (const section of block.querySelectorAll<HTMLElement>('.virtual-markdown-section')) {
+      section.style.position = 'static'
+      section.style.transform = 'none'
+    }
+    const wrapper = block.closest<HTMLElement>('.long-markdown')
+    if (wrapper) wrapper.style.height = 'auto'
+    const label = document.createElement('span')
+    label.textContent = block.dataset.hapiShareExcerptLabel ?? ''
+    block.parentElement?.querySelector('.virtual-text-toolbar')?.append(label)
   }
   for (const checkbox of snapshot.querySelectorAll<HTMLInputElement>(
     '.task-list-item input[type="checkbox"]',

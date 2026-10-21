@@ -794,8 +794,10 @@ export class FixtureHub {
               content: {
                 type: 'event',
                 id: `event-${message.id}`,
+                // Parse the command without changing the submitted text. The
+                // composer preserves autocomplete's trailing argument space.
                 data:
-                  body.text === '/compact'
+                  String(body.text).trim() === '/compact'
                     ? { type: 'compact', trigger: 'manual', preTokens: 1000 }
                     : { type: 'message', message: `**Command result**\n\n${body.text}` },
               },

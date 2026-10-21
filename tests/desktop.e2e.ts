@@ -7,6 +7,7 @@ import { closeTestElectron } from './electron-cleanup'
 import { version as appVersion } from '../package.json'
 import { SESSION_REFERENCE_STEER_SUFFIX } from '@hapi/protocol/sessionCitation'
 import { nginxConfig } from './fixtures/nginx'
+import { longMarkdownReport } from './fixtures/long-markdown'
 
 let electron: ElectronApplication
 let page: Page
@@ -245,6 +246,152 @@ test.afterEach(async () => {
   }
 })
 
+test('Claude text and code use the available space and open in a larger reading view', async () => {
+  const code = Array.from(
+    { length: 100 },
+    (_, index) => `const result${index + 1} = "Claude 输出 ${index + 1}";`,
+  ).join('\n')
+  const content = `## 检查输出\n\n正文与代码使用更大的显示空间。\n\n\`\`\`typescript\n${code}\n\`\`\``
+  server.messages.set('review', [fixtureMessage('claude-readable', 1, content)])
+  await page.getByTestId('session-review').click()
+  const chat = page.getByTestId('chat-review')
+  const message = chat.locator('.agent-message')
+  const codeBlock = message.locator('.desktop-code-block')
+  await expect(message.locator('.markdown').first()).toHaveCSS('font-size', '14px')
+  await expect
+    .poll(() => codeBlock.locator('[data-hapi-code-body]').evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(500)
+  const expand = codeBlock.getByRole('button', { name: '放大阅读', exact: true })
+  await expand.click()
+  const dialog = page.getByRole('dialog')
+  expect((await dialog.boundingBox())!.width).toBeGreaterThan(1_300)
+  expect((await dialog.boundingBox())!.height).toBeGreaterThan(800)
+  expect(
+    await dialog.locator('[data-hapi-code-body]').evaluate((element) => element.clientHeight),
+  ).toBeGreaterThan(700)
+  await dialog.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(code)
+  await page.keyboard.press('Escape')
+  await expect(expand).toBeFocused()
+  await message.locator('.message-actions').getByRole('button', { name: '放大阅读', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: '检查输出', exact: true })).toBeVisible()
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+  await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
+  expect(await dialog.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('long Claude Markdown renders continuously, preserves footnotes and follows streaming updates', async () => {
+  let content = longMarkdownReport(2_000)
+  const original = fixtureMessage('claude-long-preview', 1, content)
+  server.messages.set('review', [original])
+  await page.getByTestId('session-review').click()
+  const chat = page.getByTestId('chat-review')
+  const message = chat.locator('.agent-message')
+  const modes = message.locator('.content-mode-buttons')
+  await expect(message.locator('[data-virtual-text-content]')).toBeVisible()
+  await modes.getByRole('button', { name: '预览', exact: true }).click()
+  const preview = message.getByRole('region', { name: 'Markdown 渲染预览' })
+  await expect(preview.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  await expect(preview.locator('.katex')).toHaveCount(1)
+  await expect(preview.getByRole('checkbox').first()).toBeChecked()
+  await expect(preview.locator('[data-code-cell] span[style*="--shiki-light"]').first()).toBeAttached()
+  expect(await preview.locator('tbody tr').count()).toBeLessThan(200)
+  expect(await preview.locator('.virtual-markdown-section').count()).toBeLessThan(10)
+  await preview.locator('[data-footnote-ref]').click()
+  await expect(preview.locator('.footnotes li')).toBeFocused()
+  await preview.locator('[data-footnote-backref]').click()
+  await expect(preview.locator('[data-footnote-ref]')).toBeFocused()
+  await preview.evaluate((element) => {
+    element.scrollTop = element.scrollHeight / 2
+  })
+  const before = await preview.evaluate((element) => element.scrollTop)
+  const append = (addition: string) => {
+    content += addition
+    server.emit({
+      type: 'message-received',
+      sessionId: 'review',
+      message: { ...fixtureMessage(original.id, original.seq!, content), createdAt: original.createdAt },
+    })
+  }
+  append('\n\n## 流式新增段落\n\n继续显示新输出。')
+  // Wait for the new document by visiting its tail, then exercise tail following.
+  await expect
+    .poll(() => preview.evaluate((element, top) => Math.abs(element.scrollTop - top), before))
+    .toBeLessThan(5)
+  await chat.locator('.composer textarea').fill('预览期间仍可输入')
+  await message.locator('.long-markdown').getByRole('button', { name: '跳到末尾', exact: true }).click()
+  await expect(preview.getByRole('heading', { name: '流式新增段落' })).toBeInViewport()
+  append('\n\n## 最新输出已到达\n\nTAIL UPDATE')
+  await expect(preview.getByRole('heading', { name: '最新输出已到达' })).toBeInViewport()
+  await message.locator('.long-markdown [data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(content)
+  await modes.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(message.getByRole('textbox', { name: '只读文本' })).toBeVisible()
+  await message.getByRole('button', { name: '跳到末尾', exact: true }).click()
+  await expect(message.getByRole('textbox', { name: '只读文本' })).toContainText('TAIL UPDATE')
+  await modes.getByRole('button', { name: '预览', exact: true }).click()
+  await expect(preview.getByRole('heading', { name: '最新输出已到达' })).toBeInViewport()
+  await message.locator('.message-actions').getByRole('button', { name: '分享', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('当前内容节选')
+  await expect(page.getByRole('dialog')).toContainText('TAIL UPDATE')
+  await page.keyboard.press('Escape')
+  await message.locator('.message-actions').getByRole('button', { name: '放大阅读', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  await page.screenshot({ path: 'build/long-markdown-rendered-preview.png', animations: 'disabled' })
+  expect(errors).toEqual([])
+})
+
+test('large Markdown files support rendering, source search and expanded reading in narrow windows', async () => {
+  const content = longMarkdownReport(1_000)
+  server.fileContents.set('report.md', Buffer.from(content))
+  server.fileDiffs.set('report.md', '')
+  server.directoryEntries.set('', [{ name: 'report.md', type: 'file' }])
+  await page.getByTestId('session-review').click()
+  await page.getByRole('button', { name: '文件', exact: true }).click()
+  const panel = page.locator('.file-panel')
+  await panel.getByRole('button', { name: 'report.md', exact: true }).click()
+  await expect(panel.getByRole('button', { name: '预览', exact: true })).toBeEnabled()
+  await expect(panel.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  await panel.locator('.file-preview-toolbar').getByRole('button', { name: '放大阅读', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  expect((await dialog.boundingBox())!.width).toBeGreaterThan(1_300)
+  await dialog.getByRole('button', { name: '源码', exact: true }).click()
+  const source = dialog.getByRole('textbox', { name: '只读文件内容' })
+  await source.press('Control+f')
+  const search = dialog.getByRole('textbox', { name: '在文件中查找', exact: true })
+  await search.fill('远端会话对比 777')
+  await search.press('Enter')
+  await expect(source).toContainText('远端会话对比 777')
+  await search.press('Escape')
+  await expect(search).toHaveCount(0)
+  await dialog.locator('[data-hapi-code-copy]').click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(content)
+  await dialog.getByRole('button', { name: '预览', exact: true }).click()
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+  await expect(dialog.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toBeInViewport()
+  const preview = dialog.getByRole('region', { name: 'Markdown 渲染预览' })
+  expect(await preview.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(
+    1,
+  )
+  await page.screenshot({ path: 'build/long-markdown-file-dark-preview.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await expect(panel.getByRole('button', { name: '预览', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await panel.getByRole('button', { name: '返回文件列表' }).click()
+  await panel.getByRole('button', { name: 'report.md', exact: true }).click()
+  await expect(panel.getByRole('heading', { name: 'Claude 输出与长文预览' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('large OpenCode history and streaming output keep the composer responsive', async () => {
   const session = server.sessions.get('design')!
   session.metadata = { ...session.metadata!, flavor: 'opencode' }
@@ -268,8 +415,8 @@ test('large OpenCode history and streaming output keep the composer responsive',
   await expect(last.locator('[data-text-pager]')).toHaveCount(0)
   await last.getByRole('button', { name: '跳到末尾', exact: true }).click()
   await expect(last).toContainText('const result11999')
-  // The full history contains hundreds of thousands of lines. Only the
-  // Only lines around each visible viewport should create text nodes.
+  // The full history contains hundreds of thousands of lines. Only lines
+  // around each visible viewport should create text nodes.
   expect(await chat.locator('.cm-line').count()).toBeLessThan(5_000)
 
   const input = chat.locator('.composer textarea')
@@ -292,6 +439,46 @@ test('large OpenCode history and streaming output keep the composer responsive',
   await expect(chat.locator('.agent-message').last()).toContainText('LIVE 59')
   await page.getByTestId('session-review').click()
   await expect(page.getByTestId('chat-review')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('streaming keeps output controls in place until a pointer click completes', async () => {
+  const text = Array.from({ length: 2_000 }, (_, index) => `Line ${index + 1}: streaming output`).join('\n')
+  const createdAt = Date.now()
+  server.messages.set('design', [
+    fixtureCodexEvent('previous-output', 1, { type: 'message', message: text }, createdAt),
+    fixtureCodexEvent('pressed-output', 2, { type: 'message', message: text }, createdAt + 1),
+  ])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await expect(chat.locator('.agent-message')).toHaveCount(2)
+  const output = chat.locator('.agent-message').last()
+  const jump = output.getByRole('button', { name: '跳到末尾', exact: true })
+  await jump.scrollIntoViewIfNeeded()
+  const before = (await jump.boundingBox())!
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2)
+  await page.mouse.down()
+  server.emit({
+    type: 'message-received',
+    sessionId: 'design',
+    message: fixtureCodexEvent(
+      'pressed-output',
+      2,
+      { type: 'message', message: text + '\nPOINTER UPDATE TAIL' },
+      createdAt + 1,
+    ),
+  })
+  await expect(output.locator('.virtual-text-label')).toContainText('2001')
+  expect((await jump.boundingBox())!.y).toBeCloseTo(before.y, 0)
+  await page.mouse.up()
+  await expect(output).toContainText('POINTER UPDATE TAIL')
+  await expect
+    .poll(() =>
+      chat
+        .locator('.transcript')
+        .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop),
+    )
+    .toBeLessThan(2)
   expect(errors).toEqual([])
 })
 
@@ -2819,7 +3006,7 @@ test('native commands discover project commands, autocomplete without sending an
   await input.press('Control+Enter')
   await expect(chat.locator('.event-message')).toContainText('Conversation compacted')
   expect(server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.text).toBe(
-    '/compact',
+    '/compact ',
   )
   await input.fill('/project')
   await menu.getByRole('button', { name: /\/project-check/ }).click()
@@ -2882,7 +3069,7 @@ for (const [sessionId, flavor, command] of [
     )
     expect(
       server.requests.find((r) => r.method === 'POST' && r.path === `/api/sessions/${target}/messages`)?.body,
-    ).toMatchObject({ text: command, deliveryMode: 'queue' })
+    ).toMatchObject({ text: command + ' ', deliveryMode: 'queue' })
     expect(errors).toEqual([])
   })
 }

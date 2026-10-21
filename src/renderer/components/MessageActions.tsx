@@ -1,9 +1,11 @@
 import { lazy, Suspense, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Share2 } from 'lucide-react'
+import { Check, Copy, Maximize2, Share2 } from 'lucide-react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { unwrap } from '../lib/api'
 import { createShareSnapshot, renderShareImage } from '../lib/share-image'
+import { ContentDialog } from './ContentDialog'
+import { MarkdownRenderer } from './Markdown'
 
 const ShareTurnDialog = lazy(() =>
   import('@/components/AssistantChat/ShareTurnDialog').then((module) => ({
@@ -41,6 +43,21 @@ export function MessageActions({
   return (
     <>
       <div className="message-actions" data-hapi-share-action="true" data-hapi-share-export-exclude="true">
+        <ContentDialog
+          title={title}
+          trigger={
+            <button
+              type="button"
+              className="icon-button"
+              title={t('Expand view')}
+              aria-label={t('Expand view')}
+            >
+              <Maximize2 size={13} />
+            </button>
+          }
+        >
+          <MarkdownRenderer content={text} userMessage={role === 'user'} initialMode="preview" fillHeight />
+        </ContentDialog>
         <button
           className="icon-button"
           title={t(copied ? 'Copied' : 'Copy')}
