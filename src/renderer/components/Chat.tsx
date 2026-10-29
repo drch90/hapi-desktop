@@ -87,6 +87,12 @@ import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
 import { useComposerSuggestions } from '../lib/useComposerSuggestions'
 import { parkComposerDraft, useComposerPark } from '../lib/composerPark'
 import { formatFileReference } from '@/lib/file-composer'
+import {
+  resolvePendingSchedule,
+  validateSpecificDatetime,
+  type PendingSchedule,
+} from '@/components/AssistantChat/ScheduleTimePicker'
+import { ScheduleSendButton } from './ScheduleSendButton'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
 import { createChatBlockSelector, reuseChatBlocks } from '../lib/chat-rendering'
@@ -155,6 +161,8 @@ export function Chat({
   const fileInput = useRef<HTMLInputElement>(null)
   const messages = useMessages(api, id)
   const [draft, setDraft] = useState(() => loadDraft(scope, id))
+  const pendingSchedule = draft.pendingSchedule ?? null
+  const routesToScratchlist = scratchlistOpen && pendingSchedule === null
   const [composerExpanded, setComposerExpanded] = useState(false)
   const composerEnterBehavior = composerExpanded ? 'newline' : enterBehavior
   const composerId = useId()
@@ -322,17 +330,23 @@ export function Chat({
   )
 
   const updateDraft = useCallback((update: Partial<Draft>) => {
-    if ('text' in update || 'scheduledAt' in update) draftRevision.current++
+    if ('text' in update || 'pendingSchedule' in update) draftRevision.current++
     const value = {
       ...latestDraft.current,
       ...update,
-      ...('text' in update || 'scheduledAt' in update
+      ...('text' in update || 'pendingSchedule' in update
         ? { revision: update.revision ?? crypto.randomUUID() }
         : {}),
     }
     latestDraft.current = value
     setDraft(value)
   }, [])
+  function changeSchedule(schedule: PendingSchedule | null) {
+    updateDraft({ pendingSchedule: schedule })
+    saveDraft(scope, id, latestDraft.current)
+    setError('')
+    requestAnimationFrame(() => composer.current?.focus())
+  }
   const toggleBlock = useCallback(
     (blockId: string) => {
       const expanded = latestDraft.current.expanded
@@ -413,14 +427,14 @@ export function Chat({
     }
   }
   async function send(retry = false, deliveryMode: MessageDeliveryMode = 'queue') {
-    if (scratchlistOpen && !retry) {
+    if (scratchlistOpen && !latestDraft.current.pendingSchedule && !retry) {
       if (deliveryMode === 'queue') await parkDraft()
       return
     }
     if (
       busy ||
       editWorking ||
-      (deliveryMode === 'steer' && !canSteer) ||
+      (deliveryMode === 'steer' && (!canSteer || latestDraft.current.pendingSchedule)) ||
       !session ||
       !connected ||
       (retry
@@ -435,6 +449,25 @@ export function Chat({
     const submitted = { ...latestDraft.current }
     const revision = draftRevision.current
     const submittedAt = Date.now()
+    const scheduledAt =
+      retry && attempt
+        ? (attempt.scheduledAt ?? null)
+        : resolvePendingSchedule(submitted.pendingSchedule ?? null, submittedAt)
+    if (scheduledAt !== null && !retry) {
+      if (attachments.items.length) {
+        setError('Scheduled messages cannot include attachments.')
+        return
+      }
+      const invalid = validateSpecificDatetime(scheduledAt, submittedAt)
+      if (!Number.isFinite(scheduledAt) || scheduledAt <= submittedAt || invalid) {
+        setError(
+          invalid === 'scheduleErrorTooFar'
+            ? 'Maximum schedule time is 7 days.'
+            : 'Scheduled time must be in the future.',
+        )
+        return
+      }
+    }
     const selectedAttachments = attachments.select(
       retry ? (attempt?.attachments ?? []).map((item) => item.id) : undefined,
     )
@@ -454,6 +487,7 @@ export function Chat({
       // and returns the new conversation. Other CLI commands stay verbatim.
       if (
         !retry &&
+        scheduledAt === null &&
         session.metadata?.capabilities?.concurrentClients &&
         !selectedAttachments.length &&
         /^\/(clear|new)\s*$/.test(submitted.text.trim())
@@ -463,7 +497,7 @@ export function Chat({
           throw new Error('INVALID_RESPONSE')
         target = result.sessionId
         if (draftRevision.current === revision) {
-          updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+          updateDraft({ text: '', scrollTop: -1, pendingSchedule: null })
           setComposerExpanded(false)
         }
         return
@@ -491,9 +525,7 @@ export function Chat({
               ...(uploaded.length ? { attachments: uploaded } : {}),
               deliveryMode,
               draftRevision: submitted.revision,
-              ...(submitted.scheduledAt && submitted.scheduledAt > submittedAt
-                ? { scheduledAt: submitted.scheduledAt }
-                : {}),
+              ...(scheduledAt !== null ? { scheduledAt } : {}),
             }
       // Persist before the network request; a crash or window reload cannot
       // turn an uncertain send into a fresh attempt with another localId.
@@ -513,13 +545,25 @@ export function Chat({
         latestDraft.current.text === outgoing.text &&
         (!outgoing.draftRevision || latestDraft.current.revision === outgoing.draftRevision)
       ) {
-        updateDraft({ text: '', scrollTop: -1, scheduledAt: null })
+        updateDraft({ text: '', scrollTop: -1, pendingSchedule: null })
         setComposerExpanded(false)
       }
       navigation.followLatest()
       if (target === id) await messages.refetch()
     } catch (error) {
       setError(errorKey(error))
+      if (
+        outgoing?.scheduledAt != null &&
+        draftRevision.current === revision &&
+        latestDraft.current.revision === outgoing.draftRevision
+      ) {
+        // A retry keeps the original fire time, including for a relative preset.
+        // This binding is still the submitted draft; preserve its receipt revision.
+        updateDraft({
+          pendingSchedule: { type: 'absolute', ms: outgoing.scheduledAt },
+          revision: outgoing.draftRevision,
+        })
+      }
       if (outgoing && !uncertainDelivery(error)) {
         storeAttempt(scope, id, null, outgoing.localId)
       }
@@ -543,6 +587,7 @@ export function Chat({
     }
   }
   async function parkDraft() {
+    if (latestDraft.current.pendingSchedule) return
     if (busy || editWorking || attempt || !session || !connected || attachments.loading || attachments.error)
       return
     if (!composerPark.pending && !latestDraft.current.text.trim() && !attachments.items.length) return
@@ -587,7 +632,7 @@ export function Chat({
           if (sameDraft() && sameAttachments) {
             await attachments.clearSent(receipt.attachmentIds)
             if (!alive.current || !current()) return false
-            if (sameDraft()) updateDraft({ text: '', scheduledAt: null })
+            if (sameDraft()) updateDraft({ text: '', pendingSchedule: null })
             saveDraft(scope, id, latestDraft.current)
             await finalizeMigratedScratchlistParkCleanup(scopedApi, id, receipt.attachments, true)
           }
@@ -622,7 +667,7 @@ export function Chat({
           latestDraft.current.text === attempt.text &&
           (!attempt.draftRevision || latestDraft.current.revision === attempt.draftRevision)
         ) {
-          updateDraft({ text: '', scheduledAt: null })
+          updateDraft({ text: '', pendingSchedule: null })
           setComposerExpanded(false)
         }
         storeAttempt(scope, id, null, attempt.localId)
@@ -675,8 +720,10 @@ export function Chat({
       updateDraft({
         text:
           !existing || existing === queueEdit.draftText ? queueEdit.text : `${existing}\n${queueEdit.text}`,
-        scheduledAt:
-          queueEdit.scheduledAt && queueEdit.scheduledAt > Date.now() ? queueEdit.scheduledAt : null,
+        pendingSchedule:
+          queueEdit.scheduledAt && queueEdit.scheduledAt > Date.now()
+            ? { type: 'absolute', ms: queueEdit.scheduledAt }
+            : null,
       })
       saveDraft(scope, id, latestDraft.current)
       saveQueueEdit(scope, id, null, generation, queueEdit.localId)
@@ -707,10 +754,15 @@ export function Chat({
     )
       return
     autoRestoredEdit.current = queueEdit.messageId
-    if (latestDraft.current.text === queueEdit.draftText) void restoreQueueEdit()
+    if (
+      latestDraft.current.text === queueEdit.draftText &&
+      latestDraft.current.revision === queueEdit.draftRevision
+    )
+      void restoreQueueEdit()
   }, [queueEdit, attachments.loading, connected, busy, attempt, editWorking])
   const links = useMemo(() => ({ openSession, openFile }), [openSession, openFile])
   async function attachFiles(files: File[]) {
+    if (latestDraft.current.pendingSchedule) return
     if (!files.length || busy || !connected || attempt || !session || attachments.loading) return
     await attachments.add(files)
     if (!session.active && !scratchlistOpen) {
@@ -1082,6 +1134,7 @@ export function Chat({
         <QueuedMessages
           scope={scope}
           draftText={draft.text}
+          draftRevision={draft.revision}
           editPending={Boolean(queueEdit)}
           sessionId={id}
           messages={messages.messages}
@@ -1118,7 +1171,7 @@ export function Chat({
             </div>
           )}
           <form
-            className={`composer ${scratchlistOpen ? 'scratchlist-mode' : ''}`}
+            className={`composer ${routesToScratchlist ? 'scratchlist-mode' : ''}`}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes('Files')) event.preventDefault()
             }}
@@ -1155,7 +1208,14 @@ export function Chat({
             <input
               ref={fileInput}
               type="file"
-              disabled={!connected || busy || Boolean(attempt) || !session || attachments.loading}
+              disabled={
+                !connected ||
+                busy ||
+                Boolean(attempt) ||
+                !session ||
+                attachments.loading ||
+                Boolean(pendingSchedule)
+              }
               multiple
               hidden
               aria-label={t('Upload files')}
@@ -1195,8 +1255,8 @@ export function Chat({
             <textarea
               ref={composer}
               id={composerId}
-              aria-label={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
-              placeholder={t(scratchlistOpen ? 'Store an idea for later' : 'Send a message…')}
+              aria-label={t(routesToScratchlist ? 'Store an idea for later' : 'Send a message…')}
+              placeholder={t(routesToScratchlist ? 'Store an idea for later' : 'Send a message…')}
               value={draft.text}
               readOnly={Boolean(attempt)}
               onFocus={() => setComposerFocused(true)}
@@ -1276,10 +1336,19 @@ export function Chat({
                 }
               }}
             />
-            {draft.scheduledAt && (
-              <div className="small muted">
-                {t('Scheduled for {{time}}', { time: new Date(draft.scheduledAt).toLocaleString() })}
-                <button type="button" onClick={() => updateDraft({ scheduledAt: null })}>
+            {pendingSchedule && (
+              <div className="composer-schedule-summary" role="status">
+                <Clock size={14} aria-hidden="true" />
+                <span>
+                  {pendingSchedule.type === 'preset'
+                    ? t('Delay {{delay}} from when you click Send', {
+                        delay: pendingSchedule.preset.slice(1),
+                      })
+                    : t('Scheduled for {{time}}', {
+                        time: new Date(pendingSchedule.ms).toLocaleString(locale),
+                      })}
+                </span>
+                <button type="button" disabled={Boolean(attempt)} onClick={() => changeSchedule(null)}>
                   {t('Clear schedule')}
                 </button>
               </div>
@@ -1296,17 +1365,28 @@ export function Chat({
                 />
               </div>
               <div className="composer-scratchlist-actions">
+                <ScheduleSendButton
+                  pendingSchedule={pendingSchedule}
+                  onChange={changeSchedule}
+                  disabled={
+                    busy || editWorking || Boolean(attempt) || attachments.loading || !connected || !session
+                  }
+                  hasAttachments={attachments.items.length > 0}
+                />
                 <button
                   type="button"
                   className={`icon-button ${scratchlistOpen ? 'selected' : ''}`}
                   aria-label={t('Scratchlist')}
                   title={t(
-                    draft.text.trim() || attachments.items.length ? 'Save to scratchlist' : 'Scratchlist',
+                    !pendingSchedule && (draft.text.trim() || attachments.items.length)
+                      ? 'Save to scratchlist'
+                      : 'Scratchlist',
                   )}
                   aria-expanded={scratchlistOpen}
                   disabled={busy || editWorking || Boolean(attempt) || attachments.loading || !connected}
                   onClick={() => {
-                    if (draft.text.trim() || attachments.items.length || composerPark.pending) {
+                    if (pendingSchedule) setScratchlistOpen(!scratchlistOpen)
+                    else if (draft.text.trim() || attachments.items.length || composerPark.pending) {
                       setScratchlistOpen(true)
                       void parkDraft()
                     } else setScratchlistOpen(!scratchlistOpen)
@@ -1392,7 +1472,7 @@ export function Chat({
                 <span className="small muted composer-enter-hint">
                   {session?.metadata?.flavor || 'Agent'} <span>·</span>{' '}
                   {t(
-                    scratchlistOpen
+                    routesToScratchlist
                       ? composerEnterBehavior === 'send'
                         ? 'Enter saves · Shift+Enter adds a line'
                         : 'Enter adds a line · Ctrl+Enter saves'
@@ -1409,7 +1489,14 @@ export function Chat({
                   variant="outline"
                   aria-label={t('Upload files')}
                   title={t('Upload files')}
-                  disabled={!connected || busy || Boolean(attempt) || !session || attachments.loading}
+                  disabled={
+                    !connected ||
+                    busy ||
+                    Boolean(attempt) ||
+                    !session ||
+                    attachments.loading ||
+                    Boolean(pendingSchedule)
+                  }
                   onClick={() => fileInput.current?.click()}
                 >
                   <Paperclip size={14} />
@@ -1426,24 +1513,27 @@ export function Chat({
                 >
                   {t('Native commands')}
                 </Button>
-                {canSteer && !scratchlistOpen && !draft.text.trimStart().startsWith('/') && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={
-                      !connected ||
-                      busy ||
-                      editWorking ||
-                      (!draft.text.trim() && !attachments.items.length) ||
-                      !attachments.ready ||
-                      Boolean(attempt)
-                    }
-                    onClick={() => void send(false, 'steer')}
-                  >
-                    {t('Insert into current turn')}
-                  </Button>
-                )}
+                {canSteer &&
+                  !scratchlistOpen &&
+                  !pendingSchedule &&
+                  !draft.text.trimStart().startsWith('/') && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        !connected ||
+                        busy ||
+                        editWorking ||
+                        (!draft.text.trim() && !attachments.items.length) ||
+                        !attachments.ready ||
+                        Boolean(attempt)
+                      }
+                      onClick={() => void send(false, 'steer')}
+                    >
+                      {t('Insert into current turn')}
+                    </Button>
+                  )}
                 {session?.active && (
                   <Button
                     type="button"
@@ -1478,23 +1568,32 @@ export function Chat({
                 <Button
                   type="submit"
                   size="sm"
-                  className={scratchlistOpen ? 'composer-park-button' : undefined}
+                  className={routesToScratchlist ? 'composer-park-button' : undefined}
                   disabled={
                     !connected ||
                     busy ||
                     editWorking ||
                     (!draft.text.trim() &&
                       !attachments.items.length &&
-                      !(scratchlistOpen && composerPark.pending)) ||
+                      !(routesToScratchlist && composerPark.pending)) ||
                     Boolean(attempt) ||
                     !session ||
                     attachments.loading ||
-                    (scratchlistOpen ? Boolean(attachments.error) : session.active && !attachments.ready)
+                    (routesToScratchlist
+                      ? Boolean(attachments.error)
+                      : session.active && !attachments.ready) ||
+                    (Boolean(pendingSchedule) && attachments.items.length > 0)
                   }
                 >
-                  {scratchlistOpen ? <NotebookPen size={15} /> : <ArrowUp size={15} />}
+                  {routesToScratchlist ? (
+                    <NotebookPen size={15} />
+                  ) : pendingSchedule ? (
+                    <Clock size={15} />
+                  ) : (
+                    <ArrowUp size={15} />
+                  )}
                   {t(
-                    scratchlistOpen
+                    routesToScratchlist
                       ? composerPark.working
                         ? 'Saving…'
                         : composerPark.pending

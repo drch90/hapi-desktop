@@ -26,6 +26,7 @@ export function QueuedMessages({
   disabled,
   scope,
   draftText,
+  draftRevision,
   editPending,
 }: {
   sessionId: string
@@ -34,6 +35,7 @@ export function QueuedMessages({
   disabled: boolean
   scope: string
   draftText: string
+  draftRevision?: string
   editPending: boolean
 }) {
   const { t } = useTranslation()
@@ -171,7 +173,7 @@ export function QueuedMessages({
                       onClick={() =>
                         void runQueueOperation(async () => {
                           const generation = queueEditEpoch()
-                          const recovery = beginQueueEdit(scope, sessionId, message, draftText)
+                          const recovery = beginQueueEdit(scope, sessionId, message, draftText, draftRevision)
                           const result = await cancel.mutateAsync({
                             sessionId,
                             messageId: message.id,

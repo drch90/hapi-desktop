@@ -37,6 +37,8 @@ export default defineConfig({
             'src/chat/codexCommandPresentation.test.ts',
             'src/components/ToolCard/ToolGroupCard.test.tsx',
             'src/components/HermesModelPicker.test.tsx',
+            'src/components/AssistantChat/ScheduleTimePicker.test.ts',
+            'src/lib/scheduledTime.test.ts',
           ],
         },
       },

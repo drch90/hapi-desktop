@@ -9,6 +9,7 @@ const schema = z.object({
   localId: z.string(),
   text: z.string(),
   draftText: z.string(),
+  draftRevision: z.string().optional(),
   scheduledAt: z.number().nullable(),
   attachments: z.array(AttachmentMetadataSchema),
   state: z.enum(['checking', 'ready']),
@@ -62,6 +63,7 @@ export function beginQueueEdit(
   id: string,
   message: DecryptedMessage,
   draftText: string,
+  draftRevision?: string,
 ): QueueEdit {
   const normalized = normalizeDecryptedMessage(message)
   const content = normalized?.role === 'user' ? normalized.content : null
@@ -70,6 +72,7 @@ export function beginQueueEdit(
     localId: message.localId ?? message.id,
     text: content?.text ?? '',
     draftText,
+    draftRevision,
     attachments: (content?.attachments ?? []).map(({ previewUrl: _preview, ...item }) => item),
     scheduledAt: message.scheduledAt ?? null,
     state: 'checking',

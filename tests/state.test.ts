@@ -15,6 +15,7 @@ import { checkDelivery, loadAttempt, storeAttempt, uncertainDelivery } from '../
 import { ApiError, type ApiClient } from '@/api/client'
 import { loadQueueEdit, saveQueueEdit, type QueueEdit } from '../src/renderer/lib/queueEdit'
 import { toIntlLocale } from '../src/shared/i18n'
+import { resolvePendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 
 import {
   AgentAvailabilityResponseSchema,
@@ -29,6 +30,52 @@ import { getBuiltinSlashCommands } from '@hapi/protocol/slashCommands'
 import { resolveAgentSessionIdFromMetadata } from '@/lib/sessionResume'
 
 beforeEach(() => localStorage.clear())
+
+describe('scheduled message drafts', () => {
+  it('loads legacy absolute times and preserves an explicitly cleared schedule', () => {
+    const key = 'desktop:draft:hub:session'
+    const legacy = { text: 'later', scrollTop: -1, expanded: [], scheduledAt: 1_800_000_000_000 }
+    localStorage.setItem(key, JSON.stringify(legacy))
+    expect(loadDraft('hub', 'session').pendingSchedule).toEqual({ type: 'absolute', ms: legacy.scheduledAt })
+    localStorage.setItem(key, JSON.stringify({ ...legacy, pendingSchedule: null }))
+    expect(loadDraft('hub', 'session').pendingSchedule).toBeNull()
+  })
+
+  it('keeps relative selections through reload and resolves them against the send action', () => {
+    const draft = {
+      text: 'later',
+      scrollTop: -1,
+      expanded: [],
+      pendingSchedule: { type: 'preset', preset: '+5m' } as const,
+    }
+    saveDraft('hub', 'session', draft)
+    expect(loadDraft('hub', 'session')).toEqual(draft)
+    const pending = loadDraft('hub', 'session').pendingSchedule!
+    expect(resolvePendingSchedule(pending, 1_800_000_100_000)).toBe(1_800_000_400_000)
+    expect(loadDraft('another-hub', 'session').pendingSchedule).toBeUndefined()
+    migrateSessionLocalState('hub', 'session', 'resumed')
+    expect(loadDraft('hub', 'resumed').pendingSchedule).toEqual(pending)
+  })
+
+  it('keeps the destination draft schedule when resumed sessions merge', () => {
+    const base = { scrollTop: -1, expanded: [] }
+    saveDraft('hub', 'source', {
+      ...base,
+      text: 'source',
+      pendingSchedule: { type: 'preset', preset: '+4h' },
+    })
+    saveDraft('hub', 'target', {
+      ...base,
+      text: 'target',
+      pendingSchedule: { type: 'absolute', ms: 1_800_000_000_000 },
+    })
+    migrateSessionLocalState('hub', 'source', 'target')
+    expect(loadDraft('hub', 'target')).toMatchObject({
+      text: 'target\nsource',
+      pendingSchedule: { type: 'absolute', ms: 1_800_000_000_000 },
+    })
+  })
+})
 
 describe('desktop trust boundary', () => {
   it('accepts Hermes discovery and preserves its permissions, commands and native resume ID', () => {

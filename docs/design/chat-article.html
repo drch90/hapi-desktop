@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HAPI Desktop · 文章式对话</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei UI', sans-serif; font-synthesis: none; background: #ededed; color: #393a3d; color-scheme: light; }
+    body { margin: 0; }
+    body.dark { background: #101010; color: #d3d3d3; color-scheme: dark; }
+    button, textarea { font: inherit; }
+    button { color: inherit; cursor: pointer; }
+    button:focus-visible, summary:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px solid var(--link, #2685f7); outline-offset: 3px; }
+    svg { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .review-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: min(1000px, calc(100% - 48px)); margin: 24px auto 18px; }
+    .review-heading strong { font-size: 15px; font-weight: 600; }
+    .review-heading p { font-size: 11px; color: #858585; margin: 5px 0 0; }
+    .review-controls { display: flex; gap: 7px; flex-wrap: wrap; }
+    .review-controls button { padding: 7px 10px; background: transparent; border: 1px solid #d0d0d0; border-radius: 7px; font-size: 11px; white-space: nowrap; }
+    .review-controls button[aria-pressed='true'] { background: #fff; border-color: #acacac; }
+    .dark .review-controls button { border-color: #383838; }
+    .dark .review-controls button[aria-pressed='true'] { background: #2e2e2e; border-color: #727272; }
+    .stage { padding: 0 24px 26px; overflow: auto; }
+    .chat { --bg: #fff; --fg: #393a3d; --strong: #1a1c1f; --muted: #747577; --subtle: #939496; --line: #e9eaea; --bubble: #f3f3f4; --code: #e9eaea; --output: #f7f7f8; --hover: #f3f3f4; --link: #2685f7; --error: #b95550; --success: #397b60; width: min(1000px, 100%); margin: auto; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 14px; }
+    .chat[data-theme='dark'] { --bg: #181818; --fg: #d3d3d3; --strong: #dfdfdf; --muted: #898989; --subtle: #848484; --line: #2e2e2e; --bubble: #222; --code: #2e2e2e; --output: #202020; --hover: #222; --link: #83bff6; --error: #e2938b; --success: #91c2a3; }
+    .chat.narrow { width: 610px; max-width: 100%; }
+    .chat-header { display: flex; align-items: center; gap: 11px; justify-content: space-between; padding: 16px 25px; border-bottom: 1px solid var(--line); }
+    .chat-title { min-width: 0; }
+    .chat-title strong { display: block; color: var(--strong); font-weight: 550; font-size: 12px; }
+    .chat-title small { display: block; margin-top: 4px; font-size: 10px; color: var(--subtle); }
+    .header-actions { display: flex; gap: 5px; }
+    .icon-button { display: inline-grid; place-items: center; border: 0; background: transparent; padding: 5px; border-radius: 5px; color: var(--muted); }
+    .icon-button:hover { background: var(--hover); color: var(--fg); }
+    .icon-button svg { width: 14px; height: 14px; }
+    .conversation { padding: 27px 36px 8px; }
+    .thread { max-width: 824px; margin: auto; }
+    .date-marker { color: var(--subtle); font-size: 11px; text-align: center; margin: 0 0 22px; }
+    .user-turn { display: flex; flex-direction: column; align-items: flex-end; position: relative; margin-bottom: 39px; }
+    .user-bubble { display: block; inline-size: fit-content; min-inline-size: 0; max-inline-size: 85%; padding: 10px 17px; border-radius: 18px; background: var(--bubble); color: var(--fg); font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+    .user-bubble p { margin: 0; white-space: pre-wrap; }
+    .user-actions { display: flex; align-items: center; gap: 4px; position: absolute; right: 2px; top: calc(100% + 5px); opacity: 0; pointer-events: none; color: var(--subtle); font-size: 10px; }
+    .user-actions time { margin-right: 6px; }
+    .user-actions .icon-button { padding: 3px; }
+    .user-actions svg { width: 12px; height: 12px; }
+    .user-turn:hover .user-actions, .user-turn:focus-within .user-actions { opacity: 1; pointer-events: auto; }
+    .agent-turn { margin: 0 0 25px; }
+    .work-summary { display: flex; align-items: center; gap: 5px; width: 100%; padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; list-style: none; cursor: pointer; }
+    .work-summary::-webkit-details-marker, .tool-summary::-webkit-details-marker { display: none; }
+    .work-summary svg { width: 12px; height: 12px; }
+    .work-trace[open] > .work-summary svg { transform: rotate(90deg); }
+    .trace-content { padding-top: 14px; }
+    .prose { margin: 0 0 15px; font-size: 14px; line-height: 1.85; overflow-wrap: anywhere; }
+    .prose strong { color: var(--strong); font-weight: 650; }
+    .prose code { background: var(--code); color: var(--strong); padding: 1px 5px; border-radius: 4px; font: 12px/1.7 'Cascadia Code', Consolas, 'Noto Sans Mono CJK SC', monospace; }
+    .file-link { display: inline; color: var(--link); font-weight: 550; text-decoration: none; white-space: normal; overflow-wrap: anywhere; }
+    .file-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .file-link svg { display: inline-block; width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; }
+    .tool { display: block; inline-size: fit-content; min-inline-size: 0; max-inline-size: 100%; margin: 3px 0 16px; border: 0; background: transparent; }
+    .tool-summary { display: flex; align-items: center; gap: 7px; inline-size: fit-content; min-inline-size: 0; max-inline-size: 100%; padding: 3px 0; color: var(--muted); background: transparent; border: 0; border-radius: 4px; list-style: none; cursor: pointer; font-size: 12px; line-height: 1.6; }
+    .tool-summary > .tool-label { min-width: 0; overflow-wrap: anywhere; }
+    .tool-summary > svg { width: 14px; height: 14px; }
+    .tool-summary .chevron { width: 11px; height: 11px; color: var(--subtle); }
+    .tool-summary:hover { color: var(--fg); }
+    .tool[open] > .tool-summary .chevron { transform: rotate(90deg); }
+    .tool-summary .issue { color: var(--error); font-size: 11px; font-weight: 450; white-space: nowrap; margin-left: 1px; }
+    .tool-output { inline-size: fit-content; min-inline-size: 0; max-inline-size: 100%; padding: 9px 13px 12px; margin: 8px 0 4px 20px; border-radius: 6px; border: 1px solid var(--line); background: var(--output); }
+    .output-toolbar { display: flex; gap: 14px; align-items: center; color: var(--muted); font-size: 10px; margin-bottom: 8px; }
+    .output-toolbar button { background: transparent; border: 0; color: var(--muted); padding: 2px 0; font-size: 10px; }
+    .output-toolbar button[aria-selected='true'] { color: var(--fg); font-weight: 550; }
+    .output-toolbar .copy-output { margin-left: auto; display: flex; }
+    .output-toolbar .copy-output svg { width: 12px; height: 12px; }
+    .output-content { margin: 0; max-inline-size: 100%; font: 11px/1.85 'Cascadia Code', Consolas, 'Noto Sans Mono CJK SC', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .output-content .success { color: var(--success); }
+    .output-content .error { color: var(--error); }
+    .output-content .key { color: var(--link); }
+    .output-meta { color: var(--subtle); font-size: 10px; margin-top: 9px; }
+    .answer { margin-top: 3px; }
+    .answer h2 { margin: 0 0 12px; font-size: 14px; font-weight: 650; color: var(--strong); line-height: 1.8; }
+    .answer ul { margin: 0 0 6px; padding-left: 21px; line-height: 1.85; font-size: 14px; }
+    .answer li { padding-left: 2px; margin: 3px 0; }
+    .answer li strong { font-weight: 600; color: var(--strong); }
+    .response-actions { display: flex; gap: 4px; margin: 9px 0 0 -4px; color: var(--subtle); opacity: .65; }
+    .response-actions:hover { opacity: 1; }
+    .response-actions .icon-button { padding: 4px; }
+    .response-actions .icon-button svg { width: 13px; height: 13px; }
+    .short-turn { margin: 12px 0 21px; }
+    .follow-up { margin-bottom: 3px; }
+    .follow-up .prose { margin-bottom: 9px; }
+    .running { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; color: var(--muted); font-size: 12px; padding: 3px 0; }
+    .running svg { width: 13px; height: 13px; }
+    .composer-wrap { padding: 15px 36px 19px; }
+    .composer { max-width: 824px; margin: auto; padding: 13px 15px 11px; background: var(--bubble); border-radius: 17px; border: 1px solid var(--line); }
+    .composer textarea { resize: vertical; min-height: 35px; height: 35px; max-height: 170px; background: transparent; border: 0; color: var(--fg); width: 100%; font-size: 13px; line-height: 1.7; outline: none; }
+    .composer textarea::placeholder { color: var(--muted); }
+    .composer-tools { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+    .composer-left, .composer-right { display: flex; align-items: center; gap: 7px; }
+    .model-button { display: flex; align-items: center; gap: 5px; color: var(--muted); border: 0; background: transparent; padding: 0; font-size: 11px; }
+    .model-button svg { width: 12px; height: 12px; }
+    .stop-button { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--strong); color: var(--bg); display: grid; place-items: center; margin-left: 4px; }
+    .stop-button svg { width: 12px; height: 12px; }
+    .composer-note { max-width: 824px; margin: 8px auto 0; padding: 0 3px; color: var(--subtle); font-size: 9px; display: flex; justify-content: space-between; }
+    .review-note { max-width: 1000px; margin: 0 auto 24px; padding: 0 4px; font-size: 11px; color: #858585; line-height: 1.8; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 8px 13px; font-size: 12px; color: #fff; background: #393939; border-radius: 6px; }
+    .toast[hidden] { display: none; }
+    .focus-view .chat-header, .focus-view .composer-wrap { display: none; }
+    .focus-view .conversation { padding: 25px 30px; }
+    @media (max-width: 690px) { .review-bar { flex-wrap: wrap; width: calc(100% - 28px); } .stage { padding: 0 10px 16px; } .conversation { padding-left: 20px; padding-right: 20px; } .composer-wrap { padding-left: 20px; padding-right: 20px; } .chat-header { padding: 14px 20px; } .user-bubble { max-inline-size: 92%; } .review-note { padding: 0 18px; } .tool-output { margin-left: 0; } }
+  </style>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><defs>
+    <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h5"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
+    <symbol id="expand" viewBox="0 0 24 24"><path d="M14 4h6v6M4 14v6h6m4-10 6-6M4 20l6-6"/></symbol>
+    <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5-11 11H4v-5ZM12 7l5 5"/></symbol>
+    <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M4 4h7v16H4Zm7 0h9v16h-9M7 8h1m6 0h3m-3 4h3"/></symbol>
+    <symbol id="settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></symbol>
+    <symbol id="list" viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11M4 5h.01M4 12h.01M4 19h.01"/></symbol>
+    <symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r=".7"/><circle cx="12" cy="12" r=".7"/><circle cx="19" cy="12" r=".7"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="share" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M5 12v9h14v-9"/></symbol>
+    <symbol id="progress" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8" stroke-dasharray="2 3"/><path d="M12 4a8 8 0 0 1 8 8"/></symbol>
+  </defs></svg>
+  <header class="review-bar"><div class="review-heading"><strong>文章式对话 · Codex 参考收敛稿</strong><p>白灰基底 / 自适应工具行 / 正文连续阅读</p></div><nav class="review-controls" aria-label="预览设置"><button type="button" data-theme="light" aria-pressed="true">浅色</button><button type="button" data-theme="dark" aria-pressed="false">深色</button><button type="button" data-action="narrow" aria-pressed="false">窄栏预览</button><button type="button" data-action="expand" aria-pressed="false">展开工具</button></nav></header>
+  <div class="stage"><section class="chat" data-theme="light" aria-label="对话样式预览">
+    <header class="chat-header"><div class="chat-title"><strong>检查登录重试逻辑</strong><small>hapi-desktop / main</small></div><div class="header-actions"><button class="icon-button" aria-label="会话大纲" title="会话大纲"><svg aria-hidden="true"><use href="#list"/></svg></button><button class="icon-button" aria-label="会话设置" title="会话设置"><svg aria-hidden="true"><use href="#settings"/></svg></button><button class="icon-button" aria-label="更多操作" title="更多操作"><svg aria-hidden="true"><use href="#more"/></svg></button></div></header>
+    <div class="conversation"><div class="thread">
+      <div class="date-marker">10月29日 14:32</div>
+      <section class="user-turn" aria-label="用户消息"><div class="user-bubble"><p>检查登录重试逻辑，看看有没有重复提交的问题。</p></div><div class="user-actions"><time>14:32</time><button class="icon-button copy-message" aria-label="复制用户消息"><svg aria-hidden="true"><use href="#copy"/></svg></button><button class="icon-button" aria-label="编辑用户消息"><svg aria-hidden="true"><use href="#edit"/></svg></button></div></section>
+      <article class="agent-turn" aria-label="Agent 回复">
+        <details class="work-trace" open><summary class="work-summary">已完成检查 · 2 分 14 秒 <svg aria-hidden="true"><use href="#chevron"/></svg></summary>
+          <div class="trace-content">
+            <p class="prose">我先查看登录流程、失败重试入口和相关测试，确认请求失败后的处理方式。</p>
+            <details class="tool" data-tool="read"><summary class="tool-summary" title="读取 session.ts 与 useLogin.ts · 耗时 0.2 秒"><svg aria-hidden="true"><use href="#file"/></svg><span class="tool-label">读取 2 个文件</span><svg class="chevron" aria-hidden="true"><use href="#chevron"/></svg></summary><div class="tool-output"><div class="output-toolbar" role="tablist" aria-label="读取文件详情"><button role="tab" aria-selected="true" data-view="output">输出</button><button role="tab" aria-selected="false" data-view="input">输入</button><button class="copy-output" aria-label="复制工具输出"><svg aria-hidden="true"><use href="#copy"/></svg></button></div><pre class="output-content"><span class="key">src/auth/session.ts</span>       128 行
+<span class="key">src/hooks/useLogin.ts</span>      76 行</pre><div class="output-meta">已完成 · 0.2 秒</div></div></details>
+            <p class="prose">当前的重试入口在 <code>useLogin.ts</code>。登录响应丢失时，界面恢复了按钮的可点击状态，但没有先核对服务端的处理结果。</p>
+            <details class="tool" data-tool="search"><summary class="tool-summary" title="搜索 retry、isPending 与重试入口 · 耗时 0.4 秒"><svg aria-hidden="true"><use href="#search"/></svg><span class="tool-label">搜索 retry 的 3 处调用</span><svg class="chevron" aria-hidden="true"><use href="#chevron"/></svg></summary><div class="tool-output"><div class="output-toolbar" role="tablist" aria-label="搜索详情"><button role="tab" aria-selected="true" data-view="output">输出</button><button role="tab" aria-selected="false" data-view="input">输入</button><button class="copy-output" aria-label="复制工具输出"><svg aria-hidden="true"><use href="#copy"/></svg></button></div><pre class="output-content">src/auth/session.ts:84
+src/auth/login.ts:42
+src/hooks/useLogin.ts:67</pre><div class="output-meta">已完成 · 0.4 秒</div></div></details>
+            <p class="prose">接着用现有测试确认，重点检查<strong>响应丢失后的重复提交</strong>和网络恢复后的重试行为。</p>
+            <details class="tool" data-tool="test"><summary class="tool-summary" title="bun run test -- auth · 耗时 1.8 秒"><svg aria-hidden="true"><use href="#terminal"/></svg><span class="tool-label">运行命令</span><span class="issue">1 项失败</span><svg class="chevron" aria-hidden="true"><use href="#chevron"/></svg></summary><div class="tool-output"><div class="output-toolbar" role="tablist" aria-label="测试详情"><button role="tab" aria-selected="true" data-view="output">输出</button><button role="tab" aria-selected="false" data-view="input">输入</button><button class="copy-output" aria-label="复制工具输出"><svg aria-hidden="true"><use href="#copy"/></svg></button></div><pre class="output-content">$ bun run test -- auth
+<span class="success">✓</span> refreshes expired credentials
+<span class="error">✕ avoids duplicate login after a lost response</span></pre><div class="output-meta">退出码 1 · 1.8 秒</div></div></details>
+          </div>
+        </details>
+        <div class="answer"><h2>原因已确认：恢复了交互状态，但没有确认上一次请求是否完成。</h2><p class="prose">建议在 <a class="file-link" href="#source-preview"><svg aria-hidden="true"><use href="#file"/></svg>src/auth/session.ts:84</a> 添加状态检查，先读取服务端记录，再决定是否重试。</p><ul><li><strong>已成功：</strong>更新登录状态，保留当前结果。</li><li><strong>未确认：</strong>保持等待，确认失败后再开放重试。</li></ul></div>
+        <div class="response-actions"><button class="icon-button copy-answer" aria-label="复制回复" title="复制回复"><svg aria-hidden="true"><use href="#copy"/></svg></button><button class="icon-button" aria-label="分享回复" title="分享回复"><svg aria-hidden="true"><use href="#share"/></svg></button><button class="icon-button" aria-label="放大阅读" title="放大阅读"><svg aria-hidden="true"><use href="#expand"/></svg></button></div>
+      </article>
+      <section class="user-turn short-turn" aria-label="用户消息"><div class="user-bubble"><p>好的</p></div><div class="user-actions"><time>14:33</time><button class="icon-button copy-message" aria-label="复制用户消息"><svg aria-hidden="true"><use href="#copy"/></svg></button></div></section>
+      <article class="agent-turn follow-up" aria-label="Agent 回复"><p class="prose">我会先整理三种状态的流转关系，以及每种状态对应的恢复入口。</p><div class="running" role="status"><svg aria-hidden="true"><use href="#progress"/></svg>正在整理状态流转…</div></article>
+    </div></div>
+    <footer class="composer-wrap"><div class="composer"><textarea aria-label="消息输入框" placeholder="继续这个对话…"></textarea><div class="composer-tools"><div class="composer-left"><button class="icon-button" aria-label="添加附件" title="添加附件"><svg aria-hidden="true"><use href="#plus"/></svg></button><button class="model-button">Codex <svg aria-hidden="true"><use href="#down"/></svg></button></div><div class="composer-right"><button class="icon-button" aria-label="定时发送" title="定时发送"><svg aria-hidden="true"><use href="#clock"/></svg></button><button class="icon-button" aria-label="暂存消息" title="暂存消息"><svg aria-hidden="true"><use href="#book"/></svg></button><button class="stop-button" aria-label="停止生成" title="停止生成"><svg aria-hidden="true"><use href="#stop"/></svg></button></div></div></div><div class="composer-note"><span>默认权限 · 中等思考</span><span>Ctrl + Enter 发送</span></div></footer>
+  </section></div>
+  <p class="review-note">样式稿：工具行和用户气泡均按内容收缩。点击工具文字可展开详情；点击“已完成检查”可收起过程。深色底色按参考图取样。</p>
+  <div class="toast" role="status" hidden></div>
+  <script>
+    const chat = document.querySelector('.chat')
+    const toolData = new Map([...document.querySelectorAll('.tool')].map(tool=>[tool.dataset.tool, { output: tool.querySelector('.output-content').innerHTML, input: ({read:'{ "paths": ["src/auth/session.ts", "src/hooks/useLogin.ts"] }',search:'{ "pattern": "retry", "path": "src" }',test:'{ "command": "bun run test -- auth" }'})[tool.dataset.tool] }]))
+    function setTheme(theme) { chat.dataset.theme=theme; document.body.classList.toggle('dark',theme==='dark'); document.querySelectorAll('.review-controls [data-theme]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.theme===theme))) }
+    function toast(message) { const el=document.querySelector('.toast');el.textContent=message;el.hidden=false;clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.hidden=true,1600) }
+    const params=new URLSearchParams(location.search)
+    setTheme(params.get('theme')==='dark'?'dark':'light')
+    if(params.get('focus')==='1')chat.classList.add('focus-view')
+    if(params.get('width')==='narrow'){chat.classList.add('narrow');document.querySelector('[data-action="narrow"]').setAttribute('aria-pressed','true')}
+    if(params.get('expanded')==='1'){document.querySelectorAll('.tool').forEach(tool=>tool.open=true);document.querySelector('[data-action="expand"]').setAttribute('aria-pressed','true')}
+    document.addEventListener('click',async event=>{
+      const button=event.target.closest('button')
+      if(event.target.closest('.file-link')){event.preventDefault();const read=document.querySelector('[data-tool="read"]');document.querySelector('.work-trace').open=true;read.open=true;read.querySelector('summary').focus();return}
+      if(!button)return
+      if(button.dataset.theme){setTheme(button.dataset.theme);return}
+      if(button.dataset.action==='narrow'){const narrow=chat.classList.toggle('narrow');button.setAttribute('aria-pressed',String(narrow));return}
+      if(button.dataset.action==='expand'){const open=button.getAttribute('aria-pressed')!=='true';document.querySelectorAll('.tool').forEach(tool=>tool.open=open);document.querySelector('.work-trace').open=true;button.setAttribute('aria-pressed',String(open));return}
+      if(button.dataset.view){const tool=button.closest('.tool');tool.querySelectorAll('[data-view]').forEach(tab=>tab.setAttribute('aria-selected',String(tab===button)));const output=tool.querySelector('.output-content');if(button.dataset.view==='input')output.textContent=toolData.get(tool.dataset.tool).input;else output.innerHTML=toolData.get(tool.dataset.tool).output;return}
+      if(button.matches('.copy-output,.copy-message,.copy-answer')){const text=button.matches('.copy-output')?button.closest('.tool-output').querySelector('pre').innerText:button.matches('.copy-message')?button.closest('.user-turn').querySelector('p').innerText:button.closest('.agent-turn').querySelector('.answer').innerText;try{await navigator.clipboard.writeText(text);toast('已复制')}catch{toast('当前浏览器未开放剪贴板权限')}}
+    })
+  </script>
+</body>
+</html>

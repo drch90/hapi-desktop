@@ -154,6 +154,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
   const id = data.sessionId
   switch (data.type) {
     case 'message-received':
+      if (data.message.scheduledAt != null) refreshSessions()
       if (opened.has(id)) {
         if (isUserMessage(data.message)) {
           // A delayed user receipt could overwrite newer REST queue state
@@ -164,6 +165,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
       }
       break
     case 'messages-consumed':
+      refreshSessions()
       flushIncoming(id)
       markMessagesConsumed(id, data.localIds, data.invokedAt, data.steered)
       break
@@ -180,6 +182,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
       markMessagesRequeued(id, data.localIds)
       break
     case 'message-cancelled':
+      refreshSessions()
       flushIncoming(id)
       if (data.localId) removeOptimisticMessage(id, data.localId)
       break
@@ -198,6 +201,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
       const full = SessionSchema.safeParse(data.data)
       const patch = SessionPatchSchema.safeParse(data.data)
       if (full.success) {
+        refreshSessions()
         queries.setQueryData<Session>(sessionKey(id), (previous) => {
           if (!previous) return full.data
           const { metadata, agentState, todos, teamState, ...scalars } = full.data
@@ -219,7 +223,12 @@ export function applyDesktopEvent(event: DesktopEvent) {
             full.data.updatedAt >= row.updatedAt &&
             full.data.metadataVersion >= row.metadataVersion &&
             full.data.agentStateVersion >= row.agentStateVersion
-              ? toSessionSummary(full.data)
+              ? {
+                  ...toSessionSummary(full.data),
+                  // Detail events do not carry these Hub-computed summary fields.
+                  futureScheduledMessageCount: row.futureScheduledMessageCount,
+                  nextScheduledAt: row.nextScheduledAt,
+                }
               : row,
           ),
         )

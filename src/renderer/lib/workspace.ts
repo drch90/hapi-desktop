@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { PendingSchedule } from '@/components/AssistantChat/ScheduleTimePicker'
 import { migrateAttempts } from './outbox'
 import { migrateQueueEdits } from './queueEdit'
 
@@ -295,18 +296,33 @@ export type Draft = {
   text: string
   scrollTop: number
   expanded: string[]
-  scheduledAt?: number | null
+  pendingSchedule?: PendingSchedule | null
   revision?: string
   continuedPlanId?: string
 }
-const draftSchema = z.object({
-  text: z.string(),
-  scrollTop: z.number(),
-  expanded: z.array(z.string()),
-  scheduledAt: z.number().nullable().optional(),
-  revision: z.string().optional(),
-  continuedPlanId: z.string().optional(),
-})
+const draftSchema = z
+  .object({
+    text: z.string(),
+    scrollTop: z.number(),
+    expanded: z.array(z.string()),
+    scheduledAt: z.number().nullable().optional(),
+    pendingSchedule: z
+      .discriminatedUnion('type', [
+        z.object({ type: z.literal('preset'), preset: z.enum(['+5m', '+30m', '+1h', '+4h']) }),
+        z.object({ type: z.literal('absolute'), ms: z.number() }),
+      ])
+      .nullable()
+      .optional(),
+    revision: z.string().optional(),
+    continuedPlanId: z.string().optional(),
+  })
+  .transform(({ scheduledAt, ...draft }): Draft => ({
+    ...draft,
+    // Older desktop drafts only stored an absolute scheduledAt value.
+    ...(draft.pendingSchedule === undefined && scheduledAt != null
+      ? { pendingSchedule: { type: 'absolute', ms: scheduledAt } }
+      : {}),
+  }))
 export function loadDraft(scope: string, id: string): Draft {
   try {
     return draftSchema.parse(JSON.parse(localStorage.getItem(`desktop:draft:${scope}:${id}`) ?? 'null'))
@@ -343,7 +359,7 @@ export function migrateSessionLocalState(scope: string, from: string, to: string
                 ? target.text
                 : [target.text, source.text].filter(Boolean).join('\n'),
             expanded: [...new Set([...target.expanded, ...source.expanded])],
-            scheduledAt: target.text ? target.scheduledAt : source.scheduledAt,
+            pendingSchedule: target.text ? target.pendingSchedule : source.pendingSchedule,
             continuedPlanId: target.continuedPlanId ?? source.continuedPlanId,
             ...(target.revision || source.revision
               ? {

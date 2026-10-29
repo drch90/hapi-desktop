@@ -2041,6 +2041,252 @@ test('uncertain delivery stays local until checked; resumed IDs migrate; closing
   expect(errors).toEqual([])
 })
 
+test('scheduled presets persist and resolve at Send, with queue cancellation and session indicators', async () => {
+  const selectedAt = Date.now()
+  await page.clock.setFixedTime(selectedAt)
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  const schedule = form.getByRole('button', { name: '定时发送', exact: true })
+  await input.fill('稍后检查进展')
+  await schedule.click()
+  const picker = page.getByRole('dialog', { name: '定时发送', exact: true })
+  await expect(picker).toBeVisible()
+  for (const preset of ['+5m', '+30m', '+1h', '+4h']) {
+    await expect(picker.getByRole('button', { name: preset, exact: true })).toBeVisible()
+  }
+  await page.screenshot({ path: 'build/scheduled-send-preview.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await expect(picker).toHaveCount(0)
+  await expect(schedule).toBeFocused()
+  await schedule.click()
+  await schedule.click()
+  await expect(picker).toHaveCount(0)
+  await schedule.click()
+  await picker.getByRole('button', { name: '+5m', exact: true }).click()
+  await expect(schedule).toHaveAttribute('aria-pressed', 'true')
+  await expect(form.locator('.composer-schedule-summary')).toContainText('5m')
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  await page.getByTestId('session-review').click()
+  await page.getByTestId('session-design').click()
+  await page.reload()
+  await expect(input).toHaveValue('稍后检查进展')
+  await expect(form.locator('.composer-schedule-summary')).toContainText('5m')
+  const sentAt = selectedAt + 90_000
+  await page.clock.setFixedTime(sentAt)
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  await expect(form.locator('.composer-schedule-summary')).toHaveCount(0)
+  const sends = server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))
+  expect(sends).toHaveLength(1)
+  expect(sends[0].body).toMatchObject({
+    text: '稍后检查进展',
+    scheduledAt: sentAt + 300_000,
+    deliveryMode: 'queue',
+  })
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  await expect(chat.locator('.queue-item')).toContainText('定时')
+  await expect(page.getByTestId('session-design').getByLabel('定时消息（1）')).toBeVisible()
+  await chat.getByRole('button', { name: '取消排队消息', exact: true }).click()
+  await expect(chat.locator('.queue-item')).toHaveCount(0)
+  await expect(page.getByTestId('session-design').locator('.session-scheduled')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('specific scheduled times validate bounds and Enter selects without sending the draft', async () => {
+  const now = Date.now()
+  await page.clock.setFixedTime(now)
+  const datetime = (ms: number) => {
+    const date = new Date(ms)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  }
+  await page.getByTestId('session-design').click()
+  const form = page.getByTestId('chat-design').locator('.composer')
+  const input = form.locator('textarea')
+  await input.fill('指定时间发送')
+  await form.getByRole('button', { name: '定时发送', exact: true }).click()
+  const picker = page.getByRole('dialog', { name: '定时发送', exact: true })
+  await picker.getByRole('button', { name: '指定时间', exact: true }).click()
+  const time = picker.locator('input[type="datetime-local"]')
+  await time.fill(datetime(now - 60_000))
+  await time.press('Enter')
+  await expect(picker).toContainText('发送时间必须在未来。')
+  await time.fill(datetime(now + 8 * 86_400_000))
+  await time.press('Enter')
+  await expect(picker).toContainText('最多只能定时 7 天。')
+  const value = datetime(now + 3_600_000)
+  const scheduledAt = new Date(value).getTime()
+  await time.fill(value)
+  await time.press('Enter')
+  await expect(picker).toHaveCount(0)
+  await expect(input).toHaveValue('指定时间发送')
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  // A restored or long-lived draft must not silently become an immediate send.
+  await page.clock.setFixedTime(scheduledAt + 60_000)
+  await input.press('Control+Enter')
+  await expect(page.getByTestId('chat-design').locator('.send-alert')).toContainText('发送时间必须在未来。')
+  await expect(form.locator('.composer-schedule-summary')).toBeVisible()
+  expect(server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toHaveLength(0)
+  await form.getByRole('button', { name: '清除定时', exact: true }).click()
+  await form.getByRole('button', { name: '定时发送', exact: true }).click()
+  await picker.getByRole('button', { name: '指定时间', exact: true }).click()
+  const next = datetime(scheduledAt + 3_600_000)
+  await time.fill(next)
+  await time.press('Enter')
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  expect(
+    server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body,
+  ).toMatchObject({ scheduledAt: new Date(next).getTime(), text: '指定时间发送' })
+  expect(errors).toEqual([])
+})
+
+test('scheduled sends exclude attachments and steer and take precedence over scratchlist and native clear', async () => {
+  const session = server.sessions.get('design')!
+  session.thinking = true
+  session.agentState = { ...session.agentState, steeringActive: true }
+  session.metadata = { ...session.metadata!, capabilities: { concurrentClients: true } }
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  const schedule = form.getByRole('button', { name: '定时发送', exact: true })
+  await input.fill('稍后发送')
+  await expect(form.getByRole('button', { name: '优先插入', exact: true })).toBeVisible()
+  await schedule.click()
+  await page
+    .getByRole('dialog', { name: '定时发送', exact: true })
+    .getByRole('button', { name: '+1h', exact: true })
+    .click()
+  await expect(form.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(0)
+  await expect(form.locator('input[type="file"]')).toBeDisabled()
+  await expect(form.getByRole('button', { name: '上传文件', exact: true })).toBeDisabled()
+  await form.evaluate((element) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['blocked'], 'schedule.txt', { type: 'text/plain' }))
+    element.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+    const clipboard = new DataTransfer()
+    clipboard.items.add(new File(['image'], 'schedule.png', { type: 'image/png' }))
+    element
+      .querySelector('textarea')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: clipboard }),
+      )
+  })
+  expect(server.uploads.size).toBe(0)
+  await chat.getByRole('button', { name: '查看暂存列表', exact: true }).click()
+  await expect(form).not.toHaveClass(/scratchlist-mode/)
+  await input.fill('/clear')
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  expect(server.requests.filter((r) => r.path.endsWith('/clear'))).toHaveLength(0)
+  expect(
+    server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body,
+  ).toMatchObject({ text: '/clear', scheduledAt: expect.any(Number), deliveryMode: 'queue' })
+  expect(server.scratchlists.get('design')?.size ?? 0).toBe(0)
+  await expect(form).toHaveClass(/scratchlist-mode/)
+  await form
+    .locator('input[type="file"]')
+    .setInputFiles({ name: 'draft.txt', mimeType: 'text/plain', buffer: Buffer.from('draft') })
+  await expect(schedule).toBeDisabled()
+  await expect(schedule).toHaveAttribute('title', '定时消息不能包含附件。')
+  expect(errors).toEqual([])
+})
+
+test('scheduled uncertain sends keep their original time and localId across reload and explicit retry', async () => {
+  server.failSend = 'absent'
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  await form.locator('textarea').fill('只定时发送一次')
+  await form.getByRole('button', { name: '定时发送', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '定时发送', exact: true })
+    .getByRole('button', { name: '+30m', exact: true })
+    .click()
+  await form.locator('textarea').press('Control+Enter')
+  await expect(chat.getByRole('button', { name: '检查送达状态' })).toBeVisible()
+  const first = server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))!.body
+  await page.reload()
+  await expect(form.locator('textarea')).toHaveValue('只定时发送一次')
+  await expect(form.locator('.composer-schedule-summary')).toBeVisible()
+  await page.clock.setFixedTime(Date.now() + 120_000)
+  await chat.getByRole('button', { name: '检查送达状态' }).click()
+  server.failSend = 'none'
+  await chat.getByRole('button', { name: '重试发送', exact: true }).click()
+  await expect(form.locator('textarea')).toHaveValue('')
+  await expect(form.locator('.composer-schedule-summary')).toHaveCount(0)
+  const sends = server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))
+  expect(sends).toHaveLength(2)
+  expect(sends[1].body).toMatchObject({ localId: first.localId, scheduledAt: first.scheduledAt })
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('scheduled rejected sends retain the text and resolved time for a later retry', async () => {
+  server.rejectSend = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  await input.fill('保留失败的定时消息')
+  await form.getByRole('button', { name: '定时发送', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '定时发送', exact: true })
+    .getByRole('button', { name: '+1h', exact: true })
+    .click()
+  await input.press('Control+Enter')
+  await expect(chat.locator('.send-alert')).toBeVisible()
+  await expect(input).toHaveValue('保留失败的定时消息')
+  await expect(input).toBeEditable()
+  await expect(form.locator('.composer-schedule-summary')).not.toContainText('1h')
+  const first = server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))!.body
+  server.rejectSend = false
+  await page.clock.setFixedTime(Date.now() + 120_000)
+  await input.press('Control+Enter')
+  await expect(input).toHaveValue('')
+  const sends = server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages'))
+  expect(sends).toHaveLength(2)
+  expect(sends[1].body.scheduledAt).toBe(first.scheduledAt)
+  expect(errors).toEqual([])
+})
+
+test('queue edit preserves a newly selected schedule while cancellation is pending', async () => {
+  server.holdMessages = true
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const form = chat.locator('.composer')
+  const input = form.locator('textarea')
+  await input.fill('排队后编辑')
+  await input.press('Control+Enter')
+  await expect(chat.locator('.queue-item')).toHaveCount(1)
+  let release!: () => void
+  server.cancelGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    await chat.getByRole('button', { name: '编辑排队消息', exact: true }).click()
+    await form.getByRole('button', { name: '定时发送', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: '定时发送', exact: true })
+      .getByRole('button', { name: '+4h', exact: true })
+      .click()
+    release()
+    await expect(chat.locator('.queue-item')).toHaveCount(0)
+    await expect(input).toHaveValue('')
+    await expect(form.locator('.composer-schedule-summary')).toContainText('4h')
+    await expect(chat.getByRole('button', { name: '恢复到输入框', exact: true })).toBeVisible()
+    await page.reload()
+    await expect(form.locator('.composer-schedule-summary')).toContainText('4h')
+    await expect(input).toHaveValue('')
+  } finally {
+    release()
+  }
+  expect(errors).toEqual([])
+})
+
 test('sending snapshots text and schedule before resume while preserving the next draft', async () => {
   const scheduledAt = Date.now() + 120_000
   await page.evaluate((scheduledAt) => {

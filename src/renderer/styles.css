@@ -493,6 +493,14 @@ input[type='checkbox'] {
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
+.session-scheduled {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  color: var(--desk-muted);
+  font-size: calc(10px * var(--desk-font-scale));
+}
 .session-copy small {
   font-size: calc(10px * var(--desk-font-scale));
   color: var(--desk-muted);
@@ -2663,6 +2671,27 @@ input[type='checkbox'] {
 .composer-context .icon-button {
   padding: 4px;
   flex-shrink: 0;
+}
+.composer-schedule-button.selected {
+  background: #2563eb;
+  color: #fff;
+}
+.composer-schedule-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 15px 8px;
+  color: var(--desk-unread);
+  font-size: calc(11px * var(--desk-font-scale));
+}
+.composer-schedule-summary svg {
+  flex-shrink: 0;
+}
+.composer-schedule-summary button {
+  margin-left: auto;
+  flex-shrink: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .composer-scratchlist-actions {
   display: flex;

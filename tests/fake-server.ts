@@ -1,7 +1,11 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Session, DecryptedMessage, SyncEvent } from '@hapi/protocol/schemas'
-import { CURRENT_MACHINE_CAPABILITIES, type ScratchlistAttachmentMetadata } from '@hapi/protocol'
+import {
+  CURRENT_MACHINE_CAPABILITIES,
+  SendMessageRequestSchema,
+  type ScratchlistAttachmentMetadata,
+} from '@hapi/protocol'
 
 export function fixtureSession(id: string, name: string, flavor: string, active = true): Session {
   return {
@@ -134,6 +138,7 @@ export class FixtureHub {
   eventStreamGate: Promise<void> | null = null
   eventId = 0
   failSend: 'none' | 'absent' | 'accepted' = 'none'
+  rejectSend = false
   sendGate: Promise<void> | null = null
   holdMessages = false
   messagePageSize: number | null = null
@@ -265,8 +270,7 @@ export class FixtureHub {
           pendingRequestKinds: [],
           pendingRequests: [],
           backgroundTaskCount: s.backgroundTaskCount ?? 0,
-          futureScheduledMessageCount: 0,
-          nextScheduledAt: null,
+          ...this.scheduledSummary(s.id),
         })),
       })
       return
@@ -752,6 +756,15 @@ export class FixtureHub {
     }
     if (action === '/messages') {
       if (request.method === 'POST') {
+        if (
+          this.rejectSend ||
+          (body.scheduledAt != null && !SendMessageRequestSchema.safeParse(body).success)
+        ) {
+          reply({ error: 'Invalid scheduled message' }, 400)
+          return
+        }
+        const scheduledAt = typeof body.scheduledAt === 'number' ? body.scheduledAt : null
+        const futureScheduled = scheduledAt !== null && scheduledAt > Date.now()
         const attachments = body.attachments as { path: string }[] | undefined
         if (
           attachments?.some(
@@ -775,7 +788,11 @@ export class FixtureHub {
             meta: { deliveryMode: body.deliveryMode === 'steer' ? 'steer' : 'queue' },
           },
           localId: String(body.localId),
-          invokedAt: pendingSteer || (this.holdMessages && body.deliveryMode !== 'steer') ? null : Date.now(),
+          invokedAt:
+            futureScheduled || pendingSteer || (this.holdMessages && body.deliveryMode !== 'steer')
+              ? null
+              : Date.now(),
+          scheduledAt,
           ...(pendingSteer ? { deliveryState: 'dispatching' as const } : {}),
         }
         if (this.failSend !== 'absent') {
@@ -965,6 +982,18 @@ export class FixtureHub {
     }
     reply({}, 404)
   })
+  scheduledSummary(sessionId: string) {
+    const now = Date.now()
+    const times = (this.messages.get(sessionId) ?? [])
+      .filter((message) => message.invokedAt == null)
+      .map((message) => message.scheduledAt)
+      .filter((time): time is number => time != null && time > now)
+    return {
+      futureScheduledMessageCount: times.length,
+      nextScheduledAt: times.length ? Math.min(...times) : null,
+    }
+  }
+
   async start() {
     await new Promise<void>((resolve) => this.server.listen(0, '127.0.0.1', resolve))
     return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`

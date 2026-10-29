@@ -7,8 +7,16 @@ import {
   markMessagesRequeued,
   removeOptimisticMessage,
 } from '@/lib/message-window-store'
-import { applyDesktopEvent, forgetSession, resetCaches, watchSession } from '../src/renderer/lib/sync'
-import { fixtureMessage } from './fake-server'
+import {
+  applyDesktopEvent,
+  forgetSession,
+  queries,
+  resetCaches,
+  sessionsKey,
+  watchSession,
+} from '../src/renderer/lib/sync'
+import { fixtureMessage, fixtureSession } from './fake-server'
+import { toSessionSummary } from '@hapi/protocol'
 import type { DecryptedMessage } from '@/types/api'
 
 const sessionId = 'batching-test'
@@ -29,6 +37,26 @@ afterEach(() => {
 })
 
 describe('streaming message batches', () => {
+  it('keeps scheduled summary fields while a full detail event refreshes the session', () => {
+    const session = fixtureSession(sessionId, 'Scheduled session', 'codex')
+    const summary = {
+      ...toSessionSummary(session),
+      futureScheduledMessageCount: 2,
+      nextScheduledAt: Date.now() + 60_000,
+    }
+    queries.setQueryData(sessionsKey, [summary])
+    applyDesktopEvent({
+      type: 'sync',
+      replay: false,
+      event: { type: 'session-updated', sessionId, data: session },
+    })
+    expect(queries.getQueryData(sessionsKey)).toMatchObject([
+      {
+        futureScheduledMessageCount: 2,
+        nextScheduledAt: summary.nextScheduledAt,
+      },
+    ])
+  })
   it('coalesces a burst into the latest snapshot while preserving other messages', () => {
     const before = getMessageWindowState(sessionId).messagesVersion
     for (let index = 0; index < 500; index++) receive(fixtureMessage('live', 1, `snapshot ${index}`))

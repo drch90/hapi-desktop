@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HAPI Desktop · 对话样式选版</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei UI', sans-serif; color: #242729; background: #eceeec; font-synthesis: none; }
+    body { margin: 0; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 2px solid #387c6b; outline-offset: 3px; }
+    button { color: inherit; }
+    svg.icon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .review-toolbar { display: flex; align-items: center; gap: 24px; max-width: 1440px; margin: auto; padding: 22px 30px 18px; }
+    .review-brand { display: flex; gap: 10px; align-items: center; font-size: 14px; font-weight: 650; white-space: nowrap; }
+    .review-brand small { color: #7b827e; font-weight: 450; font-size: 11px; display: block; margin-top: 2px; }
+    .review-logo { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 9px; background: #232c28; color: white; }
+    .option-tabs { display: flex; gap: 3px; padding: 4px; border: 1px solid #daddd9; border-radius: 12px; background: #e3e6e2; }
+    .option-tabs button, .review-controls button { border: 0; background: transparent; padding: 9px 13px; font-size: 12px; color: #666f69; border-radius: 8px; }
+    .option-tabs button[aria-pressed='true'] { color: #202823; background: white; box-shadow: 0 1px 4px #19291c12; font-weight: 650; }
+    .review-controls { display: flex; margin-left: auto; gap: 6px; }
+    .review-controls button { display: flex; align-items: center; gap: 7px; border: 1px solid #d4d9d3; }
+    .review-controls button[aria-pressed='true'] { background: #dae6df; border-color: #a1b9ac; }
+    .review-description { max-width: 1380px; margin: 0 auto 18px; padding: 0 30px; display: flex; gap: 15px; align-items: center; }
+    .review-description strong { font-size: 15px; font-weight: 650; }
+    .review-description span { font-size: 12px; color: #707873; }
+    .recommended { font-size: 10px; padding: 3px 7px; color: #286451; background: #d9e8de; border-radius: 5px; font-weight: 550; }
+    .stage { padding: 0 30px 24px; overflow: auto; }
+    .desktop { --bg: #fff; --sidebar: #f7f8f7; --fg: #282b2a; --muted: #878b88; --line: #e8eae7; --surface: #f6f7f5; --soft: #eff1ee; --user-bg: #f0f1ef; --user-fg: #2b302c; --green: #387961; --green-bg: #edf6f0; --red: #b24e46; --red-bg: #fbefed; --blue: #4676ac; --blue-bg: #edf3fc; width: min(1320px, 100%); height: 1120px; margin: auto; display: grid; grid-template-columns: 192px minmax(0,1fr); border: 1px solid #d9deda; border-radius: 14px; overflow: hidden; color: var(--fg); background: var(--bg); box-shadow: 0 14px 42px #283b3210; font-size: 13px; }
+    .desktop.narrow { width: 838px; }
+    .desktop[data-theme='dark'] { color-scheme: dark; --bg: #202220; --sidebar: #1a1d1b; --fg: #e3e8e3; --muted: #959c97; --line: #363b36; --surface: #282d28; --soft: #313731; --user-bg: #363c36; --user-fg: #f0f2ef; --green: #90c7a5; --green-bg: #2b3b30; --red: #e3a096; --red-bg: #402e2b; --blue: #9bbce6; --blue-bg: #2b3543; border-color: #3a413b; }
+    .sidebar { background: var(--sidebar); padding: 21px 13px 14px; display: flex; flex-direction: column; border-right: 1px solid var(--line); min-width: 0; }
+    .brand { display: flex; align-items: center; gap: 8px; padding: 0 8px 23px; font-size: 15px; font-weight: 700; letter-spacing: -.3px; }
+    .brand .brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: var(--soft); }
+    .brand span:last-child { color: var(--muted); font-weight: 400; }
+    .side-button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 9px; border: 0; background: transparent; text-align: left; font-size: 12px; border-radius: 8px; }
+    .side-button:hover { background: var(--soft); }
+    .side-search { color: var(--muted); border: 1px solid var(--line); background: var(--bg); margin: 7px 0 24px; padding: 8px 9px; }
+    .side-label { padding: 6px 10px 8px; color: var(--muted); font-size: 10px; font-weight: 550; }
+    .session { padding: 11px 10px; border-radius: 8px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+    .session.active { background: var(--soft); }
+    .session small { display: flex; gap: 6px; align-items: center; margin-top: 6px; color: var(--muted); font-size: 10px; }
+    .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); display: inline-block; }
+    .side-footer { margin-top: auto; display: flex; justify-content: space-between; padding: 10px 8px 0; color: var(--muted); font-size: 10px; align-items: center; }
+    .side-footer > span { display: flex; align-items: center; gap: 6px; }
+    .workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .tabbar { display: flex; align-items: center; height: 38px; flex-shrink: 0; background: var(--sidebar); border-bottom: 1px solid var(--line); padding: 0 16px; gap: 6px; }
+    .worktab { display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 10px; height: 100%; background: var(--bg); border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; margin-top: 5px; }
+    .worktab svg { width: 12px; height: 12px; color: var(--muted); }
+    .tabbar > .icon { margin-left: auto; color: var(--muted); width: 14px; }
+    .chat-header { height: 64px; padding: 0 26px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+    .chat-title { display: flex; align-items: center; gap: 11px; }
+    .chat-title > .icon { color: var(--muted); width: 18px; height: 18px; }
+    .chat-title strong { display: block; font-size: 12px; font-weight: 600; }
+    .chat-title small { display: block; margin-top: 4px; font-size: 10px; color: var(--muted); }
+    .header-actions { display: flex; gap: 5px; }
+    .icon-button { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 6px; padding: 0; }
+    .icon-button:hover { color: var(--fg); background: var(--soft); }
+    .conversation { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; flex: 1; min-height: 0; padding: 24px 32px 20px; }
+    .thread { max-width: 800px; margin: 0 auto; }
+    .user-turn { display: flex; flex-direction: column; align-items: flex-end; position: relative; margin-bottom: 22px; }
+    .user-meta { display: flex; gap: 8px; align-items: center; margin: 0 3px 7px; font-size: 10px; color: var(--muted); }
+    .user-meta b { color: var(--fg); font-weight: 500; }
+    .user-bubble { inline-size: fit-content; min-inline-size: 0; max-inline-size: 78%; padding: 11px 17px; border-radius: 17px 17px 5px 17px; color: var(--user-fg); background: var(--user-bg); line-height: 1.75; overflow-wrap: anywhere; font-size: 13px; }
+    .user-bubble p { margin: 0; white-space: pre-wrap; }
+    .user-actions { display: flex; gap: 3px; position: absolute; right: 0; bottom: -24px; opacity: 0; pointer-events: none; background: var(--bg); border-radius: 6px; z-index: 2; }
+    .user-turn:hover .user-actions, .user-turn:focus-within .user-actions { opacity: 1; pointer-events: auto; }
+    .user-actions .icon-button { width: 23px; height: 22px; }
+    .user-actions .icon { width: 13px; height: 13px; }
+    .agent-turn { margin-bottom: 18px; position: relative; }
+    .agent-role { display: flex; align-items: center; gap: 7px; font-size: 10px; margin-bottom: 10px; color: var(--muted); }
+    .agent-avatar { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--fg); background: var(--surface); border: 1px solid var(--line); }
+    .agent-avatar .icon { width: 14px; height: 14px; }
+    .agent-role b { font-size: 11px; color: var(--fg); font-weight: 600; }
+    .agent-role time { margin-left: 3px; }
+    .agent-content { margin-left: 31px; min-width: 0; }
+    .prose { font-size: 13px; line-height: 1.85; margin: 0 0 14px; }
+    .prose strong { font-weight: 600; }
+    .tools { border: 1px solid var(--line); border-radius: 11px; margin-bottom: 13px; overflow: hidden; }
+    .tools-heading { display: flex; align-items: center; justify-content: space-between; padding: 10px 13px; font-size: 10px; color: var(--muted); background: var(--surface); }
+    .tools-heading > span:first-child { display: flex; gap: 7px; align-items: center; color: var(--fg); font-weight: 500; }
+    .tools-heading svg { width: 12px; height: 12px; }
+    .tool { margin: 0; border-top: 1px solid var(--line); background: var(--bg); }
+    .tool summary { display: flex; align-items: center; gap: 9px; list-style: none; padding: 9px 12px; min-height: 44px; cursor: pointer; }
+    .tool summary::-webkit-details-marker { display: none; }
+    .tool summary:hover { background: var(--surface); }
+    .tool-icon { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 6px; background: var(--surface); color: #858b85; flex-shrink: 0; }
+    .tool-icon .icon { width: 14px; height: 14px; }
+    .tool-name { display: flex; align-items: baseline; gap: 11px; flex: 1; min-width: 0; }
+    .tool-name b { font-size: 11px; white-space: nowrap; font-weight: 550; }
+    .tool-name code { font-size: 10px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: 'Cascadia Code', 'Noto Sans Mono CJK SC', monospace; }
+    .status { display: flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 10px; color: var(--green); }
+    .status .icon { width: 12px; height: 12px; }
+    .status.error { color: var(--red); }
+    .status.running { color: var(--blue); }
+    .duration { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+    .chevron { color: var(--muted); width: 12px !important; height: 12px !important; transition: transform .15s; }
+    details[open] > summary .chevron { transform: rotate(90deg); }
+    .tool-detail { border-top: 1px solid var(--line); padding: 0 13px 11px 46px; background: var(--surface); }
+    .detail-tabs { display: flex; align-items: center; gap: 14px; height: 33px; }
+    .detail-tab { background: transparent; border: 0; padding: 6px 0; color: var(--muted); font-size: 10px; }
+    .detail-tab[aria-selected='true'] { color: var(--fg); font-weight: 550; box-shadow: 0 1px var(--fg); }
+    .detail-tabs .icon-button { margin-left: auto; width: 22px; height: 22px; }
+    .detail-tabs .icon { width: 12px; height: 12px; }
+    .terminal { margin: 4px 0 0; font: 10px/1.85 'Cascadia Code', 'Noto Sans Mono CJK SC', monospace; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .terminal .command { color: var(--fg); }
+    .terminal .failed { color: var(--red); }
+    .terminal .passed { color: var(--green); }
+    .code-param { color: var(--blue); }
+    .tool-note { margin: 5px 0 0; font-size: 10px; color: var(--muted); line-height: 1.8; }
+    .finding { margin-bottom: 9px; }
+    .finding code { padding: 1px 5px; background: var(--surface); border-radius: 4px; font-size: 11px; }
+    .response-actions { display: flex; align-items: center; gap: 2px; color: var(--muted); }
+    .response-actions .icon-button { width: 25px; height: 23px; }
+    .response-actions .icon { width: 13px; height: 13px; }
+    .response-actions .action-separator { width: 1px; height: 12px; background: var(--line); margin: 0 5px; }
+    .response-actions .completion { margin-left: 7px; font-size: 9px; }
+    .next-turn { margin-bottom: 0; }
+    .next-turn .prose { margin-bottom: 8px; }
+    .running-tool { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--muted); padding: 5px 0; }
+    .running-tool > span:first-child { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 3px var(--blue-bg); margin-right: 3px; }
+    .running-tool em { font-style: normal; color: var(--blue); margin-left: 3px; }
+    .composer-wrap { padding: 13px 32px 15px; flex-shrink: 0; background: var(--bg); }
+    .composer { max-width: 800px; margin: 0 auto; border-radius: 16px; border: 1px solid var(--line); background: var(--surface); padding: 12px 14px 10px; }
+    .composer textarea { background: transparent; border: 0; color: var(--fg); resize: none; width: 100%; height: 30px; min-height: 30px; font-size: 12px; line-height: 1.6; outline: none; }
+    .composer textarea::placeholder { color: var(--muted); }
+    .composer-tools { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; }
+    .composer-left, .composer-right { display: flex; align-items: center; gap: 4px; }
+    .model-button { display: flex; gap: 5px; align-items: center; background: transparent; border: 0; font-size: 10px; padding: 5px 7px; }
+    .model-button .icon { width: 11px; height: 11px; color: var(--muted); }
+    .composer-right .status-text { display: flex; gap: 5px; align-items: center; color: var(--muted); font-size: 9px; margin-right: 8px; }
+    .composer-right .status-text .dot { background: var(--blue); }
+    .send-button { width: 29px; height: 29px; border-radius: 50%; background: var(--fg); color: var(--bg); border: 0; display: grid; place-items: center; }
+    .send-button .icon { width: 13px; height: 13px; }
+    .composer-footnote { display: flex; justify-content: space-between; max-width: 800px; margin: 8px auto 0; color: var(--muted); font-size: 9px; padding: 0 4px; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 9px 16px; background: #28332d; color: white; font-size: 12px; border-radius: 8px; box-shadow: 0 4px 20px #0002; }
+    .toast[hidden] { display: none; }
+    /* B: OpenUI-inspired contrast and structured result cards. */
+    .desktop[data-variant='b'] { --user-bg: #171917; --user-fg: #fff; }
+    .desktop[data-variant='b'][data-theme='dark'] { --user-bg: #eaeee8; --user-fg: #202420; }
+    [data-variant='b'] .conversation { background: var(--bg); }
+    [data-variant='b'] .user-bubble { border-radius: 18px; padding: 11px 17px; }
+    [data-variant='b'] .agent-avatar { border-radius: 7px; }
+    [data-variant='b'] .agent-content { margin-left: 0; }
+    [data-variant='b'] .tools { background: transparent; border: 0; border-radius: 0; overflow: visible; }
+    [data-variant='b'] .tools-heading { padding: 0 0 10px; background: transparent; }
+    [data-variant='b'] .tools-heading > span:last-child { background: var(--soft); color: var(--fg); border-radius: 20px; padding: 4px 9px; font-size: 9px; }
+    [data-variant='b'] .tool { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 7px; overflow: hidden; }
+    [data-variant='b'] .tool summary { padding: 10px 13px; min-height: 57px; gap: 11px; }
+    [data-variant='b'] .tool-icon { width: 31px; height: 31px; border-radius: 8px; }
+    [data-variant='b'] .tool-icon .icon { width: 16px; height: 16px; }
+    [data-variant='b'] .tool-name { display: flex; align-items: flex-start; gap: 4px; flex-direction: column; }
+    [data-variant='b'] .tool-name b { font-size: 11px; }
+    [data-variant='b'] .status { background: var(--green-bg); border-radius: 20px; padding: 4px 8px; }
+    [data-variant='b'] .status.error { background: var(--red-bg); }
+    [data-variant='b'] .tool-detail { padding-left: 16px; }
+    [data-variant='b'] .finding { border: 1px solid var(--line); padding: 11px 14px; border-radius: 12px; margin: 13px 0 9px; font-size: 12px; }
+    [data-variant='b'] .finding strong { display: block; margin-bottom: 2px; font-size: 11px; }
+    [data-variant='b'] .composer { border-radius: 26px; background: var(--bg); box-shadow: 0 3px 15px #00000007; }
+    [data-variant='b'] .running-tool { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: fit-content; min-width: 0; }
+    /* C: an execution trail with compact rows and a stronger reading rail. */
+    .desktop[data-variant='c'] { --user-bg: #eaf1f7; --user-fg: #244263; }
+    .desktop[data-variant='c'][data-theme='dark'] { --user-bg: #28394b; --user-fg: #d8e8f9; }
+    [data-variant='c'] .user-bubble { border-radius: 10px 10px 3px 10px; border: 1px solid #c5d8e94a; }
+    [data-variant='c'] .agent-content { border-left: 1px solid var(--line); margin-left: 12px; padding-left: 19px; }
+    [data-variant='c'] .agent-avatar { background: var(--blue-bg); color: var(--blue); border: 0; border-radius: 6px; }
+    [data-variant='c'] .agent-role { margin-bottom: 7px; }
+    [data-variant='c'] .tools { border: 0; border-radius: 0; overflow: visible; }
+    [data-variant='c'] .tools-heading { background: transparent; padding: 5px 0 9px; color: var(--muted); }
+    [data-variant='c'] .tool { border: 0; background: transparent; position: relative; }
+    [data-variant='c'] .tool::before { content: ''; position: absolute; top: 17px; left: -23px; width: 7px; height: 7px; border-radius: 50%; background: var(--bg); border: 1px solid var(--muted); }
+    [data-variant='c'] .tool:last-child::before { border-color: var(--red); background: var(--red-bg); }
+    [data-variant='c'] .tool summary { padding: 7px 9px; margin: 0 -9px; min-height: 38px; border-radius: 6px; }
+    [data-variant='c'] .tool-icon { background: transparent; width: 19px; height: 19px; }
+    [data-variant='c'] .tool-name code { color: var(--fg); opacity: .7; }
+    [data-variant='c'] .tool-detail { border: 1px solid var(--line); border-radius: 7px; padding: 0 12px 10px; margin: 3px 0 9px 27px; }
+    [data-variant='c'] .finding { padding-top: 4px; }
+    [data-variant='c'] .running-tool { padding-top: 8px; }
+    [data-variant='c'] .composer { border-radius: 11px; }
+    .design-footer { max-width: 1380px; margin: 0 auto; padding: 0 30px 23px; display: flex; gap: 22px; font-size: 11px; color: #727b74; }
+    .design-footer span { display: flex; align-items: center; gap: 6px; }
+    .design-footer .icon { width: 13px; height: 13px; }
+    .board { padding: 30px; }
+    .board-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 24px; }
+    .board-heading h1 { font-size: 25px; font-weight: 650; letter-spacing: -.5px; margin: 0 0 8px; }
+    .board-heading p { font-size: 12px; color: #748078; margin: 0; }
+    .board-heading > span { font-size: 11px; color: #748078; }
+    .board-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; }
+    .board-label { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .board-letter { display: grid; place-items: center; width: 31px; height: 31px; background: white; border: 1px solid #dce1dc; border-radius: 9px; font-size: 14px; font-weight: 650; }
+    .board-label strong { font-size: 14px; }
+    .board-label small { color: #748078; font-size: 10px; display: block; margin-top: 3px; }
+    .board .desktop { width: 100%; height: 1120px; grid-template-columns: minmax(0,1fr); }
+    .board .sidebar { display: none; }
+    .board .chat-header { padding: 0 20px; }
+    .board .conversation { padding: 23px 20px 16px; }
+    .board .user-bubble { max-inline-size: 83%; }
+    .board .tool-name { flex-direction: column; gap: 3px; align-items: flex-start; }
+    .board .tool summary { min-height: 55px; }
+    .board .tool-name code { max-width: 200px; }
+    .board .tool-detail { padding-left: 13px; }
+    .board .composer-wrap { padding: 12px 20px; }
+    .board .response-actions .completion { font-size: 9px; }
+    .board [data-variant='c'] .tool summary { min-height: 49px; }
+    .board [data-variant='b'] .tool summary { min-height: 64px; }
+    .board .design-annotation { font-size: 11px; line-height: 1.8; color: #69776e; padding: 13px 3px 0; }
+    @media (max-width: 1000px) { .review-toolbar { flex-wrap: wrap; gap: 12px; } .review-controls { margin-left: 0; } .desktop { grid-template-columns: 155px minmax(0,1fr); } .brand { font-size: 12px; gap: 5px; } .conversation { padding-left: 20px; padding-right: 20px; } .tool-name { flex-direction: column; gap: 3px; align-items: flex-start; } .review-description { flex-wrap: wrap; gap: 7px; } }
+    @media (max-width: 680px) { .desktop { grid-template-columns: minmax(0,1fr); } .sidebar { display: none; } .review-toolbar, .review-description { padding-left: 14px; padding-right: 14px; } .stage { padding: 0 10px 18px; } .chat-header { padding-left: 18px; padding-right: 18px; } .composer-wrap { padding-left: 18px; padding-right: 18px; } .tool-name code { max-width: 130px; } .design-footer { flex-wrap: wrap; gap: 10px; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><defs>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.8 6.2L21 12l-6.2 2.8L12 21l-2.8-6.2L3 12l6.2-2.8Z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v6m0 3v.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 5h11M9 12h11M9 19h11M4 5h.01M4 12h.01M4 19h.01"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 4h6v6M4 14v6h6m4-10 6-6M4 20l6-6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m15 4 5 5-11 11H4v-5ZM12 7l5 5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h7v16H4Zm7 0h9v16h-9M7 8h1m6 0h3m-3 4h3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r=".7"/><circle cx="12" cy="12" r=".7"/><circle cx="19" cy="12" r=".7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v11H3Z"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M5 12v9h14v-9"/></symbol>
+    <symbol id="i-resize" viewBox="0 0 24 24"><path d="M4 5v14m16-14v14M8 8l-4 4 4 4m8-8 4 4-4 4"/></symbol>
+  </defs></svg>
+  <div id="review"></div>
+  <div class="toast" role="status" hidden></div>
+  <script>
+    const icon = (name, extra = '') => `<svg class="icon ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`
+    const ib = (name, label, extra = '') => `<button type="button" class="icon-button ${extra}" title="${label}" aria-label="${label}">${icon(name)}</button>`
+    const versions = {
+      a: { title: '轻量对话', source: 'ChatGPT Desktop 风格', description: '浅灰用户气泡 · 开放回复 · 合并工具卡片', annotation: '正文优先，工具作为辅助信息收拢。适合长对话和日常开发。', recommended: true },
+      b: { title: '结构卡片', source: 'OpenUI 风格', description: '深色用户气泡 · 独立工具卡片 · 结果摘要', annotation: '角色对比更强，文件、执行结果各自成卡。适合经常展开查看工具细节。' },
+      c: { title: '执行轨迹', source: '面向密集工具调用', description: '淡蓝用户气泡 · 连续执行轨迹 · 紧凑工具行', annotation: '用细线串起执行过程，减少重复边框。适合排查问题和工具调用较多的会话。' },
+    }
+    const tools = [
+      { icon:'file', name:'读取文件', path:'src/auth/session.ts', duration:'0.2s', state:'success', label:'完成', output:'已读取 session.ts · 128 行\n定位到 refreshToken() 与登录状态更新。', input:'{"path":"src/auth/session.ts"}' },
+      { icon:'search', name:'搜索调用', path:'retry · 3 处引用', duration:'0.4s', state:'success', label:'完成', output:'src/auth/session.ts:84\nsrc/auth/login.ts:42\nsrc/hooks/useLogin.ts:67', input:'{"pattern":"retry","path":"src"}' },
+      { icon:'terminal', name:'运行测试', path:'bun run test -- auth', duration:'1.8s', state:'error', label:'1 项失败', output:'<span class="command">$ bun run test -- auth</span>\n<span class="passed">✓</span> refreshes expired credentials\n<span class="failed">✕ avoids duplicate login after a lost response</span>', input:'{"command":"bun run test -- auth"}', open:true },
+    ]
+    function toolMarkup(tool, n) {
+      return `<details class="tool" data-tool="${n}" ${tool.open?'open':''}>
+        <summary><span class="tool-icon">${icon(tool.icon)}</span><span class="tool-name"><b>${tool.name}</b><code>${tool.path}</code></span><span class="status ${tool.state}">${icon(tool.state==='error'?'error':'check')}${tool.label}</span><span class="duration">${tool.duration}</span>${icon('chevron','chevron')}</summary>
+        <div class="tool-detail"><div class="detail-tabs" role="tablist" aria-label="工具详情"><button type="button" class="detail-tab" role="tab" aria-selected="true" data-view="output">输出</button><button type="button" class="detail-tab" role="tab" aria-selected="false" data-view="input">输入</button>${ib('copy','复制工具输出','copy-output')}</div><pre class="terminal">${tool.output}</pre></div>
+      </details>`
+    }
+    function userMarkup(text, time, short = false) {
+      return `<section class="user-turn ${short?'short-turn':''}" aria-label="用户消息"><div class="user-meta"><b>你</b><time>${time}</time></div><div class="user-bubble"><p>${text}</p></div><div class="user-actions">${ib('copy','复制消息','copy-message')}${ib('edit','编辑消息')}</div></section>`
+    }
+    function desktopMarkup(variant) {
+      return `<div class="desktop" data-variant="${variant}" data-theme="light">
+        <aside class="sidebar"><div class="brand"><span class="brand-mark">${icon('spark')}</span>HAPI <span>Desktop</span></div><button class="side-button" type="button">${icon('plus')}新建会话</button><button class="side-button side-search" type="button">${icon('search')}搜索会话</button><div class="side-label">进行中</div><div class="session active">检查登录重试逻辑<small><span class="dot"></span>Codex · 处理中</small></div><div class="side-label" style="margin-top:16px">活跃会话</div><div class="session">完善定时消息<small>Codex · 空闲</small></div><div class="session">梳理项目结构<small>Claude · 空闲</small></div><div class="side-label" style="margin-top:21px">历史会话</div><div class="session">${icon('folder')} hapi-desktop<small>3 个会话</small></div><div class="side-footer"><span><i class="dot"></i>已连接</span>${ib('settings','设置')}</div></aside>
+        <main class="workspace"><div class="tabbar"><div class="worktab"><i class="dot"></i>检查登录重试逻辑 ${icon('close')}</div>${icon('split')}</div><header class="chat-header"><div class="chat-title">${icon('folder')}<div><strong>检查登录重试逻辑</strong><small>hapi-desktop <span style="padding:0 6px">/</span> main</small></div></div><div class="header-actions">${ib('list','会话大纲')}${ib('settings','会话设置')}${ib('more','更多操作')}</div></header>
+        <div class="conversation"><div class="thread">
+          ${userMarkup('检查登录重试逻辑，看看有没有重复提交的问题。','14:32')}
+          <section class="agent-turn" aria-label="Agent 消息"><div class="agent-role"><span class="agent-avatar">${icon('spark')}</span><b>Codex</b><span>Agent</span><time>14:32</time></div><div class="agent-content"><p class="prose">我先检查登录流程、重试入口和相关测试。</p>
+            <div class="tools"><div class="tools-heading"><span>${icon('list')}检查登录与重试</span><span>3 个工具 · 2 项完成</span></div>${tools.map(toolMarkup).join('')}</div>
+            <p class="prose finding"><strong>发现一个边界问题。</strong>登录响应丢失后，界面立即允许重试，可能重复提交。建议先核对服务端状态，再开放重试。</p>
+            <div class="response-actions">${ib('copy','复制回复','copy-response')}${ib('share','分享回复')}${ib('expand','放大阅读')}<span class="action-separator"></span><span class="completion">已完成检查 · 2.4 秒</span></div>
+          </div></section>
+          ${userMarkup('好的','14:33',true)}
+          <section class="agent-turn next-turn" aria-label="Agent 消息"><div class="agent-role"><span class="agent-avatar">${icon('spark')}</span><b>Codex</b><span>Agent</span><time>14:33</time></div><div class="agent-content"><p class="prose">可以，我先整理状态流转与恢复策略。</p><div class="running-tool"><span></span>梳理重试流程 <em>进行中</em>${icon('chevron','chevron')}</div></div></section>
+        </div></div>
+        <footer class="composer-wrap"><div class="composer"><textarea aria-label="消息输入框" placeholder="继续这个对话…"></textarea><div class="composer-tools"><div class="composer-left">${ib('plus','添加附件')}<button type="button" class="model-button">Codex ${icon('down')}</button></div><div class="composer-right"><span class="status-text"><i class="dot"></i>处理中</span>${ib('clock','定时发送')}${ib('book','暂存消息')}<button type="button" class="send-button" aria-label="停止生成" title="停止生成">${icon('stop')}</button></div></div></div><div class="composer-footnote"><span>默认权限 · 中等思考</span><span>Ctrl + Enter 发送</span></div></footer>
+        </main></div>`
+    }
+    const params = new URLSearchParams(location.search)
+    let selected = Object.hasOwn(versions,params.get('variant')) ? params.get('variant') : 'a'
+    let dark = params.get('theme') === 'dark'
+    let narrow = params.get('width') === 'narrow'
+    const comparison = params.get('compare') === '1'
+    const review = document.querySelector('#review')
+    function render() {
+      if (comparison) {
+        review.innerHTML = `<main class="board"><header class="board-heading"><div><h1>对话与工具卡片 · 三版对比</h1><p>同一段对话，三种信息层次。短用户消息均按内容收缩。</p></div><span>HAPI DESKTOP / 样式提案</span></header><div class="board-grid">${Object.entries(versions).map(([key,v])=>`<section><div class="board-label"><span class="board-letter">${key.toUpperCase()}</span><div><strong>${v.title}</strong><small>${v.source}</small></div>${v.recommended?'<span class="recommended">推荐</span>':''}</div>${desktopMarkup(key)}<div class="design-annotation">${v.annotation}</div></section>`).join('')}</div></main>`
+      } else {
+        const v = versions[selected]
+        review.innerHTML = `<header class="review-toolbar"><div class="review-brand"><span class="review-logo">${icon('spark')}</span><div>对话样式选版<small>HAPI Desktop · 交互预览</small></div></div><nav class="option-tabs" aria-label="样式方案">${Object.entries(versions).map(([key,value])=>`<button type="button" data-option="${key}" aria-pressed="${selected===key}">${key.toUpperCase()} · ${value.title}</button>`).join('')}</nav><div class="review-controls"><button type="button" data-action="narrow" aria-pressed="${narrow}">${icon('split')}窄栏预览</button><button type="button" data-action="theme" aria-pressed="${dark}">${icon('moon')}深色</button></div></header><div class="review-description"><strong>${selected.toUpperCase()} / ${v.title}</strong>${v.recommended?'<b class="recommended">推荐</b>':''}<span>${v.description}</span></div><div class="stage">${desktopMarkup(selected)}</div><footer class="design-footer"><span>${icon('resize')}用户气泡无最小宽度</span><span>${icon('chevron')}点击工具行展开详情</span><span>${icon('copy')}操作按钮移出用户气泡</span></footer>`
+        const desktop = review.querySelector('.desktop')
+        desktop.dataset.theme = dark ? 'dark' : 'light'
+        desktop.classList.toggle('narrow',narrow)
+      }
+    }
+    function toast(text) { const box = document.querySelector('.toast'); box.textContent = text; box.hidden = false; clearTimeout(window.toastTimer); window.toastTimer = setTimeout(()=>box.hidden=true,1700) }
+    render()
+    document.addEventListener('click', async event => {
+      const button = event.target.closest('button')
+      if (!button) return
+      if (button.dataset.option) { selected = button.dataset.option; render(); return }
+      if (button.dataset.action === 'theme') { dark = !dark; render(); return }
+      if (button.dataset.action === 'narrow') { narrow = !narrow; render(); return }
+      if (button.dataset.view) {
+        const tool = button.closest('.tool'); const data = tools[Number(tool.dataset.tool)]
+        tool.querySelectorAll('.detail-tab').forEach(tab=>tab.setAttribute('aria-selected',String(tab===button)))
+        tool.querySelector('.terminal').innerHTML = button.dataset.view==='input' ? data.input : data.output
+        return
+      }
+      const copy = button.matches('.copy-message,.copy-response,.copy-output')
+      if (copy) {
+        const text = button.matches('.copy-message') ? button.closest('.user-turn').querySelector('p').textContent : button.matches('.copy-output') ? button.closest('.tool').querySelector('pre').textContent : button.closest('.agent-content').querySelector('.finding').textContent
+        try { await navigator.clipboard.writeText(text); toast('已复制') } catch { toast('当前浏览器未开放剪贴板权限') }
+      }
+    })
+  </script>
+</body>
+</html>

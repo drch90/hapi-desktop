@@ -78,6 +78,7 @@ import { SessionListActions } from './components/SessionListActions'
 import { ResizeHandle } from './components/ResizeHandle'
 import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { SessionActivityTime } from './components/SessionActivityTime'
+import { SessionScheduledIndicator } from './components/SessionScheduledIndicator'
 import { SessionSearch, type SessionSearchHandle } from './components/SessionSearch'
 import { UsageDialog } from './components/Usage'
 import { Tabs } from './components/Tabs'
@@ -94,6 +95,13 @@ const desktopWebLabels: Record<string, string> = {
   'scratchlist.title': 'Scratchlist',
   'scratchlist.drawerHint': 'Save drafts without sending. Close the list to restore the Send button.',
   'scratchlist.emptyHint': 'No stored messages yet. Save the current draft or add a message above.',
+  'composer.scheduleSend': 'Schedule send',
+  'composer.scheduleRelativeTab': 'Relative',
+  'composer.scheduleSpecificTab': 'Specific',
+  'composer.scheduleSpecificHint':
+    'Max 7 days. Keep the Hub running; the CLI receives the message when it next connects.',
+  'composer.scheduleErrorPast': 'Scheduled time must be in the future.',
+  'composer.scheduleErrorTooFar': 'Maximum schedule time is 7 days.',
 }
 
 export function App() {
@@ -969,6 +977,10 @@ function Workbench({
                                 )}
                                 {sessionTitle(row)}
                               </span>
+                              <SessionScheduledIndicator
+                                count={row.futureScheduledMessageCount}
+                                nextScheduledAt={row.nextScheduledAt}
+                              />
                               {row.active && <SessionActivityTime updatedAt={row.updatedAt} />}
                             </span>
                             <small>
