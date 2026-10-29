@@ -1,6 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { Session, DecryptedMessage, SyncEvent } from '@hapi/protocol/schemas'
+import type { Session, DecryptedMessage, SyncEvent, MachineHealth } from '@hapi/protocol/schemas'
 import {
   CURRENT_MACHINE_CAPABILITIES,
   SendMessageRequestSchema,
@@ -190,6 +190,7 @@ export class FixtureHub {
     { modelId: 'custom:home:qwen:32b', name: 'Qwen 32B', providerLabel: 'Home' },
   ]
   failModelDiscovery = false
+  failMachines = false
   failDelete = false
   failArchive = false
   emitArchiveEvents = true
@@ -206,6 +207,7 @@ export class FixtureHub {
       metadataVersion: 1,
       runnerStateVersion: 1,
       runnerState: {},
+      health: null as MachineHealth | null,
       metadata: {
         host: 'linux-dev-01',
         platform: 'linux',
@@ -276,6 +278,10 @@ export class FixtureHub {
       return
     }
     if (path === '/api/machines') {
+      if (this.failMachines) {
+        reply({ error: 'Machine query failed' }, 503)
+        return
+      }
       reply({ machines: this.machines })
       return
     }

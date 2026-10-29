@@ -1,5 +1,5 @@
 import { test, expect, _electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { FixtureHub, fixtureSession, fixtureMessage, fixtureCodexEvent } from './fake-server'
@@ -244,6 +244,414 @@ test.afterEach(async () => {
     await server?.close()
     if (dataDirectory) await rm(dataDirectory, { recursive: true, force: true })
   }
+})
+
+test('machine health shows live capacity and clears readings when the runner goes offline', async () => {
+  const machine = server.machines[0]
+  machine.health = {
+    collectedAt: Date.now(),
+    cpuCount: 8,
+    cpuPercent: 24,
+    memoryPercent: 61,
+    load1m: 2.4,
+    uptimeSeconds: 90000,
+  }
+  server.emit({ type: 'machine-updated', machineId: machine.id, data: null })
+  const trigger = page.getByRole('group', { name: '系统健康', exact: true })
+  await expect(trigger).toContainText('CPU 24% · RAM 61%')
+  await expect(trigger).toHaveAttribute('data-tone', 'ok')
+  await page.getByTestId('session-design').click()
+  const composer = page.getByTestId('chat-design').locator('.composer textarea')
+  await composer.fill('悬停查看负载时继续保留焦点')
+  await trigger.hover()
+  const panel = page.getByRole('tooltip', { name: '系统健康', exact: true })
+  await expect(panel).toBeVisible()
+  await expect(composer).toBeFocused()
+  await expect(trigger).not.toHaveAttribute('aria-expanded')
+  await expect(panel.getByRole('button', { name: /刷新|关闭/ })).toHaveCount(0)
+  await panel.hover()
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText('linux-dev-01')
+  await expect(panel).toContainText('健康 — 还可运行更多代理')
+  await expect(panel).toContainText('2.4/8')
+  await expect(panel).toContainText('1d 1h')
+  machine.health = {
+    ...machine.health,
+    collectedAt: Date.now(),
+    cpuPercent: 95,
+    memoryPercent: 92,
+    load1m: 13.5,
+  }
+  server.emit({ type: 'machine-updated', machineId: machine.id, data: null })
+  await expect(trigger).toHaveAttribute('data-tone', 'critical')
+  await expect(panel).toContainText('95%')
+  await expect(panel).toContainText('高压 — 避免在此继续启动')
+  await trigger.click()
+  await expect(panel).toBeVisible()
+  await page.mouse.move(900, 700)
+  await expect(panel).toBeHidden()
+  await trigger.hover()
+  await expect(panel).toBeVisible()
+  await page.screenshot({ path: 'build/machine-health/preview.png', animations: 'disabled' })
+  server.machines = []
+  server.emit({ type: 'machine-updated', machineId: machine.id, data: { active: false } })
+  await expect(panel).toContainText('没有在线机器')
+  await expect(panel).not.toContainText('95%')
+  await expect(trigger).toHaveAttribute('data-tone', 'unknown')
+  await page.mouse.move(900, 700)
+  await expect(panel).toBeHidden()
+  await page.getByRole('combobox', { name: '按机器筛选', exact: true }).selectOption(machine.id)
+  await expect(trigger).not.toContainText('CPU')
+  await expect(trigger).toContainText('机器不可用')
+  expect(errors).toEqual([])
+})
+
+test('machine health supports multiple runners, empty session lists, keyboard access and the collapsed sidebar', async () => {
+  server.machines[0].health = {
+    collectedAt: Date.now(),
+    cpuCount: 4,
+    cpuPercent: 32,
+    memoryPercent: 42,
+    load1m: 2,
+  }
+  const windows = {
+    ...server.machines[0],
+    id: 'windows-1',
+    metadata: { ...server.machines[0].metadata, host: 'windows-runner', platform: 'win32' },
+    health: { collectedAt: Date.now(), cpuPercent: 78, memoryPercent: 55, load1m: 999, uptimeSeconds: 3600 },
+  }
+  server.machines.push(windows)
+  await page.reload()
+  const trigger = page.getByRole('group', { name: '系统健康', exact: true })
+  await expect(trigger).toContainText('2 台机器')
+  await trigger.hover()
+  const panel = page.getByRole('tooltip', { name: '系统健康', exact: true })
+  await expect(panel.locator('.machine-health-machine')).toHaveCount(2)
+  const windowsCard = panel.locator('[data-machine-id="windows-1"]')
+  await expect(windowsCard).toContainText('78%')
+  await expect(windowsCard).not.toContainText('负载 (1 分钟)')
+  await expect(windowsCard).not.toContainText('999')
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
+  await page.getByRole('combobox', { name: '按机器筛选', exact: true }).selectOption(windows.id)
+  await expect(trigger).toContainText('CPU 78% · RAM 55%')
+  await expect(trigger).toHaveAttribute('data-tone', 'warn')
+  server.sessions.clear()
+  server.machines = [windows]
+  await page.reload()
+  await expect(page.locator('.session-tree .session-row')).toHaveCount(0)
+  await expect(trigger).toContainText('windows-runner')
+  await expect(trigger).toContainText('CPU 78%')
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await expect(trigger).toBeVisible()
+  await page.keyboard.press('Tab')
+  await trigger.focus()
+  await expect(panel).toBeInViewport({ ratio: 1 })
+  await expect(panel).toContainText('偏高 — 新代理可能变慢')
+  expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: 'build/machine-health/dark-preview.png', animations: 'disabled' })
+  // The shared web tooltip starts with fixed label widths; the desktop adapts
+  // them to seven languages without covering values or pushing bars off-screen.
+  for (const locale of ['en', 'fr', 'ja', 'ru', 'vi', 'zh-TW', 'zh'] as const) {
+    await page.evaluate((locale) => window.desktop.updateSettings({ locale }), locale)
+    await expect(page.locator('html')).toHaveAttribute('lang', locale)
+    const localizedPanel = page.locator('.machine-health-tooltip')
+    expect(await localizedPanel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    expect(
+      await localizedPanel.locator('.machine-health-readings .grid').evaluateAll((rows) =>
+        rows.every((row) => {
+          const [label, value] = Array.from(row.children) as HTMLElement[]
+          return (
+            label.scrollWidth <= label.clientWidth &&
+            label.getBoundingClientRect().right <= value.getBoundingClientRect().left
+          )
+        }),
+      ),
+    ).toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('machine health handles old runners, query failures and Hub reconnects without stale capacity', async () => {
+  const trigger = page.getByRole('group', { name: '系统健康', exact: true })
+  await expect(trigger).toContainText('指标不可用')
+  await trigger.hover()
+  const panel = page.getByRole('tooltip', { name: '系统健康', exact: true })
+  await expect(panel).toContainText('指标不可用')
+  server.failMachines = true
+  server.emit({ type: 'machine-updated', machineId: server.machines[0].id, data: null })
+  await expect(panel).toContainText('无法加载机器健康数据')
+  server.failMachines = false
+  server.machines[0].health = { collectedAt: Date.now(), cpuPercent: 45, memoryPercent: 57 }
+  server.emit({ type: 'machine-updated', machineId: server.machines[0].id, data: null })
+  await expect(panel).toContainText('45%')
+  let release!: () => void
+  server.eventStreamGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    for (const stream of server.streams) stream.end()
+    await expect(panel).toContainText('未连接')
+    await expect(panel).not.toContainText('45%')
+    await expect(trigger).toHaveAttribute('data-tone', 'unknown')
+    server.machines[0].health = { collectedAt: Date.now(), cpuPercent: 17, memoryPercent: 43 }
+  } finally {
+    release()
+    server.eventStreamGate = null
+  }
+  await expect(panel).toContainText('17%')
+  await expect(trigger).toContainText('CPU 17% · RAM 43%')
+  await expect(trigger).toHaveAttribute('data-tone', 'ok')
+  expect(errors).toEqual([])
+})
+
+test('article chat uses intrinsic bubbles and tools, neutral themes, and folds work without hiding the answer', async () => {
+  const messages: ReturnType<typeof fixtureMessage>[] = []
+  const start = Date.now() - 120_000
+  const addText = (id: string, text: string, user = false) => {
+    messages.push({
+      ...fixtureMessage(id, messages.length + 1, text, user),
+      createdAt: start + messages.length * 1000,
+      invokedAt: start + messages.length * 1000,
+    })
+  }
+  const addTool = (id: string, name: string, input: Record<string, unknown>, output: string) => {
+    messages.push(
+      fixtureCodexEvent(
+        id,
+        messages.length + 1,
+        { type: 'tool-call', callId: id, name, input },
+        start + messages.length * 1000,
+      ),
+    )
+    messages.push(
+      fixtureCodexEvent(
+        `${id}-result`,
+        messages.length + 1,
+        { type: 'tool-call-result', callId: id, output },
+        start + messages.length * 1000,
+      ),
+    )
+  }
+  addText('article-request', '检查一下 Windows 下 Claude 连接失败的原因。', true)
+  addText('article-intro', '我先检查连接配置和日志，再核对本地环境。')
+  addTool(
+    'article-read',
+    'Read',
+    { file_path: '/home/dev/hapi-desktop/config.json' },
+    'server: http://127.0.0.1:3006\nstatus: connected',
+  )
+  addText('article-progress', '配置已读取。接着检查端口占用和认证状态。')
+  addTool('article-port', 'Bash', { command: 'netstat -ano' }, 'TCP 127.0.0.1:3006 LISTENING')
+  addTool('article-auth', 'Bash', { command: 'hapi doctor' }, 'Authentication cache expired')
+  addText(
+    'article-answer',
+    '### 检查结果\n\n**连接配置正常。** 失败来自缓存的认证信息；重新登录后即可恢复。\n\n- 清理已过期的凭据并重新认证。\n- 检查 [README.md](/home/dev/hapi-desktop/README.md) 中的连接说明。',
+  )
+  addText('article-short', '好的', true)
+  addText('article-followup', '可以。之后再出现错误，把新的日志发来即可。')
+  server.messages.set('design', messages)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1420, 1120))
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const shortMessage = chat.locator('.user-message').filter({ hasText: '好的' })
+  const bubble = shortMessage.locator('.user-bubble')
+  const tool = chat.locator('.message-tool')
+  const group = chat.locator('.article-tool-group')
+  await expect(tool).toHaveCount(1)
+  await expect(group).toHaveCount(1)
+  await expect(bubble).toBeVisible()
+  const bubbleSize = await bubble.evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element.querySelector('.markdown p')!)
+    const style = getComputedStyle(element)
+    const bounds = element.getBoundingClientRect()
+    return {
+      width: bounds.width,
+      text: range.getBoundingClientRect().width,
+      padding: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+      right: bounds.right,
+      parentRight: element.parentElement!.getBoundingClientRect().right,
+    }
+  })
+  expect(bubbleSize.width).toBeCloseTo(bubbleSize.text + bubbleSize.padding, 0)
+  expect(bubbleSize.right).toBeCloseTo(bubbleSize.parentRight, 0)
+  expect((await shortMessage.locator('.message-role').boundingBox())!.width).toBeGreaterThan(bubbleSize.width)
+  const firstBubble = (await chat.locator('.user-bubble').first().boundingBox())!
+  const execution = (await chat.locator('.execution-summary').first().boundingBox())!
+  expect(execution.y - firstBubble.y - firstBubble.height).toBeLessThanOrEqual(36)
+  const shortBubble = (await bubble.boundingBox())!
+  const followup = (await chat.locator('.agent-message').filter({ hasText: '可以。之后再出现错误' }).boundingBox())!
+  expect(followup.y - shortBubble.y - shortBubble.height).toBeLessThanOrEqual(36)
+  const toolBox = (await tool.first().boundingBox())!
+  const progress = (await chat.locator('.agent-message').filter({ hasText: '配置已读取。接着检查' }).boundingBox())!
+  expect(progress.y - toolBox.y - toolBox.height).toBeLessThanOrEqual(8)
+  const columnWidth = (await chat.locator('.happy-thread-messages').boundingBox())!.width
+  const toolWidths = await chat
+    .locator('.tool-disclosure, .tool-group-disclosure')
+    .evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().width))
+  expect(Math.max(...toolWidths)).toBeLessThan(columnWidth * 0.8)
+  expect(new Set(toolWidths).size).toBeGreaterThan(1)
+  await expect(tool).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(group).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await mkdir(resolve('build/chat-article'), { recursive: true })
+  for (const theme of ['light', 'dark'] as const) {
+    await page.evaluate((theme) => window.desktop.updateSettings({ theme, fontSize: 'normal' }), theme)
+    await expect(page.locator('body')).toHaveCSS(
+      'background-color',
+      theme === 'dark' ? 'rgb(24, 24, 24)' : 'rgb(255, 255, 255)',
+    )
+    await expect(bubble).toHaveCSS(
+      'background-color',
+      theme === 'dark' ? 'rgb(34, 34, 34)' : 'rgb(243, 243, 244)',
+    )
+    await expect(chat.getByRole('link', { name: 'README.md', exact: true })).toHaveCSS(
+      'color',
+      theme === 'dark' ? 'rgb(131, 191, 246)' : 'rgb(38, 133, 247)',
+    )
+    await expect(chat.locator('.agent-message strong')).toHaveCSS(
+      'color',
+      theme === 'dark' ? 'rgb(223, 223, 223)' : 'rgb(26, 28, 31)',
+    )
+    await chat.locator('.transcript').evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await page.mouse.move(30, 30)
+    await chat.screenshot({ path: `build/chat-article/actual-${theme}.png`, animations: 'disabled' })
+  }
+  await writeFile(
+    resolve('build/chat-article/layout-review.json'),
+    JSON.stringify({ bubble: bubbleSize, toolWidths, columnWidth }, null, 2),
+  )
+  await chat.locator('.transcript').hover()
+  await page.mouse.wheel(0, -2000)
+  const toolTop = (await tool.locator('.tool-disclosure').boundingBox())!.y
+  await tool.getByRole('button', { expanded: false }).click()
+  await expect(tool.locator('.tool-expanded-details')).toContainText('127.0.0.1:3006')
+  await expect(tool.locator('.tool-disclosure')).toBeInViewport()
+  expect((await tool.locator('.tool-disclosure').boundingBox())!.y).toBeCloseTo(toolTop, 0)
+  await expect(tool.getByRole('button', { expanded: true })).toHaveAttribute('title', /耗时/)
+  await group.evaluate((element) => element.setAttribute('data-instance', 'preserved'))
+  await chat.screenshot({ path: 'build/chat-article/expanded-dark.png', animations: 'disabled' })
+  const history = chat.locator('.execution-summary')
+  await history.click()
+  await expect(history).toHaveAttribute('aria-expanded', 'false')
+  await expect(tool).toBeHidden()
+  await expect(chat.getByRole('heading', { name: '检查结果', exact: true })).toBeVisible()
+  await expect(shortMessage).toBeVisible()
+  await history.press('Enter')
+  await expect(tool.locator('.tool-expanded-details')).toBeVisible()
+  await expect(group).toHaveAttribute('data-instance', 'preserved')
+  await shortMessage.hover()
+  await shortMessage.getByRole('button', { name: '复制', exact: true }).click()
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('好的')
+  await shortMessage.getByRole('button', { name: '放大阅读', exact: true }).click()
+  await expect(page.getByRole('dialog').getByText('好的', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await shortMessage.getByRole('button', { name: '分享', exact: true }).click()
+  await expect(page.getByRole('dialog').locator('.user-bubble')).toHaveText('好的')
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('article chat constrains long user messages, attachments and tool output in a narrow pane', async () => {
+  const longPath = '/home/dev/' + 'nested-project-directory/'.repeat(16) + 'connection-config.json'
+  const text = `检查这个路径：${longPath}\n\n保留说明文字和附件。`
+  const output = Array.from({ length: 40 }, (_, index) => `${index}: ${longPath}`).join('\n')
+  const messages = [
+    {
+      ...fixtureMessage('article-long-user', 1, text, true),
+      content: {
+        role: 'user',
+        content: {
+          type: 'text',
+          text,
+          attachments: [
+            {
+              id: 'article-file',
+              filename: '连接配置与检查记录'.repeat(10) + '.txt',
+              path: '/uploads/article.txt',
+              mimeType: 'text/plain',
+              size: 1024,
+            },
+          ],
+        },
+      },
+    },
+    fixtureCodexEvent('article-long-tool', 2, {
+      type: 'tool-call',
+      callId: 'article-long-tool',
+      name: 'Read',
+      input: { file_path: longPath },
+    }),
+    fixtureCodexEvent('article-long-result', 3, {
+      type: 'tool-call-result',
+      callId: 'article-long-tool',
+      output,
+      is_error: true,
+    }),
+    fixtureMessage('article-long-answer', 4, '**需要更新连接配置。** 完整路径保留在工具详情中。'),
+    fixtureMessage('article-live-request', 5, '继续检查', true),
+    fixtureCodexEvent('article-live-tool', 6, {
+      type: 'tool-call',
+      callId: 'article-live-tool',
+      name: 'Bash',
+      input: { command: 'hapi doctor' },
+    }),
+  ]
+  const start = Date.now() - 60_000
+  server.messages.set(
+    'design',
+    messages.map((message, index) => ({
+      ...message,
+      createdAt: start + index * 1000,
+      invokedAt: start + index * 1000,
+    })),
+  )
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const failed = chat.locator('.message-tool[data-state="error"]')
+  const live = chat.locator('.message-tool[data-state="running"]')
+  await expect(failed.locator('.tool-state')).toHaveCSS('color', 'rgb(226, 147, 139)')
+  await expect(live.locator('.tool-state')).toHaveText('正在处理…')
+  await expect(chat.locator('.execution-summary')).toHaveCount(1)
+  await chat.locator('.transcript').hover()
+  await page.mouse.wheel(0, -2000)
+  await failed.getByRole('button', { expanded: false }).click()
+  await expect(failed.locator('.tool-expanded-details')).toContainText(longPath)
+  await expect(live.locator('.tool-running-icon')).toHaveCSS('animation-name', 'tool-spin')
+  await expect(live.locator('.tool-icon')).toHaveCSS('overflow', 'clip')
+  // Check the middle of the chevron transition: rotating an entire SVG box
+  // used to widen the summary briefly in a narrow pane.
+  await failed.locator('.tool-disclosure').evaluate((element) => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      animation.pause()
+      animation.currentTime = 50
+    }
+  })
+  for (const selector of ['.transcript', '.user-bubble', '.tool-disclosure', '.tool-expanded-details']) {
+    const overflows = await chat
+      .locator(selector)
+      .evaluateAll((elements) => elements.map((element) => element.scrollWidth - element.clientWidth))
+    expect(Math.max(...overflows), selector).toBeLessThanOrEqual(1)
+  }
+  const code = failed.locator('[data-hapi-code-body]').last()
+  expect(await code.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  await mkdir(resolve('build/chat-article'), { recursive: true })
+  await chat.screenshot({ path: 'build/chat-article/narrow-dark.png', animations: 'disabled' })
+  await chat.getByRole('button', { name: '会话大纲', exact: true }).click()
+  const outline = chat.getByRole('complementary', { name: '大纲', exact: true })
+  await outline.getByRole('searchbox').fill('检查这个路径')
+  await outline.getByRole('button').filter({ hasText: '检查这个路径' }).click()
+  await expect(chat.locator('.message-anchor.is-located')).toContainText('保留说明文字和附件')
+  await expect(chat.locator('.message-anchor.is-located .user-bubble')).toBeInViewport()
+  expect(errors).toEqual([])
 })
 
 test('Claude text and code use the available space and open in a larger reading view', async () => {
@@ -1248,8 +1656,9 @@ test('web exploration groups distinguish reads, searches and mutations, update l
   const exploration = chat.locator('[data-presentation="codex-exploration"]')
   const toggle = exploration.getByRole('button', { name: /^正在探索|^已探索/ })
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(toggle).toContainText('开始')
-  await expect(toggle).toContainText('耗时')
+  await expect(toggle).toHaveAttribute('title', /开始/)
+  await expect(toggle).toHaveAttribute('title', /耗时/)
+  await expect(toggle).not.toContainText('开始')
   await toggle.click()
   await exploration.getByRole('button', { name: /读取 package.json/ }).click()
   await expect(page.getByRole('dialog')).toContainText('cat package.json')
@@ -1270,8 +1679,9 @@ test('web exploration groups distinguish reads, searches and mutations, update l
     server.emit({ type: 'message-received', sessionId: 'design', message })
   }
   await expect(toggle).toContainText('已探索')
-  await expect(toggle).toContainText('结束')
-  await expect(toggle).toContainText('4.0s')
+  await expect(toggle).toHaveAttribute('title', /结束/)
+  await expect(toggle).toHaveAttribute('title', /4.0s/)
+  await expect(exploration.locator('.article-group-timing')).toContainText('4.0s')
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   const moreEvents = [
     {
@@ -2582,6 +2992,167 @@ test('HAPI interactive questions preserve each provider answer contract', async 
   await expect(second.locator('.approval-area')).toBeEmpty()
   expect(errors).toEqual([])
 })
+
+test('user message actions remain reachable across the bubble gap and brief pointer detours', async () => {
+  server.messages.set('design', [
+    fixtureMessage('copy-short-user', 1, '好的', true),
+    fixtureMessage('copy-short-answer', 2, '收到。可以继续查看前一条消息。'),
+  ])
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const message = chat.locator('.user-message')
+  const bubble = message.locator('.user-bubble')
+  const actions = message.locator('.message-role')
+  const copy = message.getByRole('button', { name: '复制', exact: true })
+  await page.mouse.move(5, 5)
+  await expect(actions).toHaveCSS('opacity', '0')
+  const hiddenCopyBox = (await copy.boundingBox())!
+  const directX = hiddenCopyBox.x + hiddenCopyBox.width / 2
+  await page.mouse.move(directX, hiddenCopyBox.y + hiddenCopyBox.height + 4)
+  await page.mouse.move(directX, hiddenCopyBox.y + hiddenCopyBox.height / 2)
+  await expect(actions).toHaveCSS('opacity', '1')
+  await page.mouse.move(5, 5)
+  await expect(actions).toHaveCSS('opacity', '0')
+  await bubble.hover()
+  await expect(actions).toHaveCSS('opacity', '1')
+  const bubbleBox = (await bubble.boundingBox())!
+  const actionsBox = (await actions.boundingBox())!
+  const copyBox = (await copy.boundingBox())!
+  // The whole click target, including hover and focus decoration, belongs below the bubble.
+  expect(actionsBox.y - bubbleBox.y - bubbleBox.height).toBeGreaterThanOrEqual(4)
+  const x = copyBox.x + copyBox.width / 2
+  await page.mouse.move(x, bubbleBox.y + bubbleBox.height - 1)
+  await page.mouse.move(x, (bubbleBox.y + bubbleBox.height + actionsBox.y) / 2)
+  // A slow move through the visual gap must not hide or disable the toolbar.
+  await page.waitForTimeout(1200)
+  await expect(actions).toHaveCSS('opacity', '1')
+  await expect(actions).toHaveCSS('pointer-events', 'auto')
+  expect(await message.evaluate((element) => element.matches(':hover'))).toBe(true)
+  await page.mouse.move(x, copyBox.y + copyBox.height / 2)
+  await page.mouse.move(5, 5)
+  await page.waitForTimeout(300)
+  await expect(actions).toHaveCSS('opacity', '1')
+  expect(copyBox.width).toBeGreaterThanOrEqual(28)
+  expect(copyBox.height).toBeGreaterThanOrEqual(28)
+  // Click at the actual screen position, without Playwright restoring hover first.
+  await page.mouse.click(x, copyBox.y + copyBox.height / 2)
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('好的')
+  await expect(message.getByRole('button', { name: '已复制', exact: true })).toBeVisible()
+  const input = chat.locator('.composer textarea')
+  await input.focus()
+  await page.mouse.move(5, 5)
+  await expect(actions).toHaveCSS('opacity', '0', { timeout: 4000 })
+  await copy.focus()
+  await expect(actions).toHaveCSS('opacity', '1')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe('好的')
+  await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(24, 24, 24)')
+  await expect(actions).toBeInViewport({ ratio: 1 })
+  // Measure together: resizing can move the scroll anchor between separate boundingBox calls.
+  const layout = await chat.evaluate((element) => {
+    const bounds = (selector: string) => {
+      const { top, bottom, height } = element.querySelector(selector)!.getBoundingClientRect()
+      return { top, bottom, height }
+    }
+    const user = element.querySelector('.user-message')!
+    return {
+      bubble: bounds('.user-bubble'),
+      actions: bounds('.user-message > .message-role'),
+      next: bounds('.agent-message'),
+      fits: user.scrollWidth <= user.clientWidth,
+    }
+  })
+  expect(layout.actions.bottom + 4).toBeLessThanOrEqual(layout.next.top)
+  expect(layout.actions.top - layout.bubble.bottom).toBeGreaterThanOrEqual(4)
+  expect(layout.next.top - layout.bubble.bottom).toBeLessThanOrEqual(36)
+  expect(layout.fits).toBe(true)
+  await mkdir(resolve('build/message-actions-placement'), { recursive: true })
+  await writeFile(resolve('build/message-actions-placement/user-layout.json'), JSON.stringify(layout, null, 2))
+  await page.screenshot({ path: 'build/message-actions-placement/user-dark.png', animations: 'disabled' })
+  expect(errors).toEqual([])
+})
+
+for (const final of [false, true]) {
+  test(`agent ${final ? 'answer' : 'progress'} actions stay reachable across the gap and pointer detours`, async () => {
+    const progress = '我先检查配置，再确认连接状态。'
+    const answer = '连接配置正常，可以继续使用。'
+    server.messages.set('design', [
+      fixtureMessage('copy-agent-request', 1, '检查连接配置', true),
+      fixtureMessage('copy-agent-progress', 2, progress),
+      fixtureCodexEvent('copy-agent-tool', 3, {
+        type: 'tool-call', callId: 'copy-agent-tool', name: 'Read', input: { file_path: '/home/dev/config.json' },
+      }),
+      fixtureCodexEvent('copy-agent-result', 4, {
+        type: 'tool-call-result', callId: 'copy-agent-tool', output: 'connected',
+      }),
+      fixtureMessage('copy-agent-answer', 5, answer),
+      fixtureMessage('copy-agent-next', 6, '好的', true),
+    ])
+    await page.getByTestId('session-design').click()
+    const chat = page.getByTestId('chat-design')
+    const text = final ? answer : progress
+    const message = chat.locator('.agent-message').filter({ hasText: text })
+    const body = message.locator('.agent-prose')
+    const actions = message.locator('.message-role')
+    const copy = message.getByRole('button', { name: '复制', exact: true })
+    const restingOpacity = final ? '0.65' : '0'
+    await page.mouse.move(5, 5)
+    await expect(actions).toHaveCSS('opacity', restingOpacity)
+    await body.hover()
+    await expect(actions).toHaveCSS('opacity', '1')
+    const bodyBox = (await body.boundingBox())!
+    const actionsBox = (await actions.boundingBox())!
+    const copyBox = (await copy.boundingBox())!
+    const x = copyBox.x + copyBox.width / 2
+    expect(actionsBox.y - bodyBox.y - bodyBox.height).toBeCloseTo(4, 0)
+    await page.mouse.move(x, bodyBox.y + bodyBox.height - 1)
+    await page.mouse.move(x, (bodyBox.y + bodyBox.height + actionsBox.y) / 2)
+    // Pausing longer than the hide delay inside the visual gap must remain safe.
+    await page.waitForTimeout(1200)
+    await expect(actions).toHaveCSS('opacity', '1')
+    expect(await message.evaluate((element) => element.matches(':hover'))).toBe(true)
+    await page.mouse.move(5, 5)
+    await page.waitForTimeout(300)
+    await expect(actions).toHaveCSS('opacity', '1')
+    await expect(actions.locator('time')).toHaveCSS('opacity', '1')
+    await page.mouse.move(x, copyBox.y + copyBox.height / 2)
+    await page.waitForTimeout(700)
+    await expect(actions).toHaveCSS('opacity', '1')
+    await page.mouse.click(x, copyBox.y + copyBox.height / 2)
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(text)
+    await expect(message.getByRole('button', { name: '已复制', exact: true })).toBeVisible()
+    await chat.locator('.composer textarea').focus()
+    await page.mouse.move(5, 5)
+    await expect(actions).toHaveCSS('opacity', restingOpacity, { timeout: 4000 })
+    // A fresh approach directly from below must reveal the toolbar too.
+    await page.mouse.move(x, actionsBox.y + actionsBox.height + 4)
+    await page.mouse.move(x, copyBox.y + copyBox.height / 2)
+    await expect(actions).toHaveCSS('opacity', '1')
+    await copy.focus()
+    await page.keyboard.press('Enter')
+    await expect(message.getByRole('button', { name: '已复制', exact: true })).toBeVisible()
+    await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(text)
+    await page.evaluate(() => window.desktop.updateSettings({ theme: 'dark', fontSize: 'extra-large' }))
+    await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+    await actions.scrollIntoViewIfNeeded()
+    await expect(actions).toBeInViewport({ ratio: 1 })
+    const layout = await message.evaluate((element) => ({
+      gap: element.querySelector('.message-role')!.getBoundingClientRect().top -
+        element.querySelector('.agent-prose')!.getBoundingClientRect().bottom,
+      fits: element.scrollWidth <= element.clientWidth,
+    }))
+    expect(layout.gap).toBeCloseTo(4, 0)
+    expect(layout.fits).toBe(true)
+    await mkdir(resolve('build/message-actions-placement'), { recursive: true })
+    await page.screenshot({
+      path: `build/message-actions-placement/agent-${final ? 'answer' : 'progress'}-dark.png`,
+      animations: 'disabled',
+    })
+    expect(errors).toEqual([])
+  })
+}
 
 test('message timestamps, copy and local share image export', async () => {
   await page.getByTestId('session-design').click()

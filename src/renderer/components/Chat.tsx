@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -9,6 +9,7 @@ import {
   Pencil,
   Archive,
   ChevronDown,
+  ChevronRight,
   Bot,
   SlidersHorizontal,
   Trash2,
@@ -29,10 +30,9 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { ApiError } from '@/api/client'
 import { finalizeMigratedScratchlistParkCleanup } from '@/lib/scratchlistAttachmentFlow'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
-import { ToolCard, ToolDetailDialogContent, getToolTimingDetails } from '@/components/ToolCard/ToolCard'
+import { ToolCard } from '@/components/ToolCard/ToolCard'
 import { ToolGroupCard } from '@/components/ToolCard/ToolGroupCard'
 import { MessageAttachments } from '@/components/AssistantChat/messages/MessageAttachments'
-import { getToolPresentation } from '@/components/ToolCard/knownTools'
 import { useTranslation as useHapiTranslation } from '@/lib/use-translation'
 import { HappyChatProvider } from '@/components/AssistantChat/context'
 import { buildVisibleChatBlocks, isToolGroupBlock, type ToolGroupBlock } from '@/chat/toolGroups'
@@ -74,7 +74,7 @@ import {
 import { checkDelivery, useAttempt, storeAttempt, uncertainDelivery, type SendAttempt } from '../lib/outbox'
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { MessageActions } from './MessageActions'
-import { ToolExecutionTimes } from './ToolExecutionTimes'
+import { ToolMessage } from './ToolMessage'
 import { Scratchlist } from './Scratchlist'
 import { ContextUsage } from './Usage'
 import { ComposerStatus } from './ComposerStatus'
@@ -96,6 +96,7 @@ import { ScheduleSendButton } from './ScheduleSendButton'
 import type { Settings } from '../../shared/bridge'
 import { toIntlLocale } from '../../shared/i18n'
 import { createChatBlockSelector, reuseChatBlocks } from '../lib/chat-rendering'
+import { buildArticleTranscript, chatBlockKey, type ExecutionTrace } from '../lib/article-transcript'
 
 const MemoToolGroupCard = memo(ToolGroupCard)
 
@@ -289,6 +290,12 @@ export function Chat({
   useEffect(() => {
     previousGroups.current = visibleBlocks.filter(isToolGroupBlock)
   }, [visibleBlocks])
+  const article = useMemo(
+    () => buildArticleTranscript(visibleBlocks, Boolean(session?.thinking)),
+    [visibleBlocks, session?.thinking],
+  )
+  const [collapsedTraces, setCollapsedTraces] = useState<ReadonlySet<string>>(() => new Set())
+  const conversationDate = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }), [locale])
   const navigation = useTranscriptNavigation({
     sessionId: id,
     initialScrollTop: draft.scrollTop,
@@ -940,30 +947,70 @@ export function Chat({
                 <div className="happy-thread-messages">
                   {visibleBlocks
                     .filter((block) => block.kind !== 'tool-call' || !pendingIds.has(block.tool.id))
-                    .map((block) => (
-                      <div
-                        key={block.id}
-                        id={navigation.anchorId(`${block.kind}:${block.id}`)}
-                        className={`message-anchor ${navigation.located === `${block.kind}:${block.id}` ? 'is-located' : ''}`}
-                        tabIndex={-1}
-                      >
-                        {isToolGroupBlock(block) ? (
-                          <div className="message-tool-group" data-presentation={block.presentationMode}>
-                            <MemoToolGroupCard block={block} metadata={session?.metadata ?? null} />
+                    .map((block, index, rendered) => {
+                      const key = chatBlockKey(block)
+                      const trace = article.traces.get(key)
+                      const owner = article.traceByBlock.get(key)
+                      const showDate =
+                        (index === 0 || block.kind === 'user-text') &&
+                        (index === 0 ||
+                          new Date(block.createdAt).toDateString() !==
+                            new Date(rendered[index - 1].createdAt).toDateString())
+                      return (
+                        <Fragment key={key}>
+                          {showDate && (
+                            <div className="conversation-date">
+                              <time dateTime={new Date(block.createdAt).toISOString()}>
+                                {conversationDate.format(block.createdAt)}
+                              </time>
+                            </div>
+                          )}
+                          {trace && (
+                            <ExecutionHistoryToggle
+                              trace={trace}
+                              expanded={!collapsedTraces.has(trace.id)}
+                              controls={trace.blockKeys.map(navigation.anchorId).join(' ')}
+                              onToggle={() =>
+                                setCollapsedTraces((previous) => {
+                                  const next = new Set(previous)
+                                  if (next.has(trace.id)) next.delete(trace.id)
+                                  else next.add(trace.id)
+                                  return next
+                                })
+                              }
+                            />
+                          )}
+                          <div
+                            id={navigation.anchorId(key)}
+                            className={`message-anchor ${navigation.located === key ? 'is-located' : ''}`}
+                            data-message-kind={block.kind}
+                            data-final-message={article.finalTextKeys.has(key) || undefined}
+                            hidden={Boolean(owner && collapsedTraces.has(owner.id))}
+                            tabIndex={-1}
+                          >
+                            {isToolGroupBlock(block) ? (
+                              <div className="message-tool-group" data-presentation={block.presentationMode}>
+                                <MemoToolGroupCard
+                                  block={block}
+                                  metadata={session?.metadata ?? null}
+                                  appearance="article"
+                                />
+                              </div>
+                            ) : (
+                              <MessageBlock
+                                block={block}
+                                sessionId={session?.id}
+                                metadata={session?.metadata ?? null}
+                                disabled={!connected || busy}
+                                done={messageDone}
+                                expanded={draft.expanded.includes(block.id)}
+                                onToggle={toggleBlock}
+                              />
+                            )}
                           </div>
-                        ) : (
-                          <MessageBlock
-                            block={block}
-                            sessionId={session?.id}
-                            metadata={session?.metadata ?? null}
-                            disabled={!connected || busy}
-                            done={messageDone}
-                            expanded={draft.expanded.includes(block.id)}
-                            onToggle={toggleBlock}
-                          />
-                        )}
-                      </div>
-                    ))}
+                        </Fragment>
+                      )
+                    })}
                 </div>
               </HappyChatProvider>
               {session?.thinking && (
@@ -1663,6 +1710,38 @@ export function Chat({
   )
 }
 
+function ExecutionHistoryToggle({
+  trace,
+  expanded,
+  controls,
+  onToggle,
+}: {
+  trace: ExecutionTrace
+  expanded: boolean
+  controls: string
+  onToggle: () => void
+}) {
+  const { t } = useTranslation()
+  const { t: web } = useHapiTranslation()
+  return (
+    <button
+      type="button"
+      className="execution-summary"
+      aria-expanded={expanded}
+      aria-controls={controls}
+      onClick={onToggle}
+    >
+      <ChevronRight size={12} className="disclosure-chevron" aria-hidden="true" />
+      <span>
+        {trace.durationMs != null
+          ? t('Worked for {{duration}}', { duration: formatDuration(trace.durationMs) })
+          : t('Execution history')}
+      </span>
+      {trace.toolCount > 0 && <small>{web('toolGroup.toolCount', { n: trace.toolCount })}</small>}
+    </button>
+  )
+}
+
 const MessageBlock = memo(function MessageBlock({
   block,
   sessionId,
@@ -1682,97 +1761,40 @@ const MessageBlock = memo(function MessageBlock({
 }) {
   const { t } = useTranslation()
   const source = useRef<HTMLElement>(null)
+  const reasoningId = useId()
   const { t: web } = useHapiTranslation()
   const toggle = () => onToggle(block.id)
-  if (block.kind === 'tool-call') {
-    const [now, setNow] = useState(Date.now)
-    const isRunning = block.tool.state === 'running'
-    useEffect(() => {
-      if (!isRunning) return
-      setNow(Date.now())
-      const timer = setInterval(() => setNow(Date.now()), 1000)
-      return () => clearInterval(timer)
-    }, [isRunning, block.tool.startedAt])
-    const timing = getToolTimingDetails(block.tool, now)
-    const durationLabel = timing.durationMs != null ? formatDuration(timing.durationMs) : null
-
-    const presentation = getToolPresentation(
-      {
-        toolName: block.tool.name,
-        input: block.tool.input,
-        result: block.tool.result,
-        childrenCount: block.children.length,
-        description: block.tool.nativeTitle ?? block.tool.description,
-        metadata,
-      },
-      web,
-    )
-    // HAPI renders plans and checklists inline; the desktop tool disclosure
-    // otherwise hides the proposal even while its implementation actions are visible.
-    const isPlan = [
-      'ExitPlanMode',
-      'exit_plan_mode',
-      'update_plan',
-      'TodoWrite',
-      'CursorCreatePlan',
-    ].includes(block.tool.name)
+  if (block.kind === 'tool-call')
     return (
-      <div className="message-tool">
-        {!isPlan && (
-          <button className="disclosure" onClick={toggle} aria-expanded={expanded}>
-            {presentation.icon}
-            <span className="tool-operation" title={block.tool.name}>
-              <span>{presentation.title}</span>
-              {presentation.subtitle && <small>{presentation.subtitle}</small>}
-            </span>
-            <span className="muted">
-              {t(
-                block.tool.state === 'running'
-                  ? 'Working…'
-                  : block.tool.state === 'completed'
-                    ? 'Task completed'
-                    : block.tool.state === 'error'
-                      ? 'Task failed'
-                      : 'Pending',
-              )}
-            </span>
-            {durationLabel && <span className="tool-duration-tag">{durationLabel}</span>}
-            <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
-          </button>
-        )}
-        {(isPlan || expanded) && sessionId && (
-          <div className="tool-expanded-details">
-            {isPlan ? (
-              <>
-                <ToolCard
-                  api={api}
-                  sessionId={sessionId}
-                  metadata={metadata}
-                  terminalToolDisplayMode="detailed"
-                  disabled={disabled}
-                  onDone={done}
-                  block={block}
-                />
-                <ToolExecutionTimes tool={block.tool} />
-              </>
-            ) : (
-              <div className="tool-inline-details">
-                <ToolDetailDialogContent block={block} metadata={metadata} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <ToolMessage
+        block={block}
+        sessionId={sessionId}
+        metadata={metadata}
+        disabled={disabled}
+        done={done}
+        expanded={expanded}
+        onToggle={onToggle}
+      />
     )
-  }
   if (block.kind === 'agent-reasoning')
     return (
       <div className="reasoning">
-        <button className="disclosure" onClick={toggle}>
-          <ChevronDown size={13} className={expanded ? 'rotated' : ''} />
+        <button
+          type="button"
+          className="disclosure"
+          onClick={toggle}
+          aria-expanded={expanded}
+          aria-controls={expanded ? reasoningId : undefined}
+        >
+          <Brain size={14} aria-hidden="true" />
           {t('Thinking')}
+          <ChevronRight size={12} className="disclosure-chevron" aria-hidden="true" />
         </button>
-        {expanded && <MarkdownRenderer content={block.text} />}
+        {expanded && (
+          <div id={reasoningId}>
+            <MarkdownRenderer content={block.text} />
+          </div>
+        )}
       </div>
     )
   if (block.kind === 'user-text' || block.kind === 'agent-text')
@@ -1780,9 +1802,18 @@ const MessageBlock = memo(function MessageBlock({
       <article
         ref={source}
         className={`message ${block.kind === 'user-text' ? 'user-message' : 'agent-message'}`}
+        aria-label={t(block.kind === 'user-text' ? 'You' : 'Agent')}
       >
-        <div className="message-role">
-          {t(block.kind === 'user-text' ? 'You' : 'Agent')}
+        <div className={block.kind === 'user-text' ? 'user-bubble' : 'agent-prose'}>
+          <MarkdownRenderer content={block.text} userMessage={block.kind === 'user-text'} />
+          {block.kind === 'user-text' && block.attachments && (
+            <MessageAttachments attachments={block.attachments} />
+          )}
+        </div>
+        <div className="message-role" data-hapi-share-export-exclude="true">
+          {block.kind === 'user-text' && block.steered && (
+            <span title={web('queuedMessages.steeredBadgeTitle')}>{web('queuedMessages.steeredBadge')}</span>
+          )}
           <time
             dateTime={new Date(block.createdAt).toISOString()}
             title={new Date(block.createdAt).toLocaleString()}
@@ -1803,15 +1834,6 @@ const MessageBlock = memo(function MessageBlock({
             role={block.kind === 'user-text' ? 'user' : 'assistant'}
           />
         </div>
-        <MarkdownRenderer content={block.text} userMessage={block.kind === 'user-text'} />
-        {block.kind === 'user-text' && block.attachments && (
-          <MessageAttachments attachments={block.attachments} />
-        )}
-        {block.kind === 'user-text' && block.steered && (
-          <span className="small muted" title={web('queuedMessages.steeredBadgeTitle')}>
-            {web('queuedMessages.steeredBadge')}
-          </span>
-        )}
       </article>
     )
   if (block.kind === 'cli-output')

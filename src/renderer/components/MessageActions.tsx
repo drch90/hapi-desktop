@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Copy, Maximize2, Share2 } from 'lucide-react'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
@@ -37,12 +37,39 @@ export function MessageActions({
   const { t } = useTranslation()
   const { copied, copy } = useCopyToClipboard()
   const [failed, setFailed] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  useEffect(() => {
+    const message = source.current
+    if (!message) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const show = () => {
+      clearTimeout(timer)
+      setHovered(true)
+    }
+    const hide = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => setHovered(false), 500)
+    }
+    if (message.matches(':hover')) show()
+    message.addEventListener('pointerenter', show)
+    message.addEventListener('pointerleave', hide)
+    return () => {
+      clearTimeout(timer)
+      message.removeEventListener('pointerenter', show)
+      message.removeEventListener('pointerleave', hide)
+    }
+  }, [source])
   const [snapshot, setSnapshot] = useState<
     { html: string; text: string; role: 'user' | 'assistant' }[] | null
   >(null)
   return (
     <>
-      <div className="message-actions" data-hapi-share-action="true" data-hapi-share-export-exclude="true">
+      <div
+        className="message-actions"
+        data-visible={hovered || copied || failed ? 'true' : undefined}
+        data-hapi-share-action="true"
+        data-hapi-share-export-exclude="true"
+      >
         <ContentDialog
           title={title}
           trigger={

@@ -1769,7 +1769,7 @@
   },
   "web/src/components/ToolCard/ToolGroupCard.tsx": {
     "upstream": "e971294e04e7a35c8eda3b5cc4f6cb099da8988d28473203227cb2b519a93bc3",
-    "vendored": "ba7d23697164d12a3064810c1138655574c7ff899586d0a327eae88416b2cde8"
+    "vendored": "dbab3303db29460be4dbc0afa107a285c7ed03965022b1bf3f25880f06ba152f"
   },
   "web/src/components/ToolCard/askUserQuestion.ts": {
     "upstream": "9f9bb499103880b8d0a47d85ccefb1f2146e1a766c491ef0226894da44aab44a",

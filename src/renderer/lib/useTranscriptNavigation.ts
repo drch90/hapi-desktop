@@ -105,6 +105,14 @@ export function useTranscriptNavigation(props: {
       if (event.clientX < el.getBoundingClientRect().right - gutter) return
       scrollIntent.current = { direction: 0, until: Date.now() + 750, pointerDown: true }
     }
+    const onDisclosureClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (!following.current || !target?.closest('.disclosure[aria-expanded], .execution-summary')) return
+      // Expanding a tool is a reading gesture. Keep its summary in view when
+      // details make an initially short conversation taller than the viewport.
+      contentInteraction.current.followPending = false
+      pauseFollowing()
+    }
     const onPointerUp = () => {
       if (contentInteraction.current.pointerDown) {
         cancelAnimationFrame(pointerReleaseFrame)
@@ -133,6 +141,7 @@ export function useTranscriptNavigation(props: {
     el?.addEventListener('wheel', onWheel, { passive: true })
     el?.addEventListener('keydown', onKeyDown)
     el?.addEventListener('pointerdown', onPointerDown, { passive: true })
+    el?.addEventListener('click', onDisclosureClick, true)
     el?.addEventListener('touchstart', onTouchStart, { passive: true })
     el?.addEventListener('touchmove', onTouchMove, { passive: true })
     window.addEventListener('pointerup', onPointerUp)
@@ -152,6 +161,7 @@ export function useTranscriptNavigation(props: {
       el?.removeEventListener('wheel', onWheel)
       el?.removeEventListener('keydown', onKeyDown)
       el?.removeEventListener('pointerdown', onPointerDown)
+      el?.removeEventListener('click', onDisclosureClick, true)
       el?.removeEventListener('touchstart', onTouchStart)
       el?.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('pointerup', onPointerUp)

@@ -39,6 +39,7 @@ export default defineConfig({
             'src/components/HermesModelPicker.test.tsx',
             'src/components/AssistantChat/ScheduleTimePicker.test.ts',
             'src/lib/scheduledTime.test.ts',
+            'src/lib/machineHealth.test.ts',
           ],
         },
       },

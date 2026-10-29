@@ -80,6 +80,7 @@ import { SessionWorkspaceGroup } from './components/SessionWorkspaceGroup'
 import { SessionActivityTime } from './components/SessionActivityTime'
 import { SessionScheduledIndicator } from './components/SessionScheduledIndicator'
 import { SessionSearch, type SessionSearchHandle } from './components/SessionSearch'
+import { MachineHealth } from './components/MachineHealth'
 import { UsageDialog } from './components/Usage'
 import { Tabs } from './components/Tabs'
 import { NewSessionDialog } from './components/NewSessionDialog'
@@ -102,6 +103,16 @@ const desktopWebLabels: Record<string, string> = {
     'Max 7 days. Keep the Hub running; the CLI receives the message when it next connects.',
   'composer.scheduleErrorPast': 'Scheduled time must be in the future.',
   'composer.scheduleErrorTooFar': 'Maximum schedule time is 7 days.',
+  'machine.health.tooltip.title': 'Machine capacity',
+  'machine.health.status.healthy': 'Healthy — room for more agents',
+  'machine.health.status.elevated': 'Elevated — new agents may run slower',
+  'machine.health.status.high': 'High pressure — avoid spawning more here',
+  'machine.health.status.unknown': 'Metrics unavailable',
+  'machine.health.metric.cpu': 'CPU usage',
+  'machine.health.metric.ram': 'Memory usage',
+  'machine.health.tooltip.loadShort': 'Load (1m)',
+  'machine.health.tooltip.uptimeShort': 'Uptime',
+  'machine.health.tooltip.hint': 'Updated every ~20s from the runner on this machine',
 }
 
 export function App() {
@@ -415,6 +426,26 @@ function Workbench({
       machine.id,
       machine.metadata?.displayName || machine.metadata?.host || machine.id,
     ]),
+  )
+  const machineFilterIds = [
+    ...new Set([
+      ...rows.map((row) => row.metadata?.machineId ?? '__unknown__'),
+      ...(machines.data ?? []).map((machine) => machine.id),
+    ]),
+  ]
+  const machineLabel = (id: string) =>
+    id === '__unknown__' ? t('Unknown machine') : machineNames.get(id) || id.slice(0, 8)
+  const machineHealth = (
+    <MachineHealth
+      key={machineFilter}
+      machines={machines.data ?? []}
+      machineId={machineFilter}
+      selectedLabel={machineFilter ? machineLabel(machineFilter) : ''}
+      connected={connection.status === 'connected'}
+      loading={machines.isPending}
+      failed={machines.isError}
+      compact={workspace.sidebarCollapsed}
+    />
   )
   const dispatch = useCallback(
     (action: WorkspaceAction) => {
@@ -772,6 +803,7 @@ function Workbench({
                 <Bell size={18} />
                 <span>{pendingCount}</span>
               </button>
+              {machineHealth}
               <span className="rail-spacer" />
               <span
                 className={`status-dot ${connection.status === 'connected' ? 'online' : 'pending'}`}
@@ -821,16 +853,13 @@ function Workbench({
             onChange={(event) => setMachineFilter(event.target.value)}
           >
             <option value="">{t('All machines')}</option>
-            {[...new Set(rows.map((row) => row.metadata?.machineId ?? '__unknown__'))].map((id) => (
+            {machineFilterIds.map((id) => (
               <option key={id} value={id}>
-                {id === '__unknown__'
-                  ? t('Unknown machine')
-                  : machines.data?.find((machine) => machine.id === id)?.metadata?.displayName ||
-                    machines.data?.find((machine) => machine.id === id)?.metadata?.host ||
-                    id.slice(0, 8)}
+                {machineLabel(id)}
               </option>
             ))}
           </select>
+          {!workspace.sidebarCollapsed && machineHealth}
           <label className="check-label">
             <input
               type="checkbox"
