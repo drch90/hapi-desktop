@@ -484,10 +484,16 @@ test('article chat uses intrinsic bubbles and tools, neutral themes, and folds w
   const execution = (await chat.locator('.execution-summary').first().boundingBox())!
   expect(execution.y - firstBubble.y - firstBubble.height).toBeLessThanOrEqual(36)
   const shortBubble = (await bubble.boundingBox())!
-  const followup = (await chat.locator('.agent-message').filter({ hasText: '可以。之后再出现错误' }).boundingBox())!
+  const followup = (await chat
+    .locator('.agent-message')
+    .filter({ hasText: '可以。之后再出现错误' })
+    .boundingBox())!
   expect(followup.y - shortBubble.y - shortBubble.height).toBeLessThanOrEqual(36)
   const toolBox = (await tool.first().boundingBox())!
-  const progress = (await chat.locator('.agent-message').filter({ hasText: '配置已读取。接着检查' }).boundingBox())!
+  const progress = (await chat
+    .locator('.agent-message')
+    .filter({ hasText: '配置已读取。接着检查' })
+    .boundingBox())!
   expect(progress.y - toolBox.y - toolBox.height).toBeLessThanOrEqual(8)
   const columnWidth = (await chat.locator('.happy-thread-messages').boundingBox())!.width
   const toolWidths = await chat
@@ -1114,11 +1120,11 @@ test('pasted user configuration preserves whitespace in delivery, rendering, cop
   ).toBe(text)
   const message = chat.locator('.user-message').last()
   await expect(message.locator('[data-hapi-code-block]')).toHaveCount(0)
-  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(nginxConfig)
+  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(text)
   await message.getByRole('button', { name: '复制', exact: true }).click()
   await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(text)
   await page.reload()
-  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(nginxConfig)
+  await expect.poll(() => message.locator('.user-text-literal').innerText()).toBe(text)
   await expect(message.locator('[data-hapi-code-block]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
@@ -3069,7 +3075,10 @@ test('user message actions remain reachable across the bubble gap and brief poin
   expect(layout.next.top - layout.bubble.bottom).toBeLessThanOrEqual(36)
   expect(layout.fits).toBe(true)
   await mkdir(resolve('build/message-actions-placement'), { recursive: true })
-  await writeFile(resolve('build/message-actions-placement/user-layout.json'), JSON.stringify(layout, null, 2))
+  await writeFile(
+    resolve('build/message-actions-placement/user-layout.json'),
+    JSON.stringify(layout, null, 2),
+  )
   await page.screenshot({ path: 'build/message-actions-placement/user-dark.png', animations: 'disabled' })
   expect(errors).toEqual([])
 })
@@ -3082,10 +3091,15 @@ for (const final of [false, true]) {
       fixtureMessage('copy-agent-request', 1, '检查连接配置', true),
       fixtureMessage('copy-agent-progress', 2, progress),
       fixtureCodexEvent('copy-agent-tool', 3, {
-        type: 'tool-call', callId: 'copy-agent-tool', name: 'Read', input: { file_path: '/home/dev/config.json' },
+        type: 'tool-call',
+        callId: 'copy-agent-tool',
+        name: 'Read',
+        input: { file_path: '/home/dev/config.json' },
       }),
       fixtureCodexEvent('copy-agent-result', 4, {
-        type: 'tool-call-result', callId: 'copy-agent-tool', output: 'connected',
+        type: 'tool-call-result',
+        callId: 'copy-agent-tool',
+        output: 'connected',
       }),
       fixtureMessage('copy-agent-answer', 5, answer),
       fixtureMessage('copy-agent-next', 6, '好的', true),
@@ -3139,7 +3153,8 @@ for (const final of [false, true]) {
     await actions.scrollIntoViewIfNeeded()
     await expect(actions).toBeInViewport({ ratio: 1 })
     const layout = await message.evaluate((element) => ({
-      gap: element.querySelector('.message-role')!.getBoundingClientRect().top -
+      gap:
+        element.querySelector('.message-role')!.getBoundingClientRect().top -
         element.querySelector('.agent-prose')!.getBoundingClientRect().bottom,
       fits: element.scrollWidth <= element.clientWidth,
     }))
@@ -5856,6 +5871,255 @@ test('tab activity follows work and requests, and shares persistent unread state
   publish()
   await expect(status).toHaveAttribute('data-status', 'offline')
   await expect(tab).toHaveAttribute('aria-description', /离线/)
+  expect(errors).toEqual([])
+})
+
+async function addTabLayoutFixtures(count: number) {
+  for (let index = 0; index < count; index++) {
+    const id = `overflow-tab-${index}`
+    server.sessions.set(id, fixtureSession(id, `标签 ${index} · 多标签布局与长标题检查`, 'codex'))
+    server.messages.set(id, [fixtureMessage(`${id}-message`, 1, '检查多标签会话的显示。')])
+  }
+  await page.reload()
+}
+
+test('session tabs shrink without scrollbars and reveal the full selection after switching and resizing', async () => {
+  await addTabLayoutFixtures(8)
+  const measurements: unknown[] = []
+  const measure = async (label: string) => {
+    const panes = await page.locator('.tab-bar').evaluateAll(async (bars) => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+      return bars.map((bar) => {
+        const strip = bar.querySelector<HTMLElement>('.tabs')!
+        const rect = strip.getBoundingClientRect()
+        const bounds = bar.getBoundingClientRect()
+        return {
+          width: strip.clientWidth,
+          height: strip.clientHeight,
+          scrollWidth: strip.scrollWidth,
+          scrollHeight: strip.scrollHeight,
+          scrollbarWidth: strip.offsetWidth - strip.clientWidth,
+          scrollbarHeight: strip.offsetHeight - strip.clientHeight,
+          widths: [...strip.querySelectorAll('.tab')].map((tab) => tab.getBoundingClientRect().width),
+          active: [...strip.querySelectorAll('.tab.active, .tab.active button')].map((child) => {
+            const box = child.getBoundingClientRect()
+            return {
+              left: box.left - rect.left,
+              right: box.right - rect.left,
+              top: box.top - rect.top,
+              bottom: box.bottom - rect.top,
+            }
+          }),
+          actionsVisible: [...bar.querySelectorAll('.tab-actions button')].every((button) => {
+            const box = button.getBoundingClientRect()
+            const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+            return (
+              box.left >= bounds.left &&
+              box.right <= bounds.right &&
+              box.top >= bounds.top &&
+              box.bottom <= bounds.bottom &&
+              (hit === button || button.contains(hit))
+            )
+          }),
+        }
+      })
+    })
+    measurements.push({ label, panes })
+    for (const pane of panes) {
+      expect(pane.scrollHeight, label).toBe(pane.height)
+      expect(pane.scrollbarWidth, label).toBe(0)
+      expect(pane.scrollbarHeight, label).toBe(0)
+      expect(pane.actionsVisible, label).toBe(true)
+      expect(pane.active).toHaveLength(3)
+      for (const control of pane.active) {
+        expect(control.left, label).toBeGreaterThanOrEqual(-1)
+        expect(control.right, label).toBeLessThanOrEqual(pane.width + 1)
+        expect(control.top, label).toBeGreaterThanOrEqual(0)
+        expect(control.bottom, label).toBeLessThanOrEqual(pane.height)
+      }
+    }
+    return panes
+  }
+  await page.getByTestId('session-overflow-tab-0').click()
+  const single = await measure('single-tab')
+  for (let index = 1; index < 8; index++) await page.getByTestId(`session-overflow-tab-${index}`).click()
+  const wide = await measure('wide-normal')
+  expect(wide[0].scrollWidth).toBe(wide[0].width)
+  expect(wide[0].widths.every((width) => width < single[0].widths[0] && width >= 112)).toBe(true)
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  const narrow = await measure('narrow-normal')
+  expect(narrow[0].scrollWidth).toBeGreaterThan(narrow[0].width)
+  await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark' }))
+  await measure('narrow-large')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const left = page.locator('.chat-pane').first()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-design').click()
+  await page.getByTestId('session-review').click()
+  await measure('split-narrow-large')
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await measure('split-collapsed-large')
+  await page.getByRole('separator', { name: '双栏分屏', exact: true }).focus()
+  await page.keyboard.press('Home')
+  await measure('split-30-percent')
+  await left.locator('[role="tab"][aria-selected="true"]').focus()
+  for (const [key, index] of [
+    ['Home', 0],
+    ['End', 7],
+    ['ArrowLeft', 6],
+    ['Control+Tab', 7],
+  ] as const) {
+    await page.keyboard.press(key)
+    const selected = left.getByRole('tab', { name: `标签 ${index} · 多标签布局与长标题检查`, exact: true })
+    await expect(selected).toHaveAttribute('aria-selected', 'true')
+    await measure(`keyboard-${key}`)
+  }
+  await page.getByRole('separator', { name: '双栏分屏', exact: true }).dblclick()
+  await measure('split-reset')
+  await left.locator('[role="tab"][aria-selected="true"]').click()
+  await mkdir('build/frontend-review', { recursive: true })
+  await writeFile('build/frontend-review/tab-measurements-after.json', JSON.stringify(measurements, null, 2))
+  await page.screenshot({ path: 'build/frontend-review/tabs-after.png', animations: 'disabled' })
+  expect(errors).toEqual([])
+})
+
+test('all tabs menu switches hidden sessions within its pane and preserves keyboard focus and drafts', async () => {
+  await addTabLayoutFixtures(18)
+  for (let index = 0; index < 18; index++) await page.getByTestId(`session-overflow-tab-${index}`).click()
+  const left = page.locator('.chat-pane').first()
+  await left.locator('.composer textarea').fill('左栏未发送草稿')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  const right = page.locator('.chat-pane').nth(1)
+  await right.click()
+  await page.getByTestId('session-design').click()
+  const rightInput = right.locator('.composer textarea')
+  await rightInput.fill('右栏未发送草稿')
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  const trigger = left.getByRole('button', { name: '全部标签', exact: true })
+  const menu = page.getByRole('menu', { name: '全部标签', exact: true })
+  await trigger.click()
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(18)
+  await expect(menu.getByRole('menuitemradio', { checked: true })).toBeFocused()
+  await expect(menu).not.toContainText('桌面工作台')
+  expect(await menu.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const bounds = (await left.boundingBox())!
+  const box = (await menu.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+  expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+  await menu.getByRole('menuitemradio').first().click()
+  await expect(menu).toHaveCount(0)
+  await expect(left.getByRole('tab').first()).toBeFocused()
+  await expect(left.getByTestId('chat-overflow-tab-0')).toBeVisible()
+  await expect(left.locator('.tab.active .tab-close')).toBeInViewport({ ratio: 1 })
+  await expect(rightInput).toHaveValue('右栏未发送草稿')
+  await trigger.press('ArrowDown')
+  await expect(menu.getByRole('menuitemradio').first()).toBeFocused()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expect(left.getByRole('tab').last()).toBeFocused()
+  await expect(left.locator('.composer textarea')).toHaveValue('左栏未发送草稿')
+  await trigger.click()
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+  await expect(menu).toHaveCount(0)
+  await trigger.click()
+  await trigger.click()
+  await expect(menu).toHaveCount(0)
+  await trigger.click()
+  await rightInput.click()
+  await expect(menu).toHaveCount(0)
+  await expect(rightInput).toBeFocused()
+  await expect(right).toHaveClass(/focused/)
+  const close = left.locator('.tab.active .tab-close')
+  await expect(close).toBeInViewport({ ratio: 1 })
+  const closeBox = (await close.boundingBox())!
+  await page.mouse.click(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2)
+  await expect(left.getByRole('tab')).toHaveCount(17)
+  await trigger.click()
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(17)
+  const renamed = server.sessions.get('overflow-tab-0')!
+  renamed.metadata!.name = '更新后的完整标题 · ' + '很长的标题'.repeat(12)
+  renamed.metadataVersion++
+  server.emit({ type: 'session-updated', sessionId: renamed.id, data: renamed })
+  await expect(menu.getByRole('menuitemradio').first()).toContainText(renamed.metadata!.name)
+  await page.keyboard.press('Home')
+  expect(await menu.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await mkdir('build/frontend-review', { recursive: true })
+  await page.screenshot({ path: 'build/frontend-review/all-tabs-menu.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(left.getByRole('tab')).toHaveCount(17)
+  await expect(rightInput).toHaveValue('右栏未发送草稿')
+  expect(errors).toEqual([])
+})
+
+test('composer settings and actions remain separate and clickable in narrow panes across locales', async () => {
+  await page.getByTestId('session-design').click()
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  const measurements: unknown[] = []
+  for (const locale of ['zh', 'en', 'fr', 'ja', 'ru', 'vi', 'zh-TW'] as const) {
+    await page.evaluate(
+      (locale) => window.desktop.updateSettings({ locale, fontSize: 'extra-large', theme: 'dark' }),
+      locale,
+    )
+    const issues = await page.locator('.composer-toolbar').evaluateAll(async (toolbars) => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+      return toolbars.flatMap((toolbar) => {
+        const bounds = toolbar.getBoundingClientRect()
+        const controls = [...toolbar.querySelectorAll('.composer-pill, .inline-actions button')]
+        return controls.flatMap((control, index) => {
+          const box = control.getBoundingClientRect()
+          const issues: string[] = []
+          if (box.left < bounds.left || box.right > bounds.right)
+            issues.push(`outside: ${control.textContent}`)
+          for (const other of controls.slice(index + 1)) {
+            const target = other.getBoundingClientRect()
+            if (
+              Math.min(box.right, target.right) - Math.max(box.left, target.left) > 1 &&
+              Math.min(box.bottom, target.bottom) - Math.max(box.top, target.top) > 1
+            )
+              issues.push(`overlap: ${control.textContent} / ${other.textContent}`)
+          }
+          return issues
+        })
+      })
+    })
+    measurements.push({ locale, issues })
+    expect(issues, locale).toEqual([])
+  }
+  await page.evaluate(() => window.desktop.updateSettings({ locale: 'zh' }))
+  const chat = page.getByTestId('chat-design')
+  await chat.locator('.composer-pill').first().click()
+  await expect(page.locator('.session-configuration')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await chat.getByRole('button', { name: '原生命令', exact: true }).click()
+  await expect(chat.getByRole('region', { name: '原生命令', exact: true })).toBeVisible()
+  await chat.locator('.composer textarea').press('Escape')
+  await page.getByRole('button', { name: '折叠会话列表', exact: true }).click()
+  await mkdir('build/frontend-review', { recursive: true })
+  await writeFile('build/frontend-review/composer-layout.json', JSON.stringify(measurements, null, 2))
+  await page.screenshot({ path: 'build/frontend-review/composer-after.png', animations: 'disabled' })
+  await chat.locator('.composer textarea').fill('窄栏按钮点击验证')
+  const send = (await chat.getByRole('button', { name: '发送', exact: true }).boundingBox())!
+  await page.mouse.click(send.x + send.width / 2, send.y + send.height / 2)
+  await expect
+    .poll(() =>
+      server.requests.some(
+        (request) =>
+          request.method === 'POST' &&
+          request.path === '/api/sessions/design/messages' &&
+          request.body.text === '窄栏按钮点击验证',
+      ),
+    )
+    .toBe(true)
   expect(errors).toEqual([])
 })
 

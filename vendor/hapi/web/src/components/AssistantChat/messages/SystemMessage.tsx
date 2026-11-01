@@ -6,13 +6,19 @@ import { getConversationMessageAnchorId } from '@/chat/outline'
 import { MessageTimestamp } from '@/components/AssistantChat/messages/MessageTimestamp'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 
-function formatTokenDelta(event: AgentEvent | undefined): string | null {
+export function formatTokenDelta(event: AgentEvent | undefined): string | null {
     if (!event || event.type !== 'compact-summary') return null
-    const parts: string[] = []
-    if (typeof event.tokensBefore === 'number') parts.push(event.tokensBefore.toLocaleString())
-    if (typeof event.estimatedTokensAfter === 'number') parts.push(event.estimatedTokensAfter.toLocaleString())
-    if (parts.length === 0) return null
-    return parts.length === 2 ? `${parts[0]} → ${parts[1]} tokens` : `${parts[0]} tokens`
+    const token = (value: unknown): number | undefined =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+    const before = token(event.tokensBefore)
+    const after = token(event.tokensAfter)
+    const estimatedAfter = after === undefined ? token(event.estimatedTokensAfter) : undefined
+    if (before !== undefined && after !== undefined) return `${before.toLocaleString()} → ${after.toLocaleString()} tokens`
+    if (before !== undefined && estimatedAfter !== undefined) return `${before.toLocaleString()} → ~${estimatedAfter.toLocaleString()} tokens (estimated after)`
+    if (before !== undefined) return `${before.toLocaleString()} tokens before`
+    if (after !== undefined) return `${after.toLocaleString()} tokens after`
+    if (estimatedAfter !== undefined) return `~${estimatedAfter.toLocaleString()} tokens after (estimated)`
+    return null
 }
 
 export function HappySystemMessage() {

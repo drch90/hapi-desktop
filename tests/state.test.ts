@@ -28,6 +28,7 @@ import {
 import { MetadataSchema } from '@hapi/protocol/schemas'
 import { getBuiltinSlashCommands } from '@hapi/protocol/slashCommands'
 import { resolveAgentSessionIdFromMetadata } from '@/lib/sessionResume'
+import { asyncQuestionId, asyncQuestionRequestId } from './fixtures/async-question'
 
 beforeEach(() => localStorage.clear())
 
@@ -78,6 +79,41 @@ describe('scheduled message drafts', () => {
 })
 
 describe('desktop trust boundary', () => {
+  it('accepts encoded Codex async-question IDs without changing the reply identity', () => {
+    for (const action of ['approve', 'deny']) {
+      const request = {
+        path: `/api/sessions/design/permissions/${encodeURIComponent(asyncQuestionRequestId)}/${action}`,
+        method: 'POST',
+        body: { answers: { [asyncQuestionId]: { answers: ['按原文显示'] } } },
+      }
+      expect(hubRequestSchema.safeParse(request)).toMatchObject({ success: true, data: request })
+    }
+  })
+
+  it('keeps opaque permission IDs confined to the approval route', () => {
+    const id = encodeURIComponent(asyncQuestionRequestId)
+    for (const path of [
+      `/api/sessions/a%2Fb/permissions/${id}/approve`,
+      `/api/sessions/a%5Cb/permissions/${id}/approve`,
+      `/api/sessions/%252e%252e/permissions/${id}/approve`,
+      `/api/sessions/a/../b/permissions/${id}/approve`,
+      `/api/sessions/a/messages/${id}/steer`,
+      `/api/sessions/a/permissions/${id}/unknown`,
+      `/api/sessions/a/permissions/${id}/approve?accessToken=x`,
+      '/api/sessions/a/permissions/%00/approve',
+      '/api/sessions/a/permissions/%/approve',
+      '/api/sessions/a/permissions/raw\\id/approve',
+      '/api/sessions/a/permissions/../approve',
+    ])
+      expect(hubRequestSchema.safeParse({ path, method: 'POST' }).success).toBe(false)
+    expect(
+      hubRequestSchema.safeParse({
+        path: `/api/sessions/a/permissions/${id}/approve`,
+        method: 'GET',
+      }).success,
+    ).toBe(false)
+  })
+
   it('accepts Hermes discovery and preserves its permissions, commands and native resume ID', () => {
     expect(
       AgentAvailabilityResponseSchema.parse({ agents: [{ agent: 'hermes', available: true }] }).agents[0]

@@ -79,6 +79,7 @@ import { Scratchlist } from './Scratchlist'
 import { ContextUsage } from './Usage'
 import { ComposerStatus } from './ComposerStatus'
 import { QueuedMessages } from './QueuedMessages'
+import { formatTokenDelta } from '@/components/AssistantChat/messages/SystemMessage'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
 import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread'
@@ -787,6 +788,7 @@ export function Chat({
   const title =
     session?.metadata?.name ||
     session?.metadata?.summary?.text ||
+    session?.metadata?.promptTitle ||
     session?.metadata?.path.split('/').pop() ||
     id.slice(0, 8)
   if (query.isError && !session)
@@ -1186,6 +1188,7 @@ export function Chat({
           sessionId={id}
           messages={messages.messages}
           canSteer={canSteer}
+          compactionPendingMessageIds={session?.agentState?.codexCompactionPendingMessageIds ?? undefined}
           disabled={!connected || busy || editWorking || Boolean(attempt)}
         />
         <div className="composer-wrap">
@@ -1830,7 +1833,7 @@ const MessageBlock = memo(function MessageBlock({
           <MessageActions
             text={block.text}
             source={source}
-            title={metadata?.name || t('Session')}
+            title={metadata?.name || metadata?.summary?.text || metadata?.promptTitle || t('Session')}
             role={block.kind === 'user-text' ? 'user' : 'assistant'}
           />
         </div>
@@ -1862,6 +1865,7 @@ const MessageBlock = memo(function MessageBlock({
     return (
       <div className={`event-message ${block.event.type === 'error' ? 'error' : ''}`}>
         <MarkdownRenderer content={text} />
+        {formatTokenDelta(event) && <p className="small muted">{formatTokenDelta(event)}</p>}
         {event.type === 'compact-summary' && typeof event.summary === 'string' && (
           <MarkdownRenderer content={event.summary} />
         )}

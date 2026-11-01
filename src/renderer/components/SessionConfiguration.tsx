@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import {
   getPermissionModeOptionsForFlavor,
   getCodexCollaborationModeOptions,
+  getClaudeEffortLevelsForModel,
+  resolveClaudeEffortForModel,
   type CodexCollaborationMode,
   type PermissionMode,
   type Session,
@@ -13,9 +15,14 @@ import { Button } from '@/components/ui/button'
 import { HermesModelPicker } from '@/components/HermesModelPicker'
 import { useHermesModels } from '@/hooks/queries/useHermesModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
+import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
 import { useOpencodeModels } from '@/hooks/queries/useOpencodeModels'
 import { useOpencodeReasoningEffortOptions } from '@/hooks/queries/useOpencodeReasoningEffortOptions'
-import { getModelOptionsForFlavor } from '@/components/AssistantChat/modelOptions'
+import {
+  getClaudeCatalogOptions,
+  getModelOptionsForFlavor,
+  type ModelOption,
+} from '@/components/AssistantChat/modelOptions'
 import { getClaudeComposerEffortOptions } from '@/components/AssistantChat/claudeEffortOptions'
 import { getCodexComposerReasoningEffortOptions } from '@/components/AssistantChat/codexReasoningEffortOptions'
 import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
@@ -50,7 +57,13 @@ export function SessionConfiguration(props: {
     api,
     sessionId: session.id,
     machineId: session.metadata?.machineId,
+    preferSession: Boolean(session.metadata?.capabilities?.concurrentClients),
     enabled: editable && flavor === 'codex',
+  })
+  const claude = useClaudeModels({
+    api,
+    machineId: session.metadata?.machineId,
+    enabled: editable && flavor === 'claude',
   })
   const opencode = useOpencodeModels({
     api,
@@ -81,7 +94,7 @@ export function SessionConfiguration(props: {
   const catalog =
     flavor === 'codex' ? codex : flavor === 'opencode' ? opencode : flavor === 'hermes' ? hermes : null
   const modes = flavor === 'codex' ? getCodexCollaborationModeOptions() : []
-  const modelOptions = !supported
+  const modelOptions: ModelOption[] = !supported
     ? []
     : (flavor === 'codex' && !codex.models.length) ||
         ((flavor === 'opencode' || flavor === 'hermes') &&
@@ -97,12 +110,23 @@ export function SessionConfiguration(props: {
                   value: model.modelId,
                   label: model.name ?? model.modelId,
                 }))
-              : undefined,
+              : flavor === 'claude'
+                ? getClaudeCatalogOptions(claude.availableModels, t('Other models'))
+                : undefined,
         )
+  const modelGroups = Object.entries(
+    modelOptions.reduce<Record<string, ModelOption[]>>((groups, option) => {
+      ;(groups[option.group ?? ''] ??= []).push(option)
+      return groups
+    }, {}),
+  )
   const effort = flavor === 'claude' ? session.effort : session.modelReasoningEffort
   const effortOptions =
     flavor === 'claude'
-      ? getClaudeComposerEffortOptions(effort)
+      ? getClaudeComposerEffortOptions(
+          effort,
+          getClaudeEffortLevelsForModel(session.model ?? null, claude.availableModels),
+        )
       : flavor === 'codex' || flavor === 'opencode'
         ? getCodexComposerReasoningEffortOptions(
             effort,
@@ -145,7 +169,20 @@ export function SessionConfiguration(props: {
     try {
       if (field === 'mode') await api.setCollaborationMode(session.id, value as CodexCollaborationMode)
       else if (field === 'permission') await api.setPermissionMode(session.id, value as PermissionMode)
-      else if (field === 'model') await api.setModel(session.id, value || null)
+      else if (field === 'model')
+        await api.setModel(
+          session.id,
+          value || null,
+          flavor === 'claude'
+            ? {
+                effort: resolveClaudeEffortForModel(
+                  session.effort ?? null,
+                  value || null,
+                  claude.availableModels,
+                ),
+              }
+            : undefined,
+        )
       else if (flavor === 'claude') await api.setEffort(session.id, value || null)
       else await api.setModelReasoningEffort(session.id, value || null)
       // Keep the selected values server-confirmed, including failures and SSE
@@ -256,11 +293,20 @@ export function SessionConfiguration(props: {
                   {t('Default')}
                 </option>
               )}
-              {modelOptions.map((option) => (
-                <option key={option.value ?? ''} value={option.value ?? ''}>
-                  {t(option.label, { defaultValue: option.label })}
-                </option>
-              ))}
+              {modelGroups.map(([group, options]) => {
+                const rows = options.map((option) => (
+                  <option key={option.value ?? ''} value={option.value ?? ''}>
+                    {t(option.label, { defaultValue: option.label })}
+                  </option>
+                ))
+                return group ? (
+                  <optgroup key={group} label={group}>
+                    {rows}
+                  </optgroup>
+                ) : (
+                  rows
+                )
+              })}
             </SelectControl>
           </label>
         )}

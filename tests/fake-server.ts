@@ -190,6 +190,8 @@ export class FixtureHub {
     { modelId: 'custom:home:qwen:32b', name: 'Qwen 32B', providerLabel: 'Home' },
   ]
   failModelDiscovery = false
+  failClaudeModels = false
+  claudeModels: import('@hapi/protocol').ClaudeModelSummary[] = []
   failMachines = false
   failDelete = false
   failArchive = false
@@ -311,6 +313,12 @@ export class FixtureHub {
                 ? (this.sessions.get(sessionId)?.model ?? null)
                 : this.hermesModels[0].modelId,
             },
+      )
+      return
+    }
+    if (path.endsWith('/claude-models')) {
+      reply(
+        this.failClaudeModels ? { success: false } : { success: true, availableModels: this.claudeModels },
       )
       return
     }
@@ -593,7 +601,10 @@ export class FixtureHub {
       if (action === '/permission-mode') session.permissionMode = body.mode as Session['permissionMode']
       if (action === '/collaboration-mode')
         session.collaborationMode = body.mode as Session['collaborationMode']
-      if (action === '/model') session.model = body.model as string | null
+      if (action === '/model') {
+        session.model = body.model as string | null
+        if ('effort' in body) session.effort = body.effort as string | null
+      }
       if (action === '/model-reasoning-effort')
         session.modelReasoningEffort = body.modelReasoningEffort as string | null
       if (action === '/effort') session.effort = body.effort as string | null

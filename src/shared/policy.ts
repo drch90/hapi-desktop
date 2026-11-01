@@ -111,7 +111,7 @@ const allowed: Record<string, RegExp[]> = {
       `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options)$`,
     ),
     new RegExp(
-      `^${machine}/(agent-availability|hermes-models|codex-models|opencode-models|opencode-model-variants)$`,
+      `^${machine}/(agent-availability|claude-models|hermes-models|codex-models|opencode-models|opencode-model-variants)$`,
     ),
   ],
   POST: [
@@ -147,15 +147,36 @@ export const hubRequestSchema = z
   .superRefine((request, context) => {
     try {
       const url = new URL(request.path, 'https://desktop.invalid')
-      const decoded = decodeURIComponent(url.pathname)
-      const rawPath = decodeURIComponent(request.path.split('?')[0])
+      let validationPath = request.path.split('?')[0]
+      const permission =
+        request.method === 'POST'
+          ? new RegExp(`^(${session}/permissions/)([^/?#]+)(/(?:approve|deny))$`).exec(validationPath)
+          : null
+      if (permission) {
+        // Permission IDs are opaque lookup keys, including the nested JSON in
+        // Codex async questions. Keep their canonical encoded segment intact
+        // on the wire, while validating the surrounding route as usual.
+        const id = decodeURIComponent(permission[2])
+        if (
+          !id ||
+          id === '.' ||
+          id === '..' ||
+          /[\x00-\x1f\x7f]/.test(id) ||
+          encodeURIComponent(id) !== permission[2]
+        )
+          throw new Error()
+        validationPath = `${permission[1]}request-id${permission[3]}`
+      }
+      const validationUrl = new URL(validationPath, 'https://desktop.invalid')
+      const decoded = decodeURIComponent(validationUrl.pathname)
+      const rawPath = decodeURIComponent(validationPath)
       if (
         url.origin !== 'https://desktop.invalid' ||
         (!request.path.startsWith('/api/') && request.path !== '/health') ||
         url.hash ||
         /[\\\x00-\x1f]/.test(rawPath) ||
         rawPath.split('/').some((p) => p === '..' || p === '.') ||
-        /%2f|%5c|%25/i.test(url.pathname) ||
+        /%2f|%5c|%25/i.test(validationUrl.pathname) ||
         decoded.split('/').some((p) => p === '..' || p === '.') ||
         !allowed[request.method].some((pattern) => pattern.test(url.pathname)) ||
         url.searchParams.has('token') ||

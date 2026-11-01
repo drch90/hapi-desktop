@@ -26,26 +26,34 @@ describe('desktop Markdown', () => {
     expect(container.querySelector('[data-hapi-code-block]')).not.toBeNull()
   })
 
-  it('keeps tab indentation and Markdown-looking source literal while retaining explicit user Markdown', () => {
-    const raw = '\t# comment\r\n\t\\(literal\\) **raw** <img src=x>\r\n\t\t$host$uri'
+  it('preserves every user character, including unindented comments, blank lines, tabs and Markdown syntax', () => {
+    const raw =
+      '# comment\r\n  two spaces\r\n\t\\(literal\\) **raw** <img src=x>\r\n\t\t$host$uri\n\n\n' +
+      '[Session](/sessions/example)\n\n```python\n  # fenced\n```\n\n- List\n> Quote\n~~~nginx\n  allow all;\n~~~\n  '
+    const openSession = vi.fn()
     const { container } = render(
-      <MarkdownRenderer
-        userMessage
-        content={`First\nsecond\n\n${raw}\n\n[Session](/sessions/example)\n\n\`\`\`\nfenced\n\`\`\`\n\n~~~nginx\n  allow all;\n~~~`}
-      />,
+      <LinkContext.Provider value={{ openSession, openFile: vi.fn() }}>
+        <MarkdownRenderer userMessage content={raw} />
+      </LinkContext.Provider>,
     )
     expect(container.querySelector('.user-text-literal')?.textContent).toBe(raw)
-    expect(container.querySelectorAll('br')).toHaveLength(1)
-    expect(container.querySelectorAll('[data-hapi-code-block]')).toHaveLength(2)
-    expect(codeLines(container)).toEqual(['fenced', '  allow all;'])
     expect(container.querySelector('a')?.getAttribute('href')).toBe('/sessions/example')
-    expect(container.querySelector('img, .katex, strong')).toBeNull()
+    expect(container.querySelector('a')?.textContent).toBe('[Session](/sessions/example)')
+    fireEvent.click(container.querySelector('a')!)
+    expect(openSession).toHaveBeenCalledWith('example')
+    expect(
+      container.querySelector(
+        'br, pre, code, [data-hapi-code-block], img, .katex, strong, h1, ul, blockquote',
+      ),
+    ).toBeNull()
   })
 
-  it('preserves intentional nested Markdown code in user lists and quotes', () => {
-    const { container } = render(
-      <MarkdownRenderer userMessage content={'- Example\n\n      nested\n\n>     quoted'} />,
-    )
+  it('keeps assistant lists and quoted code formatted after displaying the same user source literally', () => {
+    const content = '- Example\n\n      nested\n\n>     quoted'
+    const { container, rerender } = render(<MarkdownRenderer userMessage content={content} />)
+    expect(container.textContent).toBe(content)
+    expect(container.querySelector('li, blockquote, [data-hapi-code-block]')).toBeNull()
+    rerender(<MarkdownRenderer content={content} />)
     expect(container.querySelector('li [data-hapi-code-block]')).not.toBeNull()
     expect(container.querySelector('blockquote [data-hapi-code-block]')).not.toBeNull()
     expect(codeLines(container)).toEqual(['nested', 'quoted'])

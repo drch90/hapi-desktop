@@ -4,6 +4,34 @@ import path from 'node:path'
 // English source strings are shared by desktop components and native menus.
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
+  ['All tabs', '全部标签', '全部分頁', 'Tous les onglets', 'すべてのタブ', 'Все вкладки', 'Tất cả thẻ'],
+  [
+    'Other models',
+    '其他模型',
+    '其他模型',
+    'Autres modèles',
+    'その他のモデル',
+    'Другие модели',
+    'Các mô hình khác',
+  ],
+  [
+    'Not in current model list',
+    '不在当前模型列表中',
+    '不在目前模型清單中',
+    'Absent de la liste actuelle',
+    '現在のモデル一覧にありません',
+    'Нет в текущем списке моделей',
+    'Không có trong danh sách mô hình hiện tại',
+  ],
+  [
+    'Compacting context. Waiting for message acceptance.',
+    '正在压缩上下文，等待消息接收确认。',
+    '正在壓縮上下文，等待訊息接收確認。',
+    'Compression du contexte. En attente de confirmation du message.',
+    'コンテキストを圧縮中です。メッセージの受信確認を待っています。',
+    'Контекст сжимается. Ожидание подтверждения приёма сообщения.',
+    'Đang nén ngữ cảnh. Chờ xác nhận nhận tin nhắn.',
+  ],
   [
     'System health',
     '系统健康',

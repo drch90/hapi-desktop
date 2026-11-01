@@ -338,6 +338,7 @@ export function sessionTitle(session?: Pick<SessionSummary, 'id' | 'metadata'>) 
   return (
     session?.metadata?.name ||
     session?.metadata?.summary?.text ||
+    session?.metadata?.promptTitle ||
     session?.metadata?.path?.split('/').filter(Boolean).pop() ||
     session?.id.slice(0, 8) ||
     'HAPI'

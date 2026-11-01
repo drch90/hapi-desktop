@@ -185,7 +185,7 @@ export default function LongMarkdown(props: Props) {
       {mode === 'source' ? (
         <VirtualTextContent
           code={props.content}
-          language="Markdown"
+          language={props.userMessage ? 'text' : 'Markdown'}
           canCopy={props.canCopy}
           scrollKey={`${scrollKey}:source`}
           toolbarStart={modes}

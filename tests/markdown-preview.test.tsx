@@ -125,14 +125,17 @@ describe('rendered long Markdown', () => {
   })
 
   it('retains literal indentation for long user messages', () => {
-    const sections = renderMarkdownSections(
-      '    # literal comment\n    **not bold**\n\n' + 'More text.\n\n'.repeat(400),
-      { userMessage: true },
+    const content = '# literal comment\r\n  **not bold**\r\n\t$host\n\n\n'.repeat(800)
+    const sections = renderMarkdownSections(content, { userMessage: true })
+    const { container } = render(
+      <>
+        {sections.map(({ tree }, index) => (
+          <MarkdownTree key={index} tree={tree} />
+        ))}
+      </>,
     )
-    const { container } = render(<MarkdownTree tree={sections[0].tree} />)
-    expect(container.querySelector('.user-text-literal')?.textContent).toBe(
-      '    # literal comment\n    **not bold**',
-    )
-    expect(container.querySelector('strong, h1')).toBeNull()
+    expect(sections.length).toBeGreaterThan(1)
+    expect(container.textContent).toBe(content)
+    expect(container.querySelector('strong, h1, code, pre')).toBeNull()
   })
 })

@@ -5,7 +5,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import remarkLatexBracketMath from '@/lib/remark-latex-bracket-math'
 import remarkRepairTables from '@/lib/remark-repair-tables'
-import { remarkUserIndentation } from './remark-user-indentation'
+import { remarkUserText } from './remark-user-text'
 
 export type MarkdownOptions = { preserveSingleLineBreaks?: boolean; userMessage?: boolean }
 
@@ -17,7 +17,7 @@ const remarkPlugins: PluggableList = [
   [remarkMath, { singleDollarTextMath: false }],
 ]
 const remarkPluginsWithBreaks: PluggableList = [...remarkPlugins, remarkBreaks]
-const userRemarkPlugins: PluggableList = [...remarkPluginsWithBreaks, remarkUserIndentation]
+const userRemarkPlugins: PluggableList = [[remarkGfm, { singleTilde: false }], remarkUserText]
 export const rehypePlugins: PluggableList = [rehypeKatex]
 
 export function getRemarkPlugins(options: MarkdownOptions): PluggableList {

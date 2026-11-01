@@ -23,6 +23,7 @@ export function QueuedMessages({
   sessionId,
   messages,
   canSteer,
+  compactionPendingMessageIds,
   disabled,
   scope,
   draftText,
@@ -32,6 +33,7 @@ export function QueuedMessages({
   sessionId: string
   messages: DecryptedMessage[]
   canSteer: boolean
+  compactionPendingMessageIds?: readonly string[]
   disabled: boolean
   scope: string
   draftText: string
@@ -91,6 +93,8 @@ export function QueuedMessages({
                 message.deliveryState !== 'dispatching' &&
                 computeCanCancel({ id: message.id, localId: message.localId, isPending: working })
               const uncertain = message.deliveryState === 'indeterminate'
+              const waitingForCompaction =
+                uncertain && compactionPendingMessageIds?.includes(message.localId ?? message.id) === true
               const dispatching = message.deliveryState === 'dispatching'
               return (
                 <li className="queue-item" key={message.localId ?? message.id}>
@@ -116,7 +120,11 @@ export function QueuedMessages({
                     )}
                     {uncertain && (
                       <div className="small muted">
-                        {t('Delivery is unconfirmed. Check before sending again.')}
+                        {t(
+                          waitingForCompaction
+                            ? 'Compacting context. Waiting for message acceptance.'
+                            : 'Delivery is unconfirmed. Check before sending again.',
+                        )}
                       </div>
                     )}
                     {dispatching && (
@@ -148,7 +156,7 @@ export function QueuedMessages({
                         <Zap size={14} aria-hidden="true" />
                       </Button>
                     )}
-                    {uncertain && (
+                    {uncertain && !waitingForCompaction && (
                       <Button
                         type="button"
                         size="sm"

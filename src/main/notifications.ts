@@ -75,6 +75,7 @@ export class NotificationTracker {
             metadata: z
               .object({
                 name: z.string().optional(),
+                promptTitle: z.string().optional(),
                 path: z.string(),
                 summary: z.object({ text: z.string() }).optional(),
               })
@@ -103,6 +104,7 @@ export class NotificationTracker {
           ? current.title
           : row.metadata?.name ||
             row.metadata?.summary?.text ||
+            row.metadata?.promptTitle ||
             row.metadata?.path.split('/').pop() ||
             row.id.slice(0, 8),
         requests,
@@ -147,7 +149,11 @@ export class NotificationTracker {
       if (metadata && metadataVersion !== undefined && metadataVersion > session.metadataVersion) {
         this.snapshot?.metadata.add(sessionId)
         session.title =
-          metadata.name || metadata.summary?.text || metadata.path?.split('/').pop() || session.title
+          metadata.name ||
+          metadata.summary?.text ||
+          metadata.promptTitle ||
+          metadata.path?.split('/').pop() ||
+          session.title
         session.metadataVersion = metadataVersion
       }
       const version = full.success

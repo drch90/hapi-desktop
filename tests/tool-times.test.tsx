@@ -23,6 +23,21 @@ afterEach(() => {
 })
 
 describe('tool execution timestamps', () => {
+  it('shows native command duration without inventing a start time for late results', () => {
+    const { container } = render(
+      <ToolExecutionTimes
+        tool={{
+          ...base,
+          state: 'completed',
+          completedAt: 5000,
+          startUnavailable: true,
+          executionDurationMs: 2300,
+        }}
+      />,
+    )
+    expect(container.querySelector('time')?.textContent).toBe('—')
+    expect(screen.getByText('2.3s')).toBeTruthy()
+  })
   it('always renders three fields and does not invent pending timestamps', () => {
     render(<ToolExecutionTimes tool={base} />)
     for (const key of ['Start time', 'End time', 'Elapsed']) expect(screen.getByText(key)).toBeTruthy()

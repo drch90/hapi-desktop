@@ -3,7 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Folder } from 'lucide-react'
 import { SessionSchema } from '@hapi/protocol/schemas'
-import { type CodexCollaborationMode, type PermissionMode, type SessionSummary } from '@hapi/protocol'
+import {
+  getClaudeEffortLevelsForModel,
+  resolveClaudeEffortForModel,
+  type CodexCollaborationMode,
+  type PermissionMode,
+  type SessionSummary,
+} from '@hapi/protocol'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MachineSelector } from '@/components/NewSession/MachineSelector'
@@ -25,6 +31,9 @@ import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useDirectorySuggestions } from '@/hooks/useDirectorySuggestions'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
+import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
+import { getClaudeLaunchModelOptions } from '@/components/AssistantChat/modelOptions'
+import { getClaudeComposerEffortOptions } from '@/components/AssistantChat/claudeEffortOptions'
 import { useOpencodeModelsForCwd } from '@/hooks/queries/useOpencodeModelsForCwd'
 import { useOpencodeModelVariants } from '@/hooks/queries/useOpencodeModelVariants'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
@@ -144,6 +153,16 @@ export function NewSessionDialog({
     enabled: agent === 'hermes' && available && currentPathReady,
   })
   const codex = useCodexModels({ api, machineId, enabled: agent === 'codex' && available })
+  const claude = useClaudeModels({ api, machineId, enabled: agent === 'claude' && available })
+  const claudeEfforts = getClaudeEffortLevelsForModel(model === 'auto' ? null : model, claude.availableModels)
+  const effectiveClaudeEffort = resolveClaudeEffortForModel(
+    effort === 'auto' ? null : effort,
+    model === 'auto' ? null : model,
+    claude.availableModels,
+  )
+  useEffect(() => {
+    if (agent === 'claude') setEffort(effectiveClaudeEffort ?? 'auto')
+  }, [agent, effectiveClaudeEffort])
   const opencode = useOpencodeModelsForCwd({ api, machineId, cwd, enabled: discoverOpencode })
   const variants = useOpencodeModelVariants({ api, machineId, cwd, enabled: discoverOpencode })
   const effectiveOpencodeModel = model === 'auto' ? opencode.currentModelId : model
@@ -232,7 +251,7 @@ export function NewSessionDialog({
                   (agent === 'codex' || agent === 'opencode') && reasoning !== 'default'
                     ? reasoning
                     : undefined,
-                effort: agent === 'claude' && effort !== 'auto' ? effort : undefined,
+                effort: agent === 'claude' ? (effectiveClaudeEffort ?? undefined) : undefined,
                 permissionMode: permission,
                 yolo: agent === 'hermes' ? undefined : yolo,
                 sessionType,
@@ -408,7 +427,14 @@ export function NewSessionDialog({
                           { value: 'auto', label: t('Default') },
                           ...codex.models.map((item) => ({ value: item.id, label: item.displayName })),
                         ]
-                      : undefined
+                      : agent === 'claude'
+                        ? getClaudeLaunchModelOptions(
+                            claude.availableModels,
+                            model,
+                            t('Not in current model list'),
+                            t('Other models'),
+                          )
+                        : undefined
                   }
                   isDisabled={busy || (agent === 'codex' && Boolean(codex.error))}
                   isLoading={agent === 'codex' && codex.isLoading}
@@ -434,6 +460,14 @@ export function NewSessionDialog({
                   reasoningEffort={reasoning}
                   onReasoningEffortChange={setReasoning}
                   codexReasoningOptions={codexEfforts?.map((value) => ({ value }))}
+                  claudeOptions={
+                    agent === 'claude'
+                      ? getClaudeComposerEffortOptions(null, claudeEfforts).map((option) => ({
+                          value: option.value ?? 'auto',
+                          label: t(option.label, { defaultValue: option.label }),
+                        }))
+                      : undefined
+                  }
                   opencodeVariantOptions={variantOptions}
                   isDisabled={busy || optionsPending || (agent === 'opencode' && !discoverOpencode)}
                 />

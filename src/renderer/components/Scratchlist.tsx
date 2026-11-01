@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { z } from 'zod'
@@ -89,6 +89,31 @@ export function Scratchlist(props: {
   const [error, setError] = useState('')
   const [edit, setEdit] = useState<ScratchlistEntry | null>(null)
   const [editText, setEditText] = useState('')
+  const panel = useRef<HTMLElement>(null)
+  const [editorBounds, setEditorBounds] = useState<{ width: number; center: number }>()
+  useLayoutEffect(() => {
+    const element = panel.current
+    if (!edit || !element) return
+    const measure = () => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      const left = parseFloat(style.paddingLeft)
+      const width = element.clientWidth - left - parseFloat(style.paddingRight)
+      if (width > 0) setEditorBounds({ width, center: rect.left + element.clientLeft + left + width / 2 })
+    }
+    measure()
+    // The dialog is portalled; follow its owning column even when the list
+    // has reached its maximum width and the surrounding pane keeps resizing.
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    const chat = element.closest('.chat')
+    if (chat) observer.observe(chat)
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [edit?.id])
   const fileInput = useRef<HTMLInputElement>(null)
   const entries = useMemo(
     () => (query.data?.entries ?? []).map(({ entryId, ...entry }) => ({ ...entry, id: entryId })),
@@ -302,7 +327,7 @@ export function Scratchlist(props: {
     })
   }
   return (
-    <section className="scratchlist-panel" aria-label={t('Scratchlist')}>
+    <section ref={panel} className="scratchlist-panel" aria-label={t('Scratchlist')}>
       <div className="scratchlist-add">
         <textarea
           aria-label={t('New stored message')}
@@ -396,7 +421,14 @@ export function Scratchlist(props: {
             if (!open && !busy) setEdit(null)
           }}
         >
-          <DialogContent className="desktop-dialog">
+          <DialogContent
+            className="desktop-dialog scratchlist-edit-dialog"
+            style={
+              editorBounds
+                ? { maxWidth: Math.min(450, editorBounds.width), left: editorBounds.center }
+                : undefined
+            }
+          >
             <DialogHeader>
               <DialogTitle>{t('Edit stored message')}</DialogTitle>
             </DialogHeader>
@@ -413,21 +445,27 @@ export function Scratchlist(props: {
                 {t(error)}
               </p>
             )}
-            <Button
-              disabled={busy || !props.connected || !editText.trim()}
-              onClick={() =>
-                void run(async () => {
-                  await client.updateScratchlistEntry(sessionId, edit.id, editText)
-                  if (mounted.current) setEdit(null)
-                  await refresh()
-                })
-              }
-            >
-              {t('Save changes')}
-            </Button>
-            <Button variant="outline" disabled={busy || !props.connected} onClick={() => void compose(edit)}>
-              {t('Add to composer')}
-            </Button>
+            <div className="dialog-actions">
+              <Button
+                disabled={busy || !props.connected || !editText.trim()}
+                onClick={() =>
+                  void run(async () => {
+                    await client.updateScratchlistEntry(sessionId, edit.id, editText)
+                    if (mounted.current) setEdit(null)
+                    await refresh()
+                  })
+                }
+              >
+                {t('Save changes')}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || !props.connected}
+                onClick={() => void compose(edit)}
+              >
+                {t('Add to composer')}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}
