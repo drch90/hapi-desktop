@@ -1978,6 +1978,12 @@ input[type='checkbox'] {
   padding: 14px var(--desk-chat-gutter) 20px;
   flex-shrink: 0;
 }
+.composer-wrap.send-recovery {
+  min-height: 0;
+  flex-shrink: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .composer-editor-bar {
   display: flex;
   align-items: center;
@@ -2223,6 +2229,12 @@ input[type='checkbox'] {
 }
 .send-alert .inline-actions {
   margin-top: 7px;
+}
+.send-alert .inline-actions > button {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  white-space: normal;
 }
 .send-alert .queue-text {
   max-height: 5em;

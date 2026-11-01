@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { useEffect, useState } from 'react'
 import type { ApiClient } from '@/api/client'
 import { ApiError } from '@/api/client'
-import { AttachmentMetadataSchema } from '@hapi/protocol/schemas'
+import { AttachmentMetadataSchema, CancelMessageResponseSchema } from '@hapi/protocol/schemas'
 import { mergeRecoveryQueues, readRecoveryQueue, updateRecoveryQueue, writeRecoveryQueue } from './recovery'
 
 export const attemptSchema = z.object({
@@ -85,6 +85,29 @@ export async function checkDelivery(
     return 'accepted'
   if (result.indeterminateLocalIds?.includes(attempt.localId)) return 'indeterminate'
   return 'absent'
+}
+
+export async function cancelAttempt(
+  client: Pick<ApiClient, 'cancelMessage'>,
+  id: string,
+  attempt: SendAttempt,
+) {
+  // Hub accepts the durable localId as well as its own message ID, including
+  // when the send response was lost before the client learned the server ID.
+  const response = await client.cancelMessage(id, attempt.localId)
+  const parsed = CancelMessageResponseSchema.safeParse(response)
+  if (!parsed.success) throw new Error('INVALID_RESPONSE')
+  const result = parsed.data
+  if (result.status === 'invoked') {
+    if (result.message.localId !== attempt.localId || result.message.invokedAt == null)
+      throw new Error('INVALID_RESPONSE')
+  } else if (
+    result.localId !== attempt.localId &&
+    !(result.status === 'cancelled' && result.localId === null)
+  ) {
+    throw new Error('INVALID_RESPONSE')
+  }
+  return result
 }
 
 export function uncertainDelivery(error: unknown) {

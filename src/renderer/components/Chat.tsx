@@ -42,6 +42,7 @@ import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInp
 import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
 import { CodeBlock } from '@/components/CodeBlock'
 import { useMessages } from '@/hooks/queries/useMessages'
+import { appendOptimisticMessage, removeOptimisticMessage } from '@/lib/message-window-store'
 import { useSlashCommands } from '@/hooks/queries/useSlashCommands'
 import { Autocomplete } from '@/components/ChatInput/Autocomplete'
 import { applySuggestion } from '@/utils/applySuggestion'
@@ -71,7 +72,15 @@ import {
   type Draft,
   type SessionLocalStateChange,
 } from '../lib/workspace'
-import { checkDelivery, useAttempt, storeAttempt, uncertainDelivery, type SendAttempt } from '../lib/outbox'
+import {
+  cancelAttempt,
+  checkDelivery,
+  loadAttempt,
+  useAttempt,
+  storeAttempt,
+  uncertainDelivery,
+  type SendAttempt,
+} from '../lib/outbox'
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { MessageActions } from './MessageActions'
 import { ToolMessage } from './ToolMessage'
@@ -79,6 +88,7 @@ import { Scratchlist } from './Scratchlist'
 import { ContextUsage } from './Usage'
 import { ComposerStatus } from './ComposerStatus'
 import { QueuedMessages } from './QueuedMessages'
+import { SendRecoveryNotice } from './SendRecoveryNotice'
 import { formatTokenDelta } from '@/components/AssistantChat/messages/SystemMessage'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
@@ -86,6 +96,7 @@ import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread
 import { buildConversationOutline } from '@/chat/outline'
 import { useTranscriptNavigation } from '../lib/useTranscriptNavigation'
 import { useComposerSuggestions } from '../lib/useComposerSuggestions'
+import { isComposerCommand, isNativeClearCommand } from '../lib/composerCommands'
 import { parkComposerDraft, useComposerPark } from '../lib/composerPark'
 import { formatFileReference } from '@/lib/file-composer'
 import {
@@ -178,6 +189,10 @@ export function Chat({
   const mentionKey = `${draft.text}:${selection.start}:${selection.end}`
   const mentionQuery = mention && mentionKey !== dismissedMention ? mention.activeWord : null
   const slashCommands = useSlashCommands(api, id, session?.metadata?.flavor ?? 'codex')
+  const commandContext = {
+    commands: slashCommands.commands,
+    supportsNativeClear: session?.metadata?.capabilities?.concurrentClients === true,
+  }
   const commandQuery = commandMenuOpen
     ? '/'
     : /^\/[^\s]*$/.test(draft.text) && draft.text !== dismissedCommandQuery
@@ -434,6 +449,15 @@ export function Chat({
       setBusy(false)
     }
   }
+  function resumeArchivedSession() {
+    void action(async () => {
+      const to = await scopedApi.resumeSession(id)
+      if (to !== id) await attachments.transfer(to)
+      saveDraft(scope, id, latestDraft.current)
+      if (to !== id) migrated.current = true
+      replaceSession(id, to)
+    }).catch(() => {})
+  }
   async function send(retry = false, deliveryMode: MessageDeliveryMode = 'queue') {
     if (scratchlistOpen && !latestDraft.current.pendingSchedule && !retry) {
       if (deliveryMode === 'queue') await parkDraft()
@@ -442,7 +466,10 @@ export function Chat({
     if (
       busy ||
       editWorking ||
-      (deliveryMode === 'steer' && (!canSteer || latestDraft.current.pendingSchedule)) ||
+      (deliveryMode === 'steer' &&
+        (!canSteer ||
+          latestDraft.current.pendingSchedule ||
+          isComposerCommand(latestDraft.current.text, commandContext))) ||
       !session ||
       !connected ||
       (retry
@@ -498,7 +525,7 @@ export function Chat({
         scheduledAt === null &&
         session.metadata?.capabilities?.concurrentClients &&
         !selectedAttachments.length &&
-        /^\/(clear|new)\s*$/.test(submitted.text.trim())
+        isNativeClearCommand(submitted.text)
       ) {
         const result = await scopedApi.clearConversation(target)
         if (typeof result.sessionId !== 'string' || !result.sessionId || result.sessionId.length > 256)
@@ -663,31 +690,54 @@ export function Chat({
       if (selected) attachments.release()
     }
   }
-  async function inspectAttempt() {
-    if (!attempt || busy || attachments.loading) return
+  async function resolveSendAttempt(operation: 'check' | 'cancel') {
+    if (!attempt || busy || editWorking || !connected || attachments.loading) return
+    const current = () => alive.current && !migrated.current && attachments.isCurrent()
     setBusy(true)
     setError('')
     try {
-      const status = await checkDelivery(scopedApi, id, attempt)
-      if (status === 'accepted') {
+      // A failed cancellation or receipt lookup invalidates an earlier absence
+      // check. Keep the receipt and require another check before any retry.
+      storeAttempt(scope, id, { ...attempt, status: 'unconfirmed' })
+      const result =
+        operation === 'cancel'
+          ? await cancelAttempt(scopedApi, id, attempt)
+          : { status: await checkDelivery(scopedApi, id, attempt) }
+      // Closing a tab or changing accounts leaves its receipt for the next
+      // check; an old response must not overwrite another mounted draft.
+      if (!current()) return
+      if (result.status === 'cancelled') {
+        removeOptimisticMessage(id, attempt.localId)
+        storeAttempt(scope, id, null, attempt.localId)
+      } else if (result.status === 'accepted' || result.status === 'invoked') {
+        if (result.status === 'invoked') {
+          appendOptimisticMessage(id, { ...result.message, status: 'sent' })
+        }
+        if (attachments.error) throw new Error('ATTACHMENTS_NOT_READY')
         await attachments.clearSent(attempt.attachments?.map((item) => item.id) ?? [])
+        if (!current()) return
         if (
           latestDraft.current.text === attempt.text &&
           (!attempt.draftRevision || latestDraft.current.revision === attempt.draftRevision)
         ) {
           updateDraft({ text: '', pendingSchedule: null })
           setComposerExpanded(false)
+          saveDraft(scope, id, latestDraft.current)
         }
         storeAttempt(scope, id, null, attempt.localId)
+        if (result.status === 'invoked' && !loadAttempt(scope, id))
+          setError('The agent already received this message. Its history is kept.')
       } else {
-        const next = { ...attempt, status }
-        storeAttempt(scope, id, next)
+        const status = result.status === 'busy' ? 'indeterminate' : result.status
+        storeAttempt(scope, id, { ...attempt, status })
+        if (result.status === 'busy')
+          setError('Cancellation is not confirmed. The message and draft are kept.')
       }
       await messages.refetch()
     } catch (error) {
-      setError(errorKey(error))
+      if (current()) setError(errorKey(error))
     } finally {
-      setBusy(false)
+      if (current()) setBusy(false)
     }
   }
   async function restoreQueueEdit() {
@@ -1191,35 +1241,16 @@ export function Chat({
           compactionPendingMessageIds={session?.agentState?.codexCompactionPendingMessageIds ?? undefined}
           disabled={!connected || busy || editWorking || Boolean(attempt)}
         />
-        <div className="composer-wrap">
-          {(error || attempt) && (
-            <div className="send-alert" role="status">
-              <span>{t(error || 'Delivery is unconfirmed. Check before sending again.')}</span>
-              {attempt?.text && <p className="queue-text">{attempt.text}</p>}
-              {attempt && (
-                <div className="inline-actions">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !connected || attachments.loading}
-                    onClick={() => void inspectAttempt()}
-                  >
-                    {t('Check delivery')}
-                  </Button>
-                  {attempt.status === 'absent' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || !connected}
-                      onClick={() => void send(true)}
-                    >
-                      {t('Retry sending')}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+        <div className={`composer-wrap${attempt ? ' send-recovery' : ''}`}>
+          <SendRecoveryNotice
+            attempt={attempt}
+            error={error}
+            disabled={busy || editWorking || !connected || attachments.loading}
+            onCheck={() => void resolveSendAttempt('check')}
+            onRetry={() => void send(true)}
+            onCancel={() => void resolveSendAttempt('cancel')}
+            onResume={session && !session.active ? resumeArchivedSession : undefined}
+          />
           <form
             className={`composer ${routesToScratchlist ? 'scratchlist-mode' : ''}`}
             onDragOver={(event) => {
@@ -1566,7 +1597,7 @@ export function Chat({
                 {canSteer &&
                   !scratchlistOpen &&
                   !pendingSchedule &&
-                  !draft.text.trimStart().startsWith('/') && (
+                  !isComposerCommand(draft.text, commandContext) && (
                     <Button
                       type="button"
                       size="sm"
@@ -1596,21 +1627,13 @@ export function Chat({
                     {t('Stop')}
                   </Button>
                 )}
-                {session && !session.active && (
+                {session && !session.active && !attempt && (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={!connected || busy || Boolean(attempt)}
-                    onClick={() =>
-                      void action(async () => {
-                        const to = await scopedApi.resumeSession(id)
-                        if (to !== id) await attachments.transfer(to)
-                        saveDraft(scope, id, latestDraft.current)
-                        if (to !== id) migrated.current = true
-                        replaceSession(id, to)
-                      }).catch(() => {})
-                    }
+                    disabled={!connected || busy || editWorking || attachments.loading}
+                    onClick={resumeArchivedSession}
                   >
                     {t('Resume')}
                   </Button>

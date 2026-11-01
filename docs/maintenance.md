@@ -26,16 +26,19 @@ Hub → runner / CLI
 | 设置、登录信息、旧设置丢失 | [storage.ts](../src/main/storage.ts)、[policy.ts](../src/shared/policy.ts) | `storage.test.ts`、`state.test.ts` |
 | 标签、分栏、草稿归属 | [Tabs.tsx](../src/renderer/components/Tabs.tsx)、[workspace.ts](../src/renderer/lib/workspace.ts) | `state.test.ts`、标签 Electron 用例 |
 | 会话列表、搜索、目录分组 | [sessionList.ts](../src/renderer/lib/sessionList.ts)、[SessionSearch.tsx](../src/renderer/components/SessionSearch.tsx)、[SessionWorkspaceGroup.tsx](../src/renderer/components/SessionWorkspaceGroup.tsx) | `session-search.test.tsx`、列表 Electron 用例 |
-| 发送、重复发送、送达不明 | [outbox.ts](../src/renderer/lib/outbox.ts)、[recovery.ts](../src/renderer/lib/recovery.ts)、[Chat.tsx](../src/renderer/components/Chat.tsx) | `state.test.ts`、发送/重连 Electron 用例 |
+| 发送、重复发送、送达不明 | [outbox.ts](../src/renderer/lib/outbox.ts)、[SendRecoveryNotice.tsx](../src/renderer/components/SendRecoveryNotice.tsx)、[recovery.ts](../src/renderer/lib/recovery.ts)、[Chat.tsx](../src/renderer/components/Chat.tsx) | `state.test.ts`、`send-recovery.test.ts`、`send-recovery.e2e.ts` |
+| `/` 开头文本、命令补全与优先插入 | [composerCommands.ts](../src/renderer/lib/composerCommands.ts)、[useComposerSuggestions.ts](../src/renderer/lib/useComposerSuggestions.ts)、[Chat.tsx](../src/renderer/components/Chat.tsx) | `composer-commands.test.ts`、命令/优先插入 Electron 用例 |
 | 排队、编辑、暂存与附件 | [queueEdit.ts](../src/renderer/lib/queueEdit.ts)、[composerPark.ts](../src/renderer/lib/composerPark.ts)、[useAttachments.ts](../src/renderer/lib/useAttachments.ts)、对应具名组件 | `composer-park.test.ts`、`alignment.e2e.ts`、队列/附件 Electron 用例 |
 | 历史短、滚动跳动、执行记录折叠 | [useTranscriptNavigation.ts](../src/renderer/lib/useTranscriptNavigation.ts)、[article-transcript.ts](../src/renderer/lib/article-transcript.ts)、[message-window-store.ts](../vendor/hapi/web/src/lib/message-window-store.ts) | `navigation.test.ts`、`article-transcript.test.ts`、共享历史测试 |
 | 原文、Markdown、代码、长文 | [Markdown.tsx](../src/renderer/components/Markdown.tsx)、[remark-user-text.ts](../src/renderer/lib/remark-user-text.ts)、[LongMarkdown.tsx](../src/renderer/components/LongMarkdown.tsx)、[VirtualTextContent.tsx](../src/renderer/components/VirtualTextContent.tsx) | `markdown*.test.tsx`、`large-content.test.tsx`、相关 Electron 用例 |
 | 模型、权限、问答 | [SessionConfiguration.tsx](../src/renderer/components/SessionConfiguration.tsx)、[NewSessionDialog.tsx](../src/renderer/components/NewSessionDialog.tsx)、共享协议与问答组件 | `alignment.e2e.ts`、共享模型/权限测试 |
 | 文件、图片与导出 | [FilePreview.tsx](../src/renderer/components/FilePreview.tsx)、[SaveFileButton.tsx](../src/renderer/components/SaveFileButton.tsx)、[image-export.ts](../src/main/image-export.ts) | `file-preview.test.tsx`、`media.test.tsx`、`markdown-share.test.tsx` |
 | 上游升级、接口不兼容 | [vendor 规范](../vendor/AGENTS.md)、[对齐记录](upstream-alignment.md) | 来源重放、共享契约、受影响 Electron 用例 |
-| 打包或 CI 失败 | [package.json](../package.json)、[package-win.mjs](../scripts/package-win.mjs)、[CI 排查](ci-troubleshooting.md) | 构建、版本与包校验；系统行为另做 Windows 验证 |
+| 打包或 CI 失败 | [package.json](../package.json)、[package-win.mjs](../scripts/package-win.mjs)、[verify-package.mjs](../scripts/verify-package.mjs)、[CI 排查](ci-troubleshooting.md) | 构建、版本与包校验；系统行为另做 Windows 验证 |
 
 测试文件名在 `tests/` 下查找，共享测试另按配置定位。表中是起点，不能据此跳过实际调用方和适用目录规范。
+
+待确认发送按原 `localId` 调用 Hub 的取消接口；`cancelled`、`invoked`、`busy` 必须分别处理。只有确认取消或已收到时才移除对应恢复记录，不能通过直接清空本地记录解除未知送达的锁定。归档恢复与送达检查独立，沿用会话 ID、草稿和附件的现有迁移流程。新 Electron 回归可复用 [desktop fixture](../tests/fixtures/desktop.ts) 启动和清理模拟 Hub 与桌面进程。
 
 ## 怎样逐步模块化
 

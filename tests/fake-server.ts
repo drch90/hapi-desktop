@@ -163,6 +163,7 @@ export class FixtureHub {
   scratchSaveGate: Promise<void> | null = null
   failScratchDelete = false
   cancelGate: Promise<void> | null = null
+  failCancel = false
   scratchlists = new Map<
     string,
     Map<
@@ -702,7 +703,16 @@ export class FixtureHub {
     }
     const queueAction = /^\/messages\/([^/]+)(?:\/(steer|retry))?$/.exec(action)
     if (queueAction) {
-      const message = this.messages.get(id)?.find((m) => m.id === decodeURIComponent(queueAction[1]))
+      if (request.method === 'DELETE') {
+        await this.cancelGate
+        if (this.failCancel) {
+          response.destroy()
+          return
+        }
+      }
+      // The real Hub accepts either the server ID or the durable localId.
+      const messageId = decodeURIComponent(queueAction[1])
+      const message = this.messages.get(id)?.find((m) => m.id === messageId || m.localId === messageId)
       if (!message) {
         reply({ status: 'cancelled', localId: null })
         return
@@ -747,12 +757,22 @@ export class FixtureHub {
         return
       }
       if (request.method === 'DELETE') {
-        await this.cancelGate
         if (message.invokedAt != null) {
           reply({ status: 'invoked', message })
           return
         }
-        if (message.deliveryState === 'indeterminate') {
+        const shared = session.metadata?.capabilities?.concurrentClients === true
+        const offlineShared = shared && !session.active && (message.scheduledAt ?? 0) <= Date.now()
+        // Active unknown sends model a CLI still holding the reservation.
+        // An offline shared worker may also keep processing its native queue.
+        if (
+          message.deliveryState === 'dispatching' ||
+          offlineShared ||
+          (message.deliveryState === 'indeterminate' && (session.active || shared))
+        ) {
+          message.deliveryState = 'indeterminate'
+          if (this.emitQueueEvents && message.localId)
+            this.emit({ type: 'messages-indeterminate', sessionId: id, localIds: [message.localId] })
           reply({ status: 'busy', localId: message.localId })
           return
         }

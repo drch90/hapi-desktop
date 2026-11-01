@@ -4,6 +4,33 @@ import path from 'node:path'
 // English source strings are shared by desktop components and native menus.
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
+  [
+    'Cancel sending',
+    '取消发送',
+    '取消傳送',
+    'Annuler l’envoi',
+    '送信をキャンセル',
+    'Отменить отправку',
+    'Hủy gửi',
+  ],
+  [
+    'Cancellation is not confirmed. The message and draft are kept.',
+    '暂时无法确认取消结果，消息和草稿已保留。',
+    '暫時無法確認取消結果，訊息和草稿已保留。',
+    'L’annulation n’est pas confirmée. Le message et le brouillon sont conservés.',
+    'キャンセルを確認できません。メッセージと下書きは保持されています。',
+    'Отмена не подтверждена. Сообщение и черновик сохранены.',
+    'Chưa xác nhận được việc hủy. Tin nhắn và bản nháp được giữ lại.',
+  ],
+  [
+    'The agent already received this message. Its history is kept.',
+    'Agent 已收到此消息，历史记录已保留。',
+    'Agent 已收到此訊息，歷史記錄已保留。',
+    'L’agent a déjà reçu ce message. Son historique est conservé.',
+    'エージェントはすでにこのメッセージを受信しています。履歴は保持されています。',
+    'Агент уже получил это сообщение. История сохранена.',
+    'Agent đã nhận được tin nhắn này. Lịch sử được giữ lại.',
+  ],
   ['All tabs', '全部标签', '全部分頁', 'Tous les onglets', 'すべてのタブ', 'Все вкладки', 'Tất cả thẻ'],
   [
     'Other models',

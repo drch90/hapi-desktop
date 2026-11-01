@@ -3707,12 +3707,38 @@ test('priority insertion respects provider capability, retains failed messages a
   server.emit({ type: 'session-updated', sessionId: 'design', data: session })
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
-  await chat.getByRole('textbox').fill('直接插入当前轮')
-  await chat.locator('.composer').getByRole('button', { name: '优先插入', exact: true }).click()
+  const composer = chat.locator('.composer')
+  const input = composer.getByRole('textbox')
+  const insert = composer.getByRole('button', { name: '优先插入', exact: true })
+  const guidance = ' \t/root/项目/src/main.ts\n  # 保留原文和缩进  \n'
+  await input.fill(guidance)
+  await expect(insert).toBeEnabled()
+  await insert.click()
   await expect(chat.getByRole('textbox')).toHaveValue('')
   expect(
-    server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body.deliveryMode,
-  ).toBe('steer')
+    server.requests.find((r) => r.method === 'POST' && r.path.endsWith('/messages'))?.body,
+  ).toMatchObject({ text: guidance, deliveryMode: 'steer' })
+  for (const text of ['/tmp', '/compact/notes.md', '/unregistered continue', '// keep this comment']) {
+    await input.fill(text)
+    await expect(insert).toBeEnabled()
+  }
+  await composer.getByRole('button', { name: '原生命令', exact: true }).click()
+  await expect(
+    chat
+      .getByRole('region', { name: '原生命令', exact: true })
+      .getByRole('button', { name: /project-check/ }),
+  ).toBeVisible()
+  await input.press('Escape')
+  for (const command of ['/compact focus', '/project-check src']) {
+    await input.fill(command)
+    await expect(insert).toHaveCount(0)
+    await expect(composer.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+  }
+  session.metadata!.capabilities = { concurrentClients: true }
+  session.metadataVersion++
+  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
+  await input.fill('/new')
+  await expect(insert).toHaveCount(0)
   await chat.getByRole('textbox').fill('需要保留的排队消息')
   await chat.getByRole('button', { name: '发送', exact: true }).click()
   const queue = chat.getByRole('region', { name: '排队消息', exact: true })

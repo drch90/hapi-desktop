@@ -1,43 +1,20 @@
-import { test, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { type ElectronApplication, type Page, type Locator } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { FixtureHub, fixtureMessage, fixtureCodexEvent } from './fake-server'
-import { closeTestElectron } from './electron-cleanup'
+import { test, expect } from './fixtures/desktop'
 import { asyncQuestionId, asyncQuestionRequestId } from './fixtures/async-question'
 
 let electron: ElectronApplication
 let page: Page
 let server: FixtureHub
-let directory: string
 let errors: string[]
 
-test.beforeEach(async () => {
-  server = new FixtureHub()
-  const url = await server.start()
-  directory = await mkdtemp(join(tmpdir(), 'hapi-alignment-'))
-  electron = await _electron.launch({
-    args: ['--no-sandbox', `--user-data-dir=${directory}`, resolve('out/main/index.js')],
-    cwd: process.cwd(),
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' },
-  })
-  page = await electron.firstWindow()
-  errors = []
-  page.on('pageerror', (error) => errors.push(error.message))
-  await page.getByLabel('Hub 地址', { exact: true }).fill(url)
-  await page.getByLabel('访问令牌', { exact: true }).fill('fixture-secret-do-not-persist')
-  await page.getByRole('button', { name: '连接', exact: true }).click()
-  await expect(page.getByTestId('session-design')).toBeVisible()
-  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 960))
-})
-
-test.afterEach(async () => {
-  try {
-    await closeTestElectron(electron)
-  } finally {
-    await server?.close()
-    if (directory) await rm(directory, { recursive: true, force: true })
-  }
+test.beforeEach(async ({ desktop }) => {
+  electron = desktop.electron
+  page = desktop.page
+  server = desktop.server
+  errors = desktop.errors
 })
 
 function publishQuestion(id = asyncQuestionRequestId) {

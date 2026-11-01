@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.10**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.10 版本说明](docs/release-notes/v1.0.10.md)，main 分支的后续改动见 [未发布更新](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.11**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.11 版本说明](docs/release-notes/v1.0.11.md)，main 分支的后续改动见 [未发布更新](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -107,6 +107,8 @@
 
 输入 `/` 或点击“原生命令”查看 HAPI 和远端 CLI 提供的命令。补全只修改草稿，发送时按原文提交命令与参数。共享 Codex 的 `/clear` 和 `/new` 使用原生新会话接口，并切换到返回的会话。可用命令以对应 CLI 的支持范围为准。
 
+“优先插入”按当前会话的完整命令名判断，已知的内置/项目命令及共享会话的原生新会话命令继续使用普通发送。`/root/项目/...`、`/tmp` 等路径和不匹配命令的文本可按原文提交优先插入请求，不因开头的 `/` 被隐藏按钮；是否接收由远端 runner 确认。这项修复自 [1.0.11](docs/release-notes/v1.0.11.md) 起纳入安装包。
+
 ### 定时发送
 
 点击输入框旁的时钟图标，选择 **5 分钟、30 分钟、1 小时、4 小时后**，或指定未来 **7 天内**的日期和时间。选择只设置草稿的发送时间，点击“发送”或使用发送快捷键后才提交给 Hub；相对时间从点击发送时开始计算。再次点击已选中的时钟图标，或点击“清除定时”，可恢复立即发送。
@@ -130,6 +132,10 @@
 暂存保存需要连接 Hub。归档会话无需恢复即可保存文字和附件；在暂存列表打开时添加附件，文件直接随暂存条目保存到 Hub。向 Agent 发送前需先恢复会话。
 
 发送响应丢失时保留草稿、附件和原消息 ID，先检查送达状态，再由用户明确重试；网络恢复不会自动重发。暂存保存和发送同样使用稳定 ID，避免重复创建条目或重复发送。
+
+待确认发送的提示区也提供“取消发送”。Hub 确认取消后，解除输入锁定并保留正文和附件供修改；若 Agent 已收到，则保留历史，只清理对应的已发送草稿。取消失败或结果仍不明时保留恢复记录，不能直接当作已删除。
+
+待确认消息存在时，归档会话的“恢复会话”显示在同一提示区，不必先解决消息状态；恢复本身不会重发消息，Hermes 继续使用原会话 ID。小窗口下恢复操作位于消息预览之前，输入区域可滚动。
 
 点击发送时固定本次正文、附件选择和定时时间；等待恢复会话或准备附件期间继续输入的内容保留为下一份草稿。共享会话的 `/clear`、`/new` 也按点击发送时的内容执行。
 
@@ -249,11 +255,23 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-当前产物路径为 `build/HAPI-Desktop-1.0.10-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+当前产物路径为 `build/HAPI-Desktop-1.0.11-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+
+需要归档并验证安装包时，安装 7-Zip 并保证 `7z` 在 PATH 中；使用 [安装包校验脚本](scripts/verify-package.mjs) 按以下顺序执行。版本取自 `package.json`，记录摘要时若文件已存在会停止，避免覆盖旧证据。
+
+```sh
+node scripts/limit-cpu.mjs node scripts/verify-package.mjs record-inputs
+bun run package:win
+node scripts/limit-cpu.mjs node scripts/verify-package.mjs record-output
+# 运行本次改动所需的 Electron 验证，再核对实际安装包内容。
+node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify
+```
+
+校验会检查 NSIS 与内层压缩包、包内版本和每个构建文件，并将安装包及 SHA-256 归档到 `build/v<版本>/`。界面验证使用的 `out/` 必须与记录时一致；归档校验不等于 Windows 实机安装测试。
 
 ### 本地产物保留与清理
 
-安装包只保存在被 Git 忽略的 `build/` 下。需要留存的构建按版本或日期归档，保留安装包、`SHA256SUMS.txt`、打包日志及验证记录；最新构建和上一份可回退构建各保留一份即可。本次构建位置及校验值见 [1.0.10 安装包记录](docs/release-notes/v1.0.10.md#本机安装包)。
+安装包只保存在被 Git 忽略的 `build/` 下。需要留存的构建按版本或日期归档，保留安装包、`SHA256SUMS.txt`、打包日志及验证记录；最新构建和上一份可回退构建各保留一份即可。本次构建位置及校验值见 [1.0.11 安装包记录](docs/release-notes/v1.0.11.md#本机安装包)。
 
 确认安装包已归档后，可清理 `build/` 中重复的安装包、旧备份、`win-unpacked/` 解包目录，以及 `release/` 发布准备副本、过期截图、日志和测试报告。`out/` 可由 `bun run build` 重新生成，清理后运行 Electron 测试前需先构建。保留 `node_modules/` 可继续使用现有依赖；本地 Agent 工作树包含源码，按工作树单独管理。
 
@@ -261,7 +279,7 @@ bun run package:win
 
 [Desktop CI and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 在推送 `main`、提交 PR 或手动运行时，执行类型检查、上游来源校验、本地化检查、单元/协议测试、生产构建和 Electron 界面测试；通过后在 Windows runner 生成 x64 安装包。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前源码使用 1.0.10 版本号，标签自动收窄并提供“全部标签”菜单，窄栏输入控件可换行；继续包含用户消息原文显示、排队/问答/暂存宽度和新版 HAPI 异步问答及协议修复。本次安装包在本机生成，位置与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
+当前源码使用 1.0.11 版本号，包含归档会话的发送取消与恢复、窄窗口恢复入口和路径消息优先插入修复；继续包含此前的标签栏、用户消息原文显示、排队/问答/暂存宽度和 HAPI 协议对齐。本次安装包在本机生成，位置与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
 
 Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断产物 7 天，包含 Playwright trace 和失败页面上下文。此前连续失败的原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
@@ -272,11 +290,11 @@ Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断�
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.10 -m "HAPI Desktop 1.0.10"
-git push origin v1.0.10
+git tag -a v1.0.11 -m "HAPI Desktop 1.0.11"
+git push origin v1.0.11
 ```
 
-推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.10-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.11-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 

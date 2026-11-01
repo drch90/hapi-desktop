@@ -1,6 +1,6 @@
 # 会话导航与交互优化
 
-本记录覆盖版本中已实现的交互和后续建议；后续建议尚未实现。安装与升级说明见 [README](../README.md#开始使用)，当前改动见 [1.0.10 版本说明](release-notes/v1.0.10.md)，后续改动见 [未发布更新](release-notes/unreleased.md)。
+本记录覆盖版本中已实现的交互和后续建议；后续建议尚未实现。安装与升级说明见 [README](../README.md#开始使用)，当前改动见 [1.0.11 版本说明](release-notes/v1.0.11.md)，后续改动见 [未发布更新](release-notes/unreleased.md)。
 
 ## 1.0.10 前端复核
 
