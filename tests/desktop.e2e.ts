@@ -3419,6 +3419,12 @@ test('session metadata and server-backed settings follow Codex, Claude and OpenC
   await dialog.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(model).toBeEnabled()
   await expect(effort.locator('option')).toHaveText(['默认', '低', '高', '超高'])
+  const fast = dialog.getByRole('combobox', { name: '快速模式', exact: true })
+  await fast.selectOption('fast')
+  await expect(fast).toHaveValue('fast')
+  expect(server.requests.filter((r) => r.path.endsWith('/service-tier')).at(-1)?.body).toEqual({
+    serviceTier: 'fast',
+  })
   await model.selectOption('fixture-fast')
   await expect(model).toHaveValue('fixture-fast')
   await expect(effort.locator('option')).toContainText(['中'])
@@ -3504,7 +3510,7 @@ test('session metadata and server-backed settings follow Codex, Claude and OpenC
   await expect(effort).toHaveValue('deep')
   await model.selectOption('fixture/other')
   await expect(model).toHaveValue('fixture/other')
-  await expect(effort.locator('option')).toContainText(['Minimal'])
+  await expect(effort.locator('option[value="minimal"]')).toHaveText('最低')
   await expect(effort.locator('option[value="balanced"]')).toHaveCount(0)
   await permission.selectOption('plan')
   await expect(permission).toHaveValue('plan')
@@ -4138,7 +4144,6 @@ test('new sessions use the selected remote runner and safe default permissions',
     directory: '/home/dev/project',
     agent: 'codex',
     permissionMode: 'default',
-    yolo: false,
     startingMode: 'remote',
   })
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
@@ -4990,14 +4995,13 @@ test('Hermes supports commands, steering, native approval decisions and same-ID 
   expect(errors).toEqual([])
 })
 
-test('Hermes availability blocks unsupported machines and empty catalogs retain default creation', async () => {
+test('Hermes availability hides unsupported machines and empty catalogs retain default creation', async () => {
   server.hermesAvailable = false
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
   const launch = page.getByRole('dialog', { name: '新建会话', exact: true })
-  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
   await launch.getByLabel('目录', { exact: true }).fill('/home/dev/project')
-  await expect(launch).toContainText('此机器上 Agent 不可用')
-  await expect(launch.getByRole('button', { name: '创建会话', exact: true })).toBeDisabled()
+  await expect(launch.getByLabel('Agent', { exact: true })).toBeEnabled()
+  await expect(launch.getByLabel('Agent', { exact: true }).locator('option[value="hermes"]')).toHaveCount(0)
   expect(server.hermesModelRequests).toEqual([])
   await page.keyboard.press('Escape')
   server.hermesAvailable = true

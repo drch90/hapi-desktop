@@ -47,3 +47,31 @@ test('release preparation binds the tag, version, notes and exact installer byte
     assert.throws(() => run('check', 'refs/heads/main'), /valid release version/)
   }
 })
+
+test('release preparation uses the verified archive after cleanup and rejects changed archived bytes', async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'hapi-release-archive-test-'))
+  t.after(() => rm(cwd, { recursive: true, force: true }))
+  const version = '1.0.12'
+  const installer = `HAPI-Desktop-${version}-win-x64-setup.exe`
+  const archive = join(cwd, 'build', `v${version}`)
+  await mkdir(archive, { recursive: true })
+  await writeFile(join(cwd, 'package.json'), JSON.stringify({ version }))
+  const bytes = Buffer.from('MZ\0archived installer', 'latin1')
+  await writeFile(join(archive, installer), bytes)
+  const run = () =>
+    execFileSync(process.execPath, [script, 'prepare'], {
+      cwd,
+      env: { ...process.env, GITHUB_REF: 'refs/heads/main', GITHUB_OUTPUT: '' },
+      stdio: 'pipe',
+    })
+  const checksums = `${createHash('sha256').update(bytes).digest('hex')}  ${installer}\n`
+  await writeFile(join(archive, 'SHA256SUMS.txt'), checksums)
+  run()
+  assert.deepEqual(await readFile(join(cwd, 'release', installer)), bytes)
+  assert.equal(await readFile(join(cwd, 'release', 'SHA256SUMS.txt'), 'utf8'), checksums)
+  await writeFile(join(archive, installer), 'corrupted archived installer')
+  assert.throws(run, /Archived installer checksum mismatch/)
+  assert.deepEqual(await readFile(join(cwd, 'release', installer)), bytes)
+  await writeFile(join(archive, 'SHA256SUMS.txt'), checksums.replace(installer, '../other.exe'))
+  assert.throws(run, /Archived installer checksum is missing/)
+})

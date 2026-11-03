@@ -1,7 +1,14 @@
+import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { appendFile, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+
+async function hashFile(path) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
+}
 
 const command = process.argv[2]
 if (!['check', 'prepare'].includes(command)) throw new Error('Usage: node scripts/release.mjs check|prepare')
@@ -37,10 +44,29 @@ if (command === 'prepare') {
   const installer = `HAPI-Desktop-${version}-win-x64-setup.exe`
   await mkdir('release', { recursive: true })
   const target = join('release', installer)
-  await copyFile(join('build', installer), target)
-  const hash = createHash('sha256')
-  for await (const chunk of createReadStream(target)) hash.update(chunk)
-  await writeFile(join('release', 'SHA256SUMS.txt'), `${hash.digest('hex')}  ${installer}\n`)
+  let archivedChecksum
+  try {
+    await copyFile(join('build', installer), target)
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    // Verified local packages remove the staging duplicate during cleanup.
+    const archive = join('build', tag)
+    const sums = await readFile(join(archive, 'SHA256SUMS.txt'), 'utf8')
+    archivedChecksum = sums
+      .split(/\r?\n/)
+      .find((line) => line.slice(66) === installer && /^[a-f0-9]{64}  /.test(line))
+      ?.slice(0, 64)
+    assert.ok(archivedChecksum, 'Archived installer checksum is missing')
+    assert.equal(
+      await hashFile(join(archive, installer)),
+      archivedChecksum,
+      'Archived installer checksum mismatch',
+    )
+    await copyFile(join(archive, installer), target)
+  }
+  const digest = await hashFile(target)
+  if (archivedChecksum) assert.equal(digest, archivedChecksum, 'Archived installer checksum mismatch')
+  await writeFile(join('release', 'SHA256SUMS.txt'), `${digest}  ${installer}\n`)
   await writeFile(join('release', 'RELEASE_NOTES.md'), notes)
   console.log(`Prepared ${target} and SHA256SUMS.txt`)
 }

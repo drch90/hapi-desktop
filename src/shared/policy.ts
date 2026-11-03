@@ -108,15 +108,15 @@ const allowed: Record<string, RegExp[]> = {
     new RegExp(`^${session}$`),
     new RegExp(`^${session}/scratchlist$`),
     new RegExp(
-      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options)$`,
+      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options|cursor-models|grok-models|grok-reasoning-effort-options|copilot-models|pi-models|kimi-models|dsh-models)$`,
     ),
     new RegExp(
-      `^${machine}/(agent-availability|claude-models|hermes-models|codex-models|opencode-models|opencode-model-variants)$`,
+      `^${machine}/(agent-availability|claude-models|hermes-models|codex-models|opencode-models|opencode-model-variants|agy-models|cursor-models|grok-models|copilot-models|pi-models|kimi-models|dsh-models)$`,
     ),
   ],
   POST: [
     new RegExp(
-      `^${session}/(messages|resume|reopen|abort|archive|clear|model|permission-mode|model-reasoning-effort|effort|collaboration-mode|upload)$`,
+      `^${session}/(messages|resume|reopen|abort|archive|clear|model|permission-mode|model-reasoning-effort|effort|collaboration-mode|copilot-agent-mode|service-tier|upload)$`,
     ),
     new RegExp(`^${session}/scratchlist(/upload)?$`),
     new RegExp(`^${session}/messages/queued-state$`),

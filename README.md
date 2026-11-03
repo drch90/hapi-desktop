@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前源码和安装包版本为 **1.0.11**，新建会话支持 Codex、Claude Code、OpenCode 和 Hermes；可用的 CLI、模型和权限由远端 Hub/runner 决定。更新内容见 [1.0.11 版本说明](docs/release-notes/v1.0.11.md)，main 分支的后续改动见 [未发布更新](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.12**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本机安装包已生成并校验，更新内容与打包记录见 [1.0.12 版本说明](docs/release-notes/v1.0.12.md)；开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -13,6 +13,10 @@
 当前安装包尚未配置代码签名，Windows 可能显示发布者未知。应用没有自动更新，更新时从 Releases 下载新版安装包安装。
 
 ## 新建会话
+
+CLI 列表根据所选机器的安装检测结果生成，只显示可用项；支持 Antigravity、Claude、Codex、DeepSeek Harness、Copilot、Cursor、Grok Build、Hermes、Kimi、OpenCode 和 Pi。Gemini 保留历史会话兼容，不提供新建入口。检测发生在远端 runner 所在机器，桌面电脑无需安装这些 CLI。切换机器后，若原 CLI 不可用则自动选择该机器的首个可用项；检测中、检测失败或没有可用 CLI 时禁止创建，并提供重试。旧 runner 不支持检测时会提示升级。
+
+模型与权限按 CLI 分别提供。切换机器或 CLI 会重置创建配置；依赖项目目录的模型选择在目录改变时重置，并在目录检查通过后请求新目录的模型列表。模型目录查询失败或列表为空时可使用 CLI 的默认配置，并可刷新重试。Pi 和 DeepSeek Harness 不发送权限设置，其他 CLI 使用其原生权限模式，Grok 不支持的 Auto 模式会禁用。
 
 新建窗口提供 **Runner 工作区** 和 **最近及会话目录**，可直接点击选择；按钮显示简短目录，悬停查看完整路径。工作区来自所选 runner 上报的 `workspaceRoots`，第一个标为默认；runner 可通过 `hapi runner start --workspace-root /path/a --workspace-root /path/b` 配置多个根目录。仍可手动输入或点击“浏览”选择子目录，支持 Linux 路径、Windows 盘符和 UNC 路径。
 
@@ -195,6 +199,15 @@ HAPI 的 `display_image`、`display_video`、`display_media` 消息可显示图�
 | Claude Code | Web 同源模型、effort、原生权限模式及活动轮优先插入（需远端配套补丁）    |
 | OpenCode    | 按机器和目录发现模型、模型变体及原生权限                                |
 | Hermes      | 供应商分组模型目录、默认配置和创建时手动模型 ID；原生默认/允许编辑权限  |
+| Antigravity | 机器模型目录、模型支持的思考档位；请求确认/始终执行权限 |
+| Cursor      | 合并远端模型与变体目录，每个选项保留完整变体标识；原生权限模式 |
+| Grok Build  | 项目模型目录、动态思考档位及原生权限；按远端能力限制 Auto |
+| Copilot     | 项目模型目录、原生权限，以及交互/计划/自主执行模式 |
+| Kimi        | 项目模型目录与会话模型刷新；原生权限模式 |
+| DeepSeek Harness | 机器及会话模型目录，原样传递模型标识；权限由 CLI 管理 |
+| Pi          | 按供应商分组的模型目录、模型支持的思考档位；权限由 CLI 管理 |
+
+Pi 创建时使用供应商限定的模型 ID，运行时按供应商和模型二元组切换，避免同名模型混淆。Cursor 的模型选项包含完整变体，不额外发送独立思考参数。会话设置保留服务端确认值，目录或设置请求失败可重试；更新桌面不会自动部署远端 CLI/runner。
 
 Hermes 需要远端 Hub/runner 和 CLI 支持。创建时目录发现失败或为空仍可使用默认配置或手动模型 ID；运行时可刷新模型目录，当前轮结束后修改设置。支持原生命令、活动轮优先插入、中断、审批和同一会话 ID 的恢复，不提供 YOLO、计划模式、思考强度或快速模式。
 
@@ -255,7 +268,7 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-当前产物路径为 `build/HAPI-Desktop-1.0.11-win-x64-setup.exe`，版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+打包后的暂存路径为 `build/HAPI-Desktop-1.0.12-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.12/HAPI-Desktop-1.0.12-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 需要归档并验证安装包时，安装 7-Zip 并保证 `7z` 在 PATH 中；使用 [安装包校验脚本](scripts/verify-package.mjs) 按以下顺序执行。版本取自 `package.json`，记录摘要时若文件已存在会停止，避免覆盖旧证据。
 
@@ -263,23 +276,32 @@ bun run package:win
 node scripts/limit-cpu.mjs node scripts/verify-package.mjs record-inputs
 bun run package:win
 node scripts/limit-cpu.mjs node scripts/verify-package.mjs record-output
-# 运行本次改动所需的 Electron 验证，再核对实际安装包内容。
+# 运行本次改动所需的 Electron 验证；下方命令核对安装包并在成功后自动清理。
 node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify
 ```
 
-校验会检查 NSIS 与内层压缩包、包内版本和每个构建文件，并将安装包及 SHA-256 归档到 `build/v<版本>/`。界面验证使用的 `out/` 必须与记录时一致；归档校验不等于 Windows 实机安装测试。
+校验会检查 NSIS 与内层压缩包、包内版本和每个构建文件，并将安装包及 SHA-256 归档到 `build/v<版本>/`。界面验证使用的 `out/` 必须与记录时一致；归档校验不等于 Windows 实机安装测试。每次本机版本交付都以此校验命令结束，成功后自动执行下方清理规则；普通构建或打包失败不会触发清理。
 
 ### 本地产物保留与清理
 
-安装包只保存在被 Git 忽略的 `build/` 下。需要留存的构建按版本或日期归档，保留安装包、`SHA256SUMS.txt`、打包日志及验证记录；最新构建和上一份可回退构建各保留一份即可。本次构建位置及校验值见 [1.0.11 安装包记录](docs/release-notes/v1.0.11.md#本机安装包)。
+安装包只保存在被 Git 忽略的 `build/` 下。[清理脚本](scripts/cleanup-builds.mjs) 在安装包校验、归档成功后自动执行：保留本次与上一份已验证安装包，删除更早版本的安装包及对应 blockmap、已归档的暂存副本、与校验记录一致的历史 `verification/` 解包目录和本次 `win-unpacked/`。清理前重新核对保留安装包的 SHA-256；本次归档不完整或存在更新的已归档版本时停止清理。
 
-确认安装包已归档后，可清理 `build/` 中重复的安装包、旧备份、`win-unpacked/` 解包目录，以及 `release/` 发布准备副本、过期截图、日志和测试报告。`out/` 可由 `bun run build` 重新生成，清理后运行 Electron 测试前需先构建。保留 `node_modules/` 可继续使用现有依赖；本地 Agent 工作树包含源码，按工作树单独管理。
+所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.12 安装包记录](docs/release-notes/v1.0.12.md#本机安装包)。
+
+补做清理可以先预览，再执行：
+
+```sh
+bun run cleanup:build
+bun run cleanup:build --apply
+```
+
+脚本仅清理能确认来源的 `build/` 产物，不跟随目录或文件链接。校验失败或未知的构建、失败诊断目录、`out/`、`node_modules/`、`build/tool-cache/`、`release/` 发布准备文件、源码及 Agent 工作树均保留。已有安装包的输入摘要不随工程脚本修改而重写；补做清理按归档自身的校验记录核对，不要求重新打包。
 
 ### 自动构建与公开发布
 
 [Desktop CI and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 在推送 `main`、提交 PR 或手动运行时，执行类型检查、上游来源校验、本地化检查、单元/协议测试、生产构建和 Electron 界面测试；通过后在 Windows runner 生成 x64 安装包。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前源码使用 1.0.11 版本号，包含归档会话的发送取消与恢复、窄窗口恢复入口和路径消息优先插入修复；继续包含此前的标签栏、用户消息原文显示、排队/问答/暂存宽度和 HAPI 协议对齐。本次安装包在本机生成，位置与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
+当前源码使用 1.0.12 版本号，包含远端 CLI 安装检测、11 种 CLI 的创建与会话设置对齐；继续包含此前的发送取消与恢复、路径消息优先插入、消息操作栏和布局修复。本次安装包在本机生成，位置与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
 
 Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断产物 7 天，包含 Playwright trace 和失败页面上下文。此前连续失败的原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
@@ -290,24 +312,24 @@ Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断�
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.11 -m "HAPI Desktop 1.0.11"
-git push origin v1.0.11
+git tag -a v1.0.12 -m "HAPI Desktop 1.0.12"
+git push origin v1.0.12
 ```
 
-推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.11-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.12-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 
 可在本地检查发布信息和准备文件：
 
 ```sh
-node scripts/limit-cpu.mjs node --test scripts/release.test.mjs
+node scripts/limit-cpu.mjs node --test scripts/release.test.mjs scripts/cleanup-builds.test.mjs
 node scripts/release.mjs check
 bun run package:win
 node scripts/release.mjs prepare
 ```
 
-准备后的安装包、校验文件和更新说明位于被 Git 忽略的 `release/` 目录。
+准备后的安装包、校验文件和更新说明位于被 Git 忽略的 `release/` 目录。若暂存安装包已自动清理，`release.mjs prepare` 会从当前版本归档读取并核对 SHA-256，继续生成发布文件。
 
 ## 仓库内容与敏感信息
 

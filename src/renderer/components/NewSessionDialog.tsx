@@ -4,41 +4,23 @@ import { useQuery } from '@tanstack/react-query'
 import { Folder } from 'lucide-react'
 import { SessionSchema } from '@hapi/protocol/schemas'
 import {
-  getClaudeEffortLevelsForModel,
-  resolveClaudeEffortForModel,
-  type CodexCollaborationMode,
-  type PermissionMode,
+  CREATABLE_AGENT_FLAVORS,
+  getFlavorLabel,
+  type AgentFlavor,
   type SessionSummary,
 } from '@hapi/protocol'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MachineSelector } from '@/components/NewSession/MachineSelector'
-import { PermissionField } from '@/components/NewSession/PermissionField'
-import { ModelSelector } from '@/components/NewSession/ModelSelector'
-import { HermesModelPicker } from '@/components/HermesModelPicker'
-import { useHermesModels } from '@/hooks/queries/useHermesModels'
-import { OpencodeModelSelector } from '@/components/NewSession/OpencodeModelSelector'
-import { EffortField } from '@/components/NewSession/EffortField'
-import { CollaborationModeSelector } from '@/components/NewSession/CollaborationModeSelector'
-import { FastModeSelector } from '@/components/NewSession/FastModeSelector'
 import { SessionTypeSelector } from '@/components/NewSession/SessionTypeSelector'
-import {
-  type NewSessionServiceTier,
-  type SessionType,
-  isOpencodeReasoningEffortValid,
-} from '@/components/NewSession/types'
+import type { SessionType } from '@/components/NewSession/types'
+import { useAgentAvailability } from '@/hooks/queries/useAgentAvailability'
+import { LaunchSettingsFields } from './agent-settings/LaunchSettingsFields'
+import { useLaunchSettings } from './agent-settings/useLaunchSettings'
 import { WorkspaceBrowser } from '@/components/WorkspaceBrowser'
 import { useMachinePathsExists } from '@/hooks/useMachinePathsExists'
 import { useDirectorySuggestions } from '@/hooks/useDirectorySuggestions'
-import { useCodexModels } from '@/hooks/queries/useCodexModels'
-import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
-import { getClaudeLaunchModelOptions } from '@/components/AssistantChat/modelOptions'
-import { getClaudeComposerEffortOptions } from '@/components/AssistantChat/claudeEffortOptions'
-import { useOpencodeModelsForCwd } from '@/hooks/queries/useOpencodeModelsForCwd'
-import { useOpencodeModelVariants } from '@/hooks/queries/useOpencodeModelVariants'
 import { useSpawnSession } from '@/hooks/mutations/useSpawnSession'
-import { codexModelAdvertisesFastTier } from '@/components/AssistantChat/codexFastMode'
-import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
 import { I18nContext } from '@/lib/i18n-context'
 import { getPathDisplayName } from '@/utils/path'
 import { createApi, errorKey } from '../lib/api'
@@ -93,7 +75,7 @@ export function NewSessionDialog({
   )
   const allPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
   const historyPaths = machineId ? allPaths.filter((path) => !workspaceRoots.includes(path)) : []
-  const [agent, setAgent] = useState<'claude' | 'codex' | 'opencode' | 'hermes'>('codex')
+  const [agent, setAgent] = useState<AgentFlavor>('codex')
   // Resolve defaults once per machine selection; metadata refreshes must not move the launch.
   // An empty string is an intentional user edit, while null waits for the runner's defaults.
   const [directoryOverride, setDirectory] = useState<string | null>(initialDirectory ?? null)
@@ -101,13 +83,6 @@ export function NewSessionDialog({
   useEffect(() => {
     if (directoryOverride === null && directory) setDirectory(directory)
   }, [directoryOverride, directory])
-  const [permission, setPermission] = useState<PermissionMode>('default')
-  const [yolo, setYolo] = useState(false)
-  const [model, setModel] = useState('auto')
-  const [effort, setEffort] = useState('auto')
-  const [reasoning, setReasoning] = useState('default')
-  const [mode, setMode] = useState<CodexCollaborationMode>('default')
-  const [tier, setTier] = useState<NewSessionServiceTier>('standard')
   const [sessionType, setSessionType] = useState<SessionType>('simple')
   const [worktreeName, setWorktreeName] = useState('')
   const worktreeInput = useRef<HTMLInputElement>(null)
@@ -123,14 +98,20 @@ export function NewSessionDialog({
   }, [])
   const [error, setError] = useState('')
   const { spawnSession } = useSpawnSession(api)
-  const availability = useQuery({
-    queryKey: ['availability', machineId],
-    queryFn: () => api.getMachineAgentAvailability(machineId),
-    enabled: machineAvailable,
-  })
+  const availability = useAgentAvailability({ api, machineId, enabled: machineAvailable })
+  const availableAgents =
+    machineAvailable && !availability.error
+      ? availability.agents.filter(
+          (entry) => entry.available && CREATABLE_AGENT_FLAVORS.includes(entry.agent),
+        )
+      : []
   const available =
-    machineAvailable &&
-    (availability.data?.agents.some((item) => item.agent === agent && item.available) ?? false)
+    !availability.isLoading && !availability.error && availableAgents.some((entry) => entry.agent === agent)
+  const firstAvailable = availableAgents[0]?.agent
+  useEffect(() => {
+    if (!availability.isLoading && !availability.error && !available && firstAvailable)
+      setAgent(firstAvailable)
+  }, [availability.isLoading, availability.error, available, firstAvailable])
   const cwd = useDeferredValue(directory.trim())
   const paths = useMemo(
     () => [...new Set([...(cwd ? [cwd] : []), ...workspaceRoots, ...allPaths])].slice(0, 1000),
@@ -145,49 +126,16 @@ export function NewSessionDialog({
   // Only discover models for the current input, including after it is cleared.
   const currentPathReady =
     Boolean(cwd) && cwd === directory.trim() && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd)
-  const discoverOpencode = agent === 'opencode' && available && currentPathReady
-  const hermes = useHermesModels({
+  const config = useLaunchSettings({
     api,
+    agent,
     machineId,
     cwd,
-    enabled: agent === 'hermes' && available && currentPathReady,
+    directory: directory.trim(),
+    pathReady: currentPathReady,
+    enabled: available,
   })
-  const codex = useCodexModels({ api, machineId, enabled: agent === 'codex' && available })
-  const claude = useClaudeModels({ api, machineId, enabled: agent === 'claude' && available })
-  const claudeEfforts = getClaudeEffortLevelsForModel(model === 'auto' ? null : model, claude.availableModels)
-  const effectiveClaudeEffort = resolveClaudeEffortForModel(
-    effort === 'auto' ? null : effort,
-    model === 'auto' ? null : model,
-    claude.availableModels,
-  )
-  useEffect(() => {
-    if (agent === 'claude') setEffort(effectiveClaudeEffort ?? 'auto')
-  }, [agent, effectiveClaudeEffort])
-  const opencode = useOpencodeModelsForCwd({ api, machineId, cwd, enabled: discoverOpencode })
-  const variants = useOpencodeModelVariants({ api, machineId, cwd, enabled: discoverOpencode })
-  const effectiveOpencodeModel = model === 'auto' ? opencode.currentModelId : model
-  const variantOptions =
-    effectiveOpencodeModel && variants.variants ? (variants.variants[effectiveOpencodeModel] ?? []) : null
-  const codexEfforts = useMemo(
-    () => getCodexModelReasoningEfforts(codex.models, model),
-    [codex.models, model],
-  )
-  const fastMode =
-    agent === 'codex' && codexModelAdvertisesFastTier(model === 'auto' ? null : model, codex.models)
-  const optionsPending =
-    agent === 'codex'
-      ? codex.isLoading
-      : agent === 'opencode' &&
-        Boolean(cwd) &&
-        (pathExistence[cwd] === undefined || opencode.isLoading || variants.isLoading)
-  useEffect(() => {
-    if (optionsPending || reasoning === 'default') return
-    if (
-      (agent === 'codex' && codexEfforts && !codexEfforts.includes(reasoning)) ||
-      (agent === 'opencode' && !isOpencodeReasoningEffortValid(reasoning, variantOptions))
-    )
-      setReasoning('default')
-  }, [agent, reasoning, optionsPending, codexEfforts, variantOptions])
+  const optionsPending = config.pending
   const browserLocale = useMemo(
     () =>
       upstream
@@ -200,17 +148,9 @@ export function NewSessionDialog({
     [upstream, t],
   )
 
-  function resetModel() {
-    setModel('auto')
-    setEffort('auto')
-    setReasoning('default')
-    setTier('standard')
-  }
-
   function chooseDirectory(path: string) {
     setDirectory(path)
     setError('')
-    if (agent === 'opencode' || agent === 'hermes') resetModel()
   }
 
   return (
@@ -245,19 +185,9 @@ export function NewSessionDialog({
               const response = await spawnSession({
                 machineId,
                 directory: directory.trim(),
-                agent,
-                model: model === 'auto' ? undefined : model,
-                modelReasoningEffort:
-                  (agent === 'codex' || agent === 'opencode') && reasoning !== 'default'
-                    ? reasoning
-                    : undefined,
-                effort: agent === 'claude' ? (effectiveClaudeEffort ?? undefined) : undefined,
-                permissionMode: permission,
-                yolo: agent === 'hermes' ? undefined : yolo,
+                ...config.parameters,
                 sessionType,
                 worktreeName: sessionType === 'worktree' ? worktreeName.trim() || undefined : undefined,
-                collaborationMode: agent === 'codex' && mode !== 'default' ? mode : undefined,
-                serviceTier: fastMode ? tier : undefined,
                 startingMode: 'remote',
               })
               if (response.type !== 'success' || !response.sessionId) throw new Error('SPAWN_FAILED')
@@ -292,39 +222,62 @@ export function NewSessionDialog({
                   setMachine(value)
                   setDirectory(null)
                   setError('')
-                  resetModel()
                 }}
               />
               <label className="launch-agent">
                 {t('Agent')}
                 <select
-                  value={agent}
+                  value={available ? agent : ''}
                   aria-label={t('Agent')}
-                  disabled={busy}
+                  disabled={busy || availability.isLoading || !availableAgents.length}
                   onChange={(event) => {
-                    setAgent(event.target.value as typeof agent)
-                    setPermission('default')
-                    setYolo(false)
-                    setMode('default')
-                    resetModel()
+                    const selected = availableAgents.find((entry) => entry.agent === event.target.value)
+                    if (selected) setAgent(selected.agent)
+                    setError('')
                   }}
                 >
-                  <option value="codex">Codex</option>
-                  <option value="claude">Claude Code</option>
-                  <option value="opencode">OpenCode</option>
-                  <option value="hermes">Hermes</option>
+                  {!available && (
+                    <option value="">
+                      {t(availability.isLoading ? 'Checking installed CLIs…' : 'No available CLI')}
+                    </option>
+                  )}
+                  {availableAgents.map((entry) => (
+                    <option key={entry.agent} value={entry.agent}>
+                      {getFlavorLabel(entry.agent)}
+                    </option>
+                  ))}
                 </select>
               </label>
               {!available && (
-                <p className="small muted">
-                  {t(
-                    !machines.isPending && !machineAvailable
-                      ? 'Machine unavailable. Select an online machine.'
-                      : availability.isPending
-                        ? 'Loading…'
-                        : 'Agent unavailable on this machine',
+                <div className="launch-catalog-status">
+                  <p
+                    className={availability.error ? 'small error' : 'small muted'}
+                    role={availability.error ? 'alert' : 'status'}
+                  >
+                    {t(
+                      !machines.isPending && !machineAvailable
+                        ? 'Machine unavailable. Select an online machine.'
+                        : availability.upgradeRequired
+                          ? 'Update the runner on this machine to detect installed CLIs.'
+                          : availability.error
+                            ? 'Unable to check installed CLIs. Refresh to retry.'
+                            : availability.isLoading || machines.isPending
+                              ? 'Checking installed CLIs…'
+                              : 'No available CLIs were found on this machine.',
+                    )}
+                  </p>
+                  {machineAvailable && !availability.isLoading && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={availability.refetch}
+                    >
+                      {t('Refresh')}
+                    </Button>
                   )}
-                </p>
+                </div>
               )}
               <div className="launch-directory">
                 <label>
@@ -389,110 +342,7 @@ export function NewSessionDialog({
                 ) : null,
               )}
             </div>
-            <fieldset aria-label={t('Model')} disabled={busy}>
-              {agent === 'hermes' ? (
-                <HermesModelPicker
-                  key={`${machineId}:${cwd}`}
-                  models={hermes.availableModels}
-                  value={model}
-                  onChange={setModel}
-                  isLoading={hermes.isLoading}
-                  error={hermes.error ? t('Unable to load session options. Use Refresh to retry.') : null}
-                  allowDefault
-                  disabled={busy}
-                  onRefresh={hermes.refetch}
-                />
-              ) : agent === 'opencode' ? (
-                <OpencodeModelSelector
-                  cwd={cwd}
-                  machineId={machineId}
-                  isLoading={optionsPending}
-                  error={opencode.error ? t('Unable to load session options. Use Refresh to retry.') : null}
-                  availableModels={opencode.availableModels}
-                  currentModelId={opencode.currentModelId}
-                  selectedModel={model === 'auto' ? null : model}
-                  onModelChange={(value) => {
-                    setModel(value || 'auto')
-                    setReasoning('default')
-                  }}
-                  onRetry={opencode.refetch}
-                />
-              ) : (
-                <ModelSelector
-                  agent={agent}
-                  model={model}
-                  options={
-                    agent === 'codex'
-                      ? [
-                          { value: 'auto', label: t('Default') },
-                          ...codex.models.map((item) => ({ value: item.id, label: item.displayName })),
-                        ]
-                      : agent === 'claude'
-                        ? getClaudeLaunchModelOptions(
-                            claude.availableModels,
-                            model,
-                            t('Not in current model list'),
-                            t('Other models'),
-                          )
-                        : undefined
-                  }
-                  isDisabled={busy || (agent === 'codex' && Boolean(codex.error))}
-                  isLoading={agent === 'codex' && codex.isLoading}
-                  error={
-                    agent === 'codex' && codex.error
-                      ? t('Unable to load session options. Use Refresh to retry.')
-                      : null
-                  }
-                  onModelChange={(value) => {
-                    setModel(value)
-                    setReasoning('default')
-                    setTier('standard')
-                  }}
-                />
-              )}
-            </fieldset>
-            {agent !== 'hermes' && (
-              <fieldset aria-label={t('Reasoning effort')} disabled={busy}>
-                <EffortField
-                  agent={agent}
-                  effort={effort}
-                  onEffortChange={setEffort}
-                  reasoningEffort={reasoning}
-                  onReasoningEffortChange={setReasoning}
-                  codexReasoningOptions={codexEfforts?.map((value) => ({ value }))}
-                  claudeOptions={
-                    agent === 'claude'
-                      ? getClaudeComposerEffortOptions(null, claudeEfforts).map((option) => ({
-                          value: option.value ?? 'auto',
-                          label: t(option.label, { defaultValue: option.label }),
-                        }))
-                      : undefined
-                  }
-                  opencodeVariantOptions={variantOptions}
-                  isDisabled={busy || optionsPending || (agent === 'opencode' && !discoverOpencode)}
-                />
-              </fieldset>
-            )}
-            <fieldset aria-label={t('Permission mode')} disabled={busy}>
-              <PermissionField
-                agent={agent}
-                nativeValue={permission}
-                yoloMode={yolo}
-                isDisabled={busy}
-                onNativeChange={setPermission}
-                onYoloToggle={setYolo}
-              />
-            </fieldset>
-            {agent === 'codex' && (
-              <fieldset aria-label={t('Mode')} disabled={busy}>
-                <CollaborationModeSelector agent={agent} value={mode} isDisabled={busy} onChange={setMode} />
-              </fieldset>
-            )}
-            {fastMode && (
-              <fieldset aria-label={t('Fast mode')} disabled={busy}>
-                <FastModeSelector visible value={tier} isDisabled={busy} onChange={setTier} />
-              </fieldset>
-            )}
+            <LaunchSettingsFields config={config} disabled={busy || !available} />
             <fieldset className="new-session-location" aria-label={t('Session type')} disabled={busy}>
               <SessionTypeSelector
                 sessionType={sessionType}

@@ -51,7 +51,10 @@ import type { SessionSummary, Machine } from '@/types/api'
 import {
   isSteeringSupportedForSession,
   getPermissionModeLabel,
+  getPermissionModesForFlavor,
   getCodexCollaborationModeLabel,
+  getCopilotAgentModeLabel,
+  supportsEffort,
   toSessionSummary,
   type MessageDeliveryMode,
 } from '@hapi/protocol'
@@ -956,6 +959,8 @@ export function Chat({
         </header>
         {session && configuration && (
           <SessionConfiguration
+            key={session.id}
+            scope={scope}
             session={session}
             connected={connected}
             onClose={() => setConfiguration(false)}
@@ -1503,7 +1508,7 @@ export function Chat({
                         <span className="composer-pill-label">{session.model}</span>
                       </button>
                     )}
-                    {session.metadata?.flavor === 'codex' && (
+                    {(session.metadata?.flavor === 'codex' || session.metadata?.flavor === 'copilot') && (
                       <button
                         type="button"
                         className="composer-pill"
@@ -1512,23 +1517,31 @@ export function Chat({
                       >
                         <span className="composer-pill-label">
                           {t('Mode')}:{' '}
-                          {t(getCodexCollaborationModeLabel(session.collaborationMode ?? 'default'))}
+                          {t(
+                            session.metadata?.flavor === 'copilot'
+                              ? getCopilotAgentModeLabel(session.copilotAgentMode ?? 'interactive')
+                              : getCodexCollaborationModeLabel(session.collaborationMode ?? 'default'),
+                          )}
                         </span>
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="composer-pill"
-                      onClick={() => setConfiguration(true)}
-                      title={t('Session settings')}
-                    >
-                      <Shield size={12} aria-hidden="true" />
-                      <span className="composer-pill-label">
-                        {t('Permission mode')}:{' '}
-                        {session.permissionMode ? t(getPermissionModeLabel(session.permissionMode)) : '—'}
-                      </span>
-                    </button>
-                    {session.metadata?.flavor !== 'hermes' && (
+                    {getPermissionModesForFlavor(session.metadata?.flavor).length > 0 && (
+                      <button
+                        type="button"
+                        className="composer-pill"
+                        onClick={() => setConfiguration(true)}
+                        title={t('Session settings')}
+                      >
+                        <Shield size={12} aria-hidden="true" />
+                        <span className="composer-pill-label">
+                          {t('Permission mode')}:{' '}
+                          {session.permissionMode ? t(getPermissionModeLabel(session.permissionMode)) : '—'}
+                        </span>
+                      </button>
+                    )}
+                    {(supportsEffort(session.metadata?.flavor) ||
+                      session.metadata?.flavor === 'codex' ||
+                      session.metadata?.flavor === 'opencode') && (
                       <button
                         type="button"
                         className="composer-pill"
@@ -1538,7 +1551,7 @@ export function Chat({
                         <Brain size={12} aria-hidden="true" />
                         <span className="composer-pill-label">
                           {t('Reasoning effort')}:{' '}
-                          {(session.metadata?.flavor === 'claude'
+                          {(supportsEffort(session.metadata?.flavor)
                             ? session.effort
                             : getReasoningEffortForFlavor(
                                 session.metadata?.flavor,

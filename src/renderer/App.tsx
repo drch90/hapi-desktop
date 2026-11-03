@@ -87,6 +87,7 @@ import { NewSessionDialog } from './components/NewSessionDialog'
 
 // Adapt shared component copy to the desktop's controls and seven-language catalog.
 const desktopWebLabels: Record<string, string> = {
+  'newSession.model': 'Model',
   'newSession.hermes.modelPlaceholder': 'Leave empty to use Hermes configuration',
   'hermes.models.default': 'Use Hermes default',
   'hermes.models.refresh': 'Refresh models',

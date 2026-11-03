@@ -1,5 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { AgentConfigFixture } from './fixtures/agent-config'
 import type { Session, DecryptedMessage, SyncEvent, MachineHealth } from '@hapi/protocol/schemas'
 import {
   CURRENT_MACHINE_CAPABILITIES,
@@ -70,6 +71,7 @@ export function fixtureCodexEvent(
 }
 
 export class FixtureHub {
+  agentConfig = new AgentConfigFixture()
   sessions = new Map([
     ['design', fixtureSession('design', '桌面工作台 · 界面与交互', 'codex')],
     ['review', fixtureSession('review', '审查连接与恢复流程', 'claude')],
@@ -288,15 +290,7 @@ export class FixtureHub {
       reply({ machines: this.machines })
       return
     }
-    if (path.endsWith('/agent-availability')) {
-      reply({
-        agents: ['codex', 'claude', 'opencode', 'hermes'].map((agent) => ({
-          agent,
-          available: agent !== 'hermes' || this.hermesAvailable,
-        })),
-      })
-      return
-    }
+    if (await this.agentConfig.handle(url, reply, this.hermesAvailable)) return
     if (path.endsWith('/hermes-models')) {
       this.hermesModelRequests.push({
         path,
@@ -362,10 +356,19 @@ export class FixtureHub {
       s.metadata!.host = spawnMachine.metadata.host
       if (body.agent === 'hermes') s.metadata!.hermesSessionId = `native-${id}`
       s.model = (body.model as string) ?? (body.agent === 'hermes' ? this.hermesModels[0].modelId : null)
+      if (body.agent === 'pi' && typeof body.model === 'string') {
+        const slash = body.model.indexOf('/')
+        if (slash > 0) {
+          s.model = body.model.slice(slash + 1)
+          s.metadata!.piSelectedModel = { provider: body.model.slice(0, slash), modelId: s.model }
+        }
+      }
       s.permissionMode = body.permissionMode as Session['permissionMode']
       s.collaborationMode = body.collaborationMode as Session['collaborationMode']
       s.effort = (body.effort as string) ?? null
       s.modelReasoningEffort = (body.modelReasoningEffort as string) ?? null
+      s.copilotAgentMode = body.copilotAgentMode as Session['copilotAgentMode']
+      s.serviceTier = (body.serviceTier as string) ?? null
       this.sessions.set(s.id, s)
       this.messages.set(s.id, [])
       reply({ type: 'success', sessionId: s.id })
@@ -591,9 +594,15 @@ export class FixtureHub {
       return
     }
     if (
-      ['/collaboration-mode', '/permission-mode', '/model', '/model-reasoning-effort', '/effort'].includes(
-        action,
-      )
+      [
+        '/collaboration-mode',
+        '/copilot-agent-mode',
+        '/service-tier',
+        '/permission-mode',
+        '/model',
+        '/model-reasoning-effort',
+        '/effort',
+      ].includes(action)
     ) {
       if (this.failSetting) {
         reply({ error: 'Fixture rejected setting' }, 409)
@@ -602,8 +611,23 @@ export class FixtureHub {
       if (action === '/permission-mode') session.permissionMode = body.mode as Session['permissionMode']
       if (action === '/collaboration-mode')
         session.collaborationMode = body.mode as Session['collaborationMode']
+      if (action === '/copilot-agent-mode')
+        session.copilotAgentMode = body.mode as Session['copilotAgentMode']
+      if (action === '/service-tier') session.serviceTier = body.serviceTier as string
       if (action === '/model') {
-        session.model = body.model as string | null
+        if (
+          session.metadata?.flavor === 'pi' &&
+          typeof body.model === 'object' &&
+          body.model !== null &&
+          'provider' in body.model &&
+          'modelId' in body.model
+        ) {
+          session.model = String(body.model.modelId)
+          session.metadata.piSelectedModel = {
+            provider: String(body.model.provider),
+            modelId: String(body.model.modelId),
+          }
+        } else session.model = body.model as string | null
         if ('effort' in body) session.effort = body.effort as string | null
       }
       if (action === '/model-reasoning-effort')

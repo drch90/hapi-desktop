@@ -116,4 +116,6 @@ Windows 直接运行 `bun run test:e2e`，不使用 `xvfb-run`。Electron 测试
 
 安装包保存在被 Git 忽略的 `build/` 下，记录路径和校验值。用户未要求发送时，不通过显示或附件工具推送安装包。
 
-产物保留与清理遵循 [README](README.md#本地产物保留与清理)，先确认新包已验证、归档且上一版可回退，再清理重复产物；不覆盖已有版本归档。
+产物保留与清理遵循 [README](README.md#本地产物保留与清理)。每次本机版本交付都要完成 `node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify`；该命令在新包校验、归档成功后自动清理，保留本次与上一份已验证安装包及历史校验记录。普通 `package:win` 不代表已完成归档验证，也不会提前清理。
+
+补做清理使用 `bun run cleanup:build` 预览、`bun run cleanup:build --apply` 执行；清理前重新核对保留安装包的摘要，不覆盖旧归档证据。依赖、下载缓存、源码、工作树、发布准备文件与未知/校验失败的构建不在自动清理范围内。

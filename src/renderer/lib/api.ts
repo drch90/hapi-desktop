@@ -1,5 +1,6 @@
 import { ApiClient, ApiError } from '@/api/client'
 import type { Result } from '../../shared/bridge'
+import { agentCatalogApi } from './agentCatalogApi'
 
 export async function unwrap<T>(promise: Promise<Result<T>>): Promise<T> {
   const result = await promise
@@ -13,25 +14,25 @@ export async function unwrap<T>(promise: Promise<Result<T>>): Promise<T> {
 }
 
 export function createApi(scope?: string) {
-  const client = new ApiClient('', {
-    transport: async <T>(path: string, init?: RequestInit): Promise<T> =>
-      unwrap(
-        window.desktop.request({
-          path,
-          ...(scope ? { scope } : {}),
-          method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
-          ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
-        }),
-      ) as Promise<T>,
-  })
+  const transport = async <T>(path: string, init?: RequestInit): Promise<T> =>
+    unwrap(
+      window.desktop.request({
+        path,
+        ...(scope ? { scope } : {}),
+        method: (init?.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+        ...(typeof init?.body === 'string' ? { body: JSON.parse(init.body) } : {}),
+      }),
+    ) as Promise<T>
+  const client = new ApiClient('', { transport })
   client.fetchScratchlistAttachmentBlob = async (sessionId, attachmentId) => {
     const result = await unwrap(
       window.desktop.readFile({ kind: 'scratchlist', sessionId, attachmentId, ...(scope ? { scope } : {}) }),
     )
     return new Blob([result.bytes as BlobPart], { type: result.mimeType })
   }
-  return client
+  return Object.assign(client, agentCatalogApi(transport))
 }
+export type DesktopApi = ReturnType<typeof createApi>
 export const api = createApi()
 
 export function errorKey(error: unknown): string {

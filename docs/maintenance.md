@@ -31,10 +31,12 @@ Hub → runner / CLI
 | 排队、编辑、暂存与附件 | [queueEdit.ts](../src/renderer/lib/queueEdit.ts)、[composerPark.ts](../src/renderer/lib/composerPark.ts)、[useAttachments.ts](../src/renderer/lib/useAttachments.ts)、对应具名组件 | `composer-park.test.ts`、`alignment.e2e.ts`、队列/附件 Electron 用例 |
 | 历史短、滚动跳动、执行记录折叠 | [useTranscriptNavigation.ts](../src/renderer/lib/useTranscriptNavigation.ts)、[article-transcript.ts](../src/renderer/lib/article-transcript.ts)、[message-window-store.ts](../vendor/hapi/web/src/lib/message-window-store.ts) | `navigation.test.ts`、`article-transcript.test.ts`、共享历史测试 |
 | 原文、Markdown、代码、长文 | [Markdown.tsx](../src/renderer/components/Markdown.tsx)、[remark-user-text.ts](../src/renderer/lib/remark-user-text.ts)、[LongMarkdown.tsx](../src/renderer/components/LongMarkdown.tsx)、[VirtualTextContent.tsx](../src/renderer/components/VirtualTextContent.tsx) | `markdown*.test.tsx`、`large-content.test.tsx`、相关 Electron 用例 |
-| 模型、权限、问答 | [SessionConfiguration.tsx](../src/renderer/components/SessionConfiguration.tsx)、[NewSessionDialog.tsx](../src/renderer/components/NewSessionDialog.tsx)、共享协议与问答组件 | `alignment.e2e.ts`、共享模型/权限测试 |
+| CLI 安装检测、新建配置、会话设置 | [NewSessionDialog.tsx](../src/renderer/components/NewSessionDialog.tsx)、[agent-settings](../src/renderer/components/agent-settings/)、[SessionConfiguration.tsx](../src/renderer/components/SessionConfiguration.tsx)、[额外模型 API 适配](../src/renderer/lib/agentCatalogApi.ts) | `agent-settings.test.tsx`、`new-session-agents.e2e.ts`、原有新建/设置 Electron 用例 |
+| 模型共享规则、权限与问答协议 | `vendor/hapi/shared/src/`、共享模型/问答组件、[边界白名单](../src/shared/policy.ts) | `state.test.ts`、共享模型/权限测试 |
 | 文件、图片与导出 | [FilePreview.tsx](../src/renderer/components/FilePreview.tsx)、[SaveFileButton.tsx](../src/renderer/components/SaveFileButton.tsx)、[image-export.ts](../src/main/image-export.ts) | `file-preview.test.tsx`、`media.test.tsx`、`markdown-share.test.tsx` |
 | 上游升级、接口不兼容 | [vendor 规范](../vendor/AGENTS.md)、[对齐记录](upstream-alignment.md) | 来源重放、共享契约、受影响 Electron 用例 |
 | 打包或 CI 失败 | [package.json](../package.json)、[package-win.mjs](../scripts/package-win.mjs)、[verify-package.mjs](../scripts/verify-package.mjs)、[CI 排查](ci-troubleshooting.md) | 构建、版本与包校验；系统行为另做 Windows 验证 |
+| 本机产物占用、版本交付后清理 | [cleanup-builds.mjs](../scripts/cleanup-builds.mjs)、[产物保留规则](../README.md#本地产物保留与清理) | `scripts/cleanup-builds.test.mjs`、`scripts/release.test.mjs`；保留安装包的摘要与清理记录 |
 
 测试文件名在 `tests/` 下查找，共享测试另按配置定位。表中是起点，不能据此跳过实际调用方和适用目录规范。
 

@@ -15,6 +15,7 @@ import {
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, relative, resolve } from 'node:path'
+import { cleanupBuilds } from './cleanup-builds.mjs'
 
 // Record inputs before packaging, then outputs before testing. Verification
 // compares the actual installer payload against both immutable snapshots.
@@ -180,6 +181,8 @@ async function verify() {
   await writeFile(join(archive, 'SHA256SUMS.txt'), `${installerSha256}  ${name}\n`)
   await rm(unpack, { recursive: true })
   console.log(JSON.stringify(report, null, 2))
+  const cleanup = await cleanupBuilds({ root, apply: true })
+  console.log(JSON.stringify({ cleanup }, null, 2))
 }
 
 if (command === 'record-inputs') await record(sourceInputs(), inputManifest)

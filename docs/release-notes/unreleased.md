@@ -1,8 +1,35 @@
 # 尚未发布的更新
 
-当前源码与本机安装包版本为 1.0.11，升级说明及安装包记录见 [1.0.11 版本说明](v1.0.11.md)。以下保留本次及此前版本的功能改动与验证记录。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.12，CLI 创建与设置对齐已纳入本机安装包，打包验证和校验值见 [1.0.12 版本说明](v1.0.12.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 本机版本产物自动清理（工程流程）
+
+- 每次本机安装包通过 `verify-package.mjs verify` 校验、归档后自动清理。保留本次与上一份已验证安装包，移除旧安装包、重复暂存副本和能核对来源的解包目录；历史说明、源码摘要、补丁与验证日志继续保留。
+- 清理前核对保留安装包的 SHA-256；未知或校验失败的构建、目录链接、依赖、下载缓存、源码、工作树和发布准备文件均保留。删除清单与执行结果记录在 `build/cleanup-reports/`，支持 `bun run cleanup:build` 预览与 `--apply` 执行。
+- `release.mjs prepare` 支持在暂存副本已清理后从归档读取安装包，并校验摘要；清理与发布准备测试已接入 CI。
+
+这是桌面仓库的工程流程改动，不改变 1.0.12 安装包的内容、版本和既有校验记录。使用方式见 [产物保留与清理](../../README.md#本地产物保留与清理)。
+
+验证：`node scripts/limit-cpu.mjs node --test scripts/cleanup-builds.test.mjs scripts/release.test.mjs` 共 10 项通过；使用已验证安装包的隔离副本走通归档验证、自动清理及从归档准备发布文件的完整流程。检查覆盖摘要异常、未完成构建、版本排序、目录链接、重复执行和验证失败时保留产物。全部检查使用 Linux，进程及子进程最多使用 2 个逻辑 CPU。
+
+本次实际清理 29 项产物，释放约 4.56 GiB；工作目录由约 6.33 GiB 降至 1.77 GiB，`build/` 降至约 328 MiB。保留的 1.0.12、1.0.11 安装包在清理前后 SHA-256 一致，依赖占用未变。执行清单和复核结果分别保存在本机 `build/cleanup-reports/` 与 `build/cleanup-result.json`。
+
+## CLI 创建与设置对齐（1.0.12）
+
+- 新建列表复用远端机器的 CLI 安装检测，只显示可用项；支持当前共享创建目录的 11 种 CLI，排除仅供历史兼容的 Gemini。切换机器时自动改选可用 CLI，检测中、失败、空列表禁止创建；提供刷新及旧 runner 升级提示。
+- 补齐 Antigravity、Cursor、Grok、Copilot、Pi，以及服务端新增的 Kimi/DeepSeek Harness 模型目录；沿用已有 Claude、Codex、OpenCode、Hermes 能力。创建配置按机器/CLI 隔离，目录相关模型在切换项目时重置。
+- 权限按各 CLI 的原生模式提供，Pi/DeepSeek 由 CLI 管理。支持 Antigravity/Grok/Pi 的模型思考档位、Cursor 完整变体、Copilot 运行模式；会话设置同时支持这些 CLI 及 Codex 快速模式，失败保留服务端原值。
+- API 仅增加明确的模型查询与设置白名单；Kimi/DeepSeek 新接口在桌面 API 适配层校验，模型标识保留原文，Pi 的运行时模型按供应商与 ID 提交。不新增本机命令执行或 IPC 通用能力，不修改 vendor 来源文件。
+- 主进程在受限大小的错误响应中保留安装检测的升级提示码和模型发现的 RPC 缺失码，其余服务端错误文本仍不进入界面；未知送达与写请求重试规则保持原有语义。
+- CLI 配置拆入 `components/agent-settings/`，新建窗口和会话设置保留界面组合；新增文案同步七种语言。
+
+远端需要支持安装检测及对应 CLI 模型/配置接口；桌面更新不会升级 Hub/runner。本次按新版本打包请求升级至 1.0.12，安装包与验证记录见 [版本说明](v1.0.12.md#本机安装包)。
+
+验证：`bun run typecheck`、`bun run build` 通过；`bun run test --project desktop tests/agent-settings.test.tsx tests/discovery-errors.test.ts tests/hub.test.ts tests/state.test.ts` 共 105 项通过。`xvfb-run -a bun run test:e2e tests/new-session-agents.e2e.ts` 的 10 项新增用例及原有新建/目录/Hermes/设置的 9 项定向用例均通过；旧 OpenCode 用例同步了“最低”的中文断言并单独复验。检查覆盖远端安装结果、切换机器与迟到响应、旧 runner 升级提示、检测失败/重试、各 CLI 创建与运行时参数、设置失败保留原值，以及 920×640、最大字号、双栏、深浅主题和法语长文案的实际滚动、按钮可见性与键盘操作。
+
+所有构建、类型检查及测试均经 CPU 限制脚本，重型任务串行，最多使用 2 个逻辑 CPU。Electron 验证使用 Linux / Xvfb 与模拟 Hub，未进行 Windows 实机或真实 CLI 验证。七种语言的 375 个文案键无缺失；相关维护文档、README 和版本记录的本地链接与标题锚点已核对。本机构建日志和界面截图保存在 `build/cli-alignment-*`，不进入源码提交。
 
 ## 归档会话的发送恢复（1.0.11）
 

@@ -2282,6 +2282,15 @@ input[type='checkbox'] {
 .new-session-location {
   grid-column: 1 / -1;
 }
+.launch-catalog-status {
+  margin: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.launch-catalog-status p {
+  flex: 1;
+}
 .new-session-dialog .dialog-actions {
   padding-top: 14px;
   flex-shrink: 0;

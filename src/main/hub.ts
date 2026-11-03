@@ -3,6 +3,7 @@ import { SyncEventSchema, type SyncEvent } from '@hapi/protocol/schemas'
 import type { ConnectionState, DesktopEvent, HubRequest, RemoteFile, RemoteFileData } from '../shared/bridge'
 import { normalizeHubUrl, hubRequestSchema, remoteFileSchema } from '../shared/policy'
 import { SseDecoder } from './sse'
+import { readDiscoveryErrorCode } from './discovery-errors'
 
 export class HubError extends Error {
   constructor(
@@ -228,8 +229,11 @@ export class HubConnection {
       }
       if (!response.ok) {
         // Do not forward arbitrary server error text (which can contain secrets) to UI/logs.
+        const discoveryCode = method === 'GET' ? await readDiscoveryErrorCode(response, path) : null
+        if (generation !== this.generation) throw new HubError('CONNECTION_CHANGED')
         const code =
-          method !== 'GET' && response.status >= 500 ? 'DELIVERY_UNKNOWN' : `HTTP_${response.status}`
+          discoveryCode ??
+          (method !== 'GET' && response.status >= 500 ? 'DELIVERY_UNKNOWN' : `HTTP_${response.status}`)
         throw new HubError(code, response.status)
       }
       if (response.status === 204) {
