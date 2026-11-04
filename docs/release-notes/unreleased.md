@@ -1,8 +1,24 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.12，CLI 创建与设置对齐已纳入本机安装包，打包验证和校验值见 [1.0.12 版本说明](v1.0.12.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.13，本机安装包已生成并校验；本版修复与打包记录见 [1.0.13 版本说明](v1.0.13.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## OpenCode 模型选择与 Codex 问答反馈（1.0.13）
+
+- 修复 OpenCode 会话在没有思考档位或档位查询尚未完成时，模型选择被禁用并反复提示刷新的问题。对齐 Web，独立使用已发现的会话模型目录；切换模型后继续更新可用档位，模型目录查询失败仍可刷新重试。
+- Codex 问答区分“提交中”和“已提交、等待 Agent 确认”。接口已接收答案但远端尚未完成时保持卡片只读，避免连续点击重复提交；普通刷新及同一问题的状态更新保留等待提示，明确失败保留答案供重试。
+- 忽略切换问题后返回的旧提交结果；沿用原有问答标识和接口，卡片仍以远端状态为完成依据。新增提示同步七种桌面语言，共享组件补丁与来源记录同步更新。
+
+本次按新版本打包请求升级至 1.0.13，安装包与校验记录见 [版本说明](v1.0.13.md#本机安装包)。远端 Agent 的实际处理耗时由 Hub/runner/CLI 决定；等待提示不表示 Agent 已处理完答案。
+
+验证：`bun run typecheck`、`bun run build` 通过；`bun run test --project desktop tests/agent-settings.test.tsx --project hapi-contract src/components/ToolCard/RequestUserInputFooter.test.tsx` 的 19 项定向回归通过，随后 `bun run test --project hapi-contract` 的 711 项共享回归通过（包含上述 11 项问答测试）。共覆盖 8 项桌面配置测试和 711 项共享测试。旧源码已在“无档位仍可选模型”“档位加载期间刷新模型”“提交后等待确认”和“切换问题后的迟到响应”四项回归中复现失败。
+
+`xvfb-run -a bun run test:e2e tests/session-models.e2e.ts tests/question-submission.e2e.ts` 的 5 项新增回归通过；`xvfb-run -a bun run test:e2e tests/alignment.e2e.ts tests/desktop.e2e.ts --grep 'HAPI interactive questions|session metadata and server-backed settings|Codex async questions|queued messages, questions'` 的 4 项既有回归通过。验证覆盖延迟接口响应与延迟完成通知、连续点击只提交一次、失败保留答案、刷新、动态模型档位、920×640、最大字号、单栏/双栏、深浅主题、法语长文案及键盘操作。界面截图保存在本机 `build/session-interaction-fixes/`。
+
+七种语言的 377 个文案键无缺失；`node scripts/limit-cpu.mjs node scripts/verify-upstream.mjs` 校验 973 个共享文件，176 个补丁文件均可还原并重放。构建、类型检查与测试按组串行，进程及子进程最多使用 2 个逻辑 CPU；Electron 使用 Linux / Xvfb 和模拟 Hub，未进行 Windows 实机或真实远端延迟测量。
+
+1.0.13 本机包另通过新构建的 6 项 Electron 检查及安装包解包校验：包内 180 个构建文件与测试输出一致，1087 个源码及打包输入未变化。已按规则归档并自动清理，保留 1.0.13 与 1.0.12 安装包，二者的 SHA-256 在清理后复核一致；大小、摘要和完整记录见 [1.0.13 本机安装包](v1.0.13.md#本机安装包)。
 
 ## 本机版本产物自动清理（工程流程）
 

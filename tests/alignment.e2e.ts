@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { FixtureHub, fixtureMessage, fixtureCodexEvent } from './fake-server'
 import { test, expect } from './fixtures/desktop'
-import { asyncQuestionId, asyncQuestionRequestId } from './fixtures/async-question'
+import { asyncQuestionId, asyncQuestionRequestId, publishAsyncQuestion } from './fixtures/async-question'
 
 let electron: ElectronApplication
 let page: Page
@@ -16,33 +16,6 @@ test.beforeEach(async ({ desktop }) => {
   server = desktop.server
   errors = desktop.errors
 })
-
-function publishQuestion(id = asyncQuestionRequestId) {
-  const session = server.sessions.get('design')!
-  session.agentState = {
-    ...session.agentState,
-    requests: {
-      [id]: {
-        tool: 'request_user_input',
-        toolCallId: id,
-        createdAt: Date.now(),
-        arguments: {
-          isBlocking: false,
-          questions: [
-            {
-              id: asyncQuestionId,
-              question: '用户消息默认采用哪种显示方式？',
-              isOther: true,
-              options: [{ label: '按原文显示', description: '保留空格、Tab、换行及 # 等符号' }],
-            },
-          ],
-        },
-      },
-    },
-  }
-  session.agentStateVersion++
-  server.emit({ type: 'session-updated', sessionId: session.id, data: session })
-}
 
 async function expectColumnWidth(chat: Locator, target: Locator) {
   await expect(target).toBeVisible()
@@ -117,7 +90,7 @@ test('queued messages, questions and scratchlist follow the article width in wid
   await chat.screenshot({ path: 'build/upstream-alignment/queue-scratchlist.png', animations: 'disabled' })
   await chat.getByRole('button', { name: '关闭暂存列表', exact: true }).click()
 
-  publishQuestion()
+  publishAsyncQuestion(server)
   await expectColumnWidth(chat, chat.locator('.pending-question'))
   expect((await chat.locator('.pending-question').boundingBox())!.width).toBeLessThanOrEqual(articleWidth + 1)
   await chat.screenshot({ path: 'build/upstream-alignment/question.png', animations: 'disabled' })
@@ -156,7 +129,7 @@ test('Codex async questions submit through IPC with their nested JSON IDs', asyn
   await page.getByTestId('session-design').click()
   const chat = page.getByTestId('chat-design')
   await chat.locator('.composer textarea').fill('回答后继续保留的草稿')
-  publishQuestion()
+  publishAsyncQuestion(server)
   const card = chat.locator('.pending-question')
   await card.getByRole('button', { name: /按原文显示/ }).click()
   await card.getByRole('button', { name: '提交', exact: true }).click()
@@ -166,7 +139,7 @@ test('Codex async questions submit through IPC with their nested JSON IDs', asyn
     .toEqual({ answers: { [asyncQuestionId]: { answers: ['按原文显示'] } } })
   await expect(card).toHaveCount(0)
   await expect(chat.locator('.composer textarea')).toHaveValue('回答后继续保留的草稿')
-  publishQuestion(asyncQuestionRequestId + '-dismiss')
+  publishAsyncQuestion(server, asyncQuestionRequestId + '-dismiss')
   await expect(card).toBeVisible()
   // The existing question UI has no dismiss button; verify the companion
   // permission route directly through the same preload boundary.

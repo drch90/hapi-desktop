@@ -9322,11 +9322,95 @@ index 5466b94a27806e58c08e30e9bb53cb82982365a4..a375c83c8e8b8de075e568630d82b695
          || metadata?.flavor === 'cursor'
          || toolName.startsWith('Codex')
          || toolName.startsWith('Gemini')
+diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
+--- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
++++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
+@@ -1,6 +1,6 @@
+-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+-import { describe, expect, it, vi } from 'vitest'
+-import type { ApiClient } from '@/api/client'
++import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { ApiClient } from '@/api/client'
+ import type { ChatToolCall } from '@/chat/types'
+ 
+ vi.mock('@/hooks/usePlatform', () => ({
+@@ -18,12 +18,18 @@
+ 
+ import { RequestUserInputFooter } from './RequestUserInputFooter'
+ 
++afterEach(() => {
++    cleanup()
++    vi.restoreAllMocks()
++})
++
+ const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ label: 'Alpha' }, { label: 'Beta' }] }
+ 
+ function renderFooter(input: unknown = { questions: [choice] }) {
+-    const approvePermission = vi.fn().mockResolvedValue(undefined)
++    const api = new ApiClient('fixture-token')
++    const approvePermission = vi.spyOn(api, 'approvePermission').mockResolvedValue(undefined)
+     const props = {
+-        api: { approvePermission } as unknown as ApiClient,
++        api,
+         sessionId: 'session-1', tool: makeTool(input), disabled: false, onDone: vi.fn()
+     }
+     return { ...render(<RequestUserInputFooter {...props} />), props, approvePermission }
+@@ -49,6 +55,50 @@
+ }
+ 
+ describe('RequestUserInputFooter', () => {
++    it('keeps a submitted answer locked while native confirmation is delayed', async () => {
++        const response = Promise.withResolvers<void>()
++        const { props, approvePermission, rerender } = renderFooter()
++        approvePermission.mockReturnValueOnce(response.promise)
++        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
++        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
++        const submitting = screen.getByRole('button', { name: 'tool.submitting' })
++        expect(submitting).toBeDisabled()
++        expect(submitting).toHaveAttribute('aria-busy', 'true')
++        fireEvent.click(submitting)
++        expect(approvePermission).toHaveBeenCalledTimes(1)
++        await act(async () => response.resolve())
++        await waitFor(() => expect(props.onDone).toHaveBeenCalledTimes(1))
++        expect(screen.getByRole('status')).toHaveTextContent('tool.requestUserInput.waitingForConfirmation')
++        const submitted = screen.getByRole('button', { name: 'tool.requestUserInput.submitted' })
++        expect(submitted).toBeDisabled()
++        fireEvent.click(submitted)
++        rerender(<RequestUserInputFooter {...props} tool={{ ...props.tool, input: structuredClone(props.tool.input) }} />)
++        expect(screen.getByRole('button', { name: 'tool.requestUserInput.submitted' })).toBeDisabled()
++        expect(approvePermission).toHaveBeenCalledTimes(1)
++        rerender(<RequestUserInputFooter {...props} tool={{ ...props.tool, permission: { id: 'permission-1', status: 'resolved' } }} />)
++        expect(screen.queryByRole('status')).not.toBeInTheDocument()
++        expect(screen.queryByRole('button')).not.toBeInTheDocument()
++    })
++
++    it('ignores the old request acknowledgement after switching to another question', async () => {
++        const response = Promise.withResolvers<void>()
++        const { props, approvePermission, rerender } = renderFooter()
++        approvePermission.mockReturnValueOnce(response.promise)
++        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
++        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
++        rerender(<RequestUserInputFooter {...props} sessionId="session-2" tool={{
++            ...props.tool,
++            id: 'request-2',
++            permission: { id: 'permission-2', status: 'pending' }
++        }} />)
++        fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
++        await act(async () => response.resolve())
++        expect(props.onDone).not.toHaveBeenCalled()
++        expect(screen.getByRole('button', { name: 'tool.submit' })).toBeEnabled()
++        expect(screen.getByRole('button', { name: /Beta/ })).toHaveAttribute('aria-pressed', 'true')
++        expect(screen.queryByRole('status')).not.toBeInTheDocument()
++    })
++
+     it.each(['', ' \n ', '  自定义\n说明  '])('focuses notes without submitting and posts canonical values (%j)', async (note) => {
+         const { approvePermission } = renderFooter()
+         fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
 diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
-index b4b5d684e2c86063e059bac960b210fba898149d..ac6ffa52b8148378085989e7a5ec7060d56c70be 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
-@@ -74,6 +74,7 @@ export function RequestUserInputFooter(props: {
+@@ -74,6 +74,7 @@
      tool: ChatToolCall
      disabled: boolean
      onDone: () => void
@@ -9334,7 +9418,95 @@ index b4b5d684e2c86063e059bac960b210fba898149d..ac6ffa52b8148378085989e7a5ec7060
  }) {
      const { t } = useTranslation()
      const { haptic } = usePlatform()
-@@ -198,8 +199,8 @@ export function RequestUserInputFooter(props: {
+@@ -84,36 +85,31 @@
+     const [step, setStep] = useState(0)
+     const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
+ 
+-    const [loading, setLoading] = useState(false)
++    const [submission, setSubmission] = useState<'idle' | 'submitting' | 'submitted'>('idle')
++    const loading = submission === 'submitting'
++    const submitted = submission === 'submitted'
++    const disabled = props.disabled || submission !== 'idle'
+     const [error, setError] = useState<string | null>(null)
+     const noteRef = useRef<HTMLTextAreaElement>(null)
++    const submissionLocked = useRef(false)
++    const requestGeneration = useRef(0)
+ 
+     useEffect(() => {
++        requestGeneration.current += 1
++        submissionLocked.current = false
+         setStep(0)
+         const initial: Record<string, QuestionState> = {}
+         for (const q of questions) {
+             initial[q.id] = { selected: [], userNote: q.prefill ?? '' }
+         }
+         setStateByQuestion(initial)
+-        setLoading(false)
+-        setError(null)
+-    }, [props.tool.id])
++        setSubmission('idle')
++        setError(null)
++        return () => { requestGeneration.current += 1 }
++    }, [props.sessionId, props.tool.id, permission?.id])
+ 
+     if (!permission || permission.status !== 'pending') return null
+     if (!isRequestUserInputToolName(props.tool.name)) return null
+-
+-    const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
+-        if (props.disabled) return
+-        setError(null)
+-        try {
+-            await action()
+-            haptic.notification(hapticType)
+-            props.onDone()
+-        } catch (e) {
+-            haptic.notification('error')
+-            setError(e instanceof Error ? e.message : t('dialog.error.default'))
+-        }
+-    }
+ 
+     const total = Math.max(1, questions.length)
+     const clampedStep = Math.min(Math.max(step, 0), total - 1)
+@@ -124,7 +120,7 @@
+     }
+ 
+     const submit = async () => {
+-        if (loading) return
++        if (props.disabled || submissionLocked.current) return
+ 
+         // Validate all questions
+         for (let i = 0; i < questions.length; i += 1) {
+@@ -151,9 +147,26 @@
+             }
+         }
+ 
+-        setLoading(true)
+-        await run(() => props.api.approvePermission(props.sessionId, permission.id, formattedAnswers), 'success')
+-        setLoading(false)
++        submissionLocked.current = true
++        const generation = requestGeneration.current
++        setSubmission('submitting')
++        setError(null)
++        try {
++            await props.api.approvePermission(props.sessionId, permission.id, formattedAnswers)
++        } catch (e) {
++            if (generation !== requestGeneration.current) return
++            submissionLocked.current = false
++            setSubmission('idle')
++            haptic.notification('error')
++            setError(e instanceof Error ? e.message : t('dialog.error.default'))
++            return
++        }
++        if (generation !== requestGeneration.current) return
++        // REST acceptance can precede native consumption and its SSE update.
++        // Keep the answer locked until that update resolves the question.
++        setSubmission('submitted')
++        haptic.notification('success')
++        props.onDone()
+     }
+ 
+     const next = () => {
+@@ -198,8 +211,8 @@
      const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
  
      return (
@@ -9345,23 +9517,56 @@ index b4b5d684e2c86063e059bac960b210fba898149d..ac6ffa52b8148378085989e7a5ec7060
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -213,13 +214,13 @@ export function RequestUserInputFooter(props: {
+@@ -213,13 +226,19 @@
              </div>
  
              {error ? (
 -                <div className="mt-2 text-xs text-red-600">
-+                <div className="mt-2 shrink-0 text-xs text-red-600">
++                <div role="alert" className="mt-2 shrink-0 text-xs text-red-600">
                      {error}
                  </div>
              ) : null}
  
++            {submitted ? (
++                <div role="status" className="mt-2 shrink-0 text-sm text-[var(--app-hint)]">
++                    {t('tool.requestUserInput.waitingForConfirmation')}
++                </div>
++            ) : null}
++
              {currentQuestion ? (
 -                <div className="mt-3">
 +                <div key={clampedStep} className={cn('mt-3', props.scrollable && 'min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]')}>
                      {currentQuestion.question ? (
                          <div>
                              <MarkdownRenderer content={currentQuestion.question} />
-@@ -274,7 +275,7 @@ export function RequestUserInputFooter(props: {
+@@ -231,7 +250,7 @@
+                         <textarea
+                             value={currentState?.userNote ?? ''}
+                             onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
+-                            disabled={props.disabled || loading}
++                            disabled={disabled}
+                             placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
+                             className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                         />
+@@ -245,7 +264,7 @@
+                                         <OptionRow
+                                             key={optIdx}
+                                             checked={isSelected}
+-                                            disabled={props.disabled || loading}
++                                            disabled={disabled}
+                                             title={opt.isOther ? t('tool.requestUserInput.otherLabel') : opt.label}
+                                             description={opt.isOther ? t('tool.requestUserInput.otherDescription') : opt.description}
+                                             onClick={() => selectOption(currentQuestion, opt)}
+@@ -264,7 +283,7 @@
+                                     aria-label={t('tool.requestUserInput.noteLabel')}
+                                     value={currentState?.userNote ?? ''}
+                                     onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
+-                                    disabled={props.disabled || loading}
++                                    disabled={disabled}
+                                     placeholder={t('tool.requestUserInput.notePlaceholder')}
+                                     className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
+                                 />
+@@ -274,14 +293,14 @@
                  </div>
              ) : null}
  
@@ -9370,6 +9575,41 @@ index b4b5d684e2c86063e059bac960b210fba898149d..ac6ffa52b8148378085989e7a5ec7060
                  <div className="flex items-center gap-2">
                      {questions.length > 1 ? (
                          <Button
+                             type="button"
+                             variant="outline"
+                             size="sm"
+-                            disabled={props.disabled || loading || clampedStep === 0}
++                            disabled={disabled || clampedStep === 0}
+                             onClick={prev}
+                         >
+                             {t('tool.prev')}
+@@ -295,7 +314,7 @@
+                             type="button"
+                             variant="default"
+                             size="sm"
+-                            disabled={props.disabled || loading}
++                            disabled={disabled}
+                             onClick={next}
+                         >
+                             {t('tool.next')}
+@@ -305,7 +324,7 @@
+                             type="button"
+                             variant="default"
+                             size="sm"
+-                            disabled={props.disabled || loading}
++                            disabled={disabled}
+                             onClick={submit}
+                             aria-busy={loading}
+                             className="gap-2"
+@@ -316,7 +335,7 @@
+                                     {t('tool.submitting')}
+                                 </>
+                             ) : (
+-                                t('tool.submit')
++                                t(submitted ? 'tool.requestUserInput.submitted' : 'tool.submit')
+                             )}
+                         </Button>
+                     )}
 diff --git a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx b/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
 index d2c398d05b4d629cf44f8a9caf864f0c8b2ca49f..e5ac8299e235ffa94075fae733fe30a3894c1321 100644
 --- a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
@@ -10256,7 +10496,6 @@ index 1b5b5053027070062d181b61ee6bb7ddc22a4da4..6d635dcdd187ede4d33ae99e3c417a62
  
  /**
 diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/locales/en.ts
-index fb62fac69d752f75ee60e74ee52700faf5c20ae8..048a7fde9b5bf3b27bbe9a900ceaf59bd2abcfd6 100644
 --- a/vendor/hapi/web/src/lib/locales/en.ts
 +++ b/vendor/hapi/web/src/lib/locales/en.ts
 @@ -1,4 +1,13 @@
@@ -10273,7 +10512,16 @@ index fb62fac69d752f75ee60e74ee52700faf5c20ae8..048a7fde9b5bf3b27bbe9a900ceaf59b
    // Loading states
    'loading': 'Loading…',
    'authorizing': 'Authorizing…',
-@@ -672,6 +681,7 @@ export default {
+@@ -606,6 +615,8 @@
+   'tool.requestUserInput.otherLabel': 'None of the above',
+   'tool.requestUserInput.otherDescription': 'Optionally, add details in notes.',
+   'tool.requestUserInput.popupBlocked': 'Could not open the sign-in page. Allow popups and try again.',
++  'tool.requestUserInput.submitted': 'Submitted',
++  'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
+   'toolGroup.title': 'Tool activity',
+   'toolGroup.friendly.inspectTarget': 'Inspect {target}',
+   'toolGroup.friendly.searchTarget': 'Search “{target}”',
+@@ -672,6 +683,7 @@
    'queuedMessages.steer': 'Deliver into the running turn now',
    'queuedMessages.steerFailed': 'Steer failed — message stays queued',
    'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
@@ -10282,7 +10530,6 @@ index fb62fac69d752f75ee60e74ee52700faf5c20ae8..048a7fde9b5bf3b27bbe9a900ceaf59b
    'queuedMessages.retryFailed': 'Retry failed',
    'queuedMessages.retryMissing': 'The message is no longer available',
 diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/locales/zh-CN.ts
-index 1633362861eb1462ddb545a325e7a57d1042772f..7c7d005e9a0278be8036f275feecce471b961a77 100644
 --- a/vendor/hapi/web/src/lib/locales/zh-CN.ts
 +++ b/vendor/hapi/web/src/lib/locales/zh-CN.ts
 @@ -1,4 +1,13 @@
@@ -10299,7 +10546,16 @@ index 1633362861eb1462ddb545a325e7a57d1042772f..7c7d005e9a0278be8036f275feecce47
    // Loading states
    'loading': '加载中…',
    'authorizing': '认证中…',
-@@ -670,6 +679,7 @@ export default {
+@@ -604,6 +613,8 @@
+   'tool.requestUserInput.otherLabel': '以上都不是',
+   'tool.requestUserInput.otherDescription': '可在备注中补充说明（可选）。',
+   'tool.requestUserInput.popupBlocked': '无法打开登录页面。请允许弹出窗口后重试。',
++  'tool.requestUserInput.submitted': '已提交',
++  'tool.requestUserInput.waitingForConfirmation': '答案已提交，正在等待 Agent 确认…',
+   'toolGroup.title': '工具活动',
+   'toolGroup.friendly.inspectTarget': '检查 {target}',
+   'toolGroup.friendly.searchTarget': '搜索“{target}”',
+@@ -670,6 +681,7 @@
    'queuedMessages.steer': '立即插入当前回合',
    'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
    'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',

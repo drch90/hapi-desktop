@@ -1885,11 +1885,11 @@
   },
   "web/src/components/ToolCard/RequestUserInputFooter.test.tsx": {
     "upstream": "855134e7971824aac3cdc04f9cf9dfcfaf1d8ef43baffb4a213b938664966659",
-    "vendored": "855134e7971824aac3cdc04f9cf9dfcfaf1d8ef43baffb4a213b938664966659"
+    "vendored": "5e1d729dbd736252d01ec9c24f8c416b0070cf8fd2796836948133adf16e961a"
   },
   "web/src/components/ToolCard/RequestUserInputFooter.tsx": {
     "upstream": "1c7ec3355459eed6ddf534c041baf0eda7c641f7351eb72bd4df873005f28e48",
-    "vendored": "d8a7f040ef5a224b9178fb345203ef3f55bf3b7d8ffd72ba3ed004a3d752a2dc"
+    "vendored": "c8eff29a404d506d739bed583992707c554e773f02cc49ac9c830878c49db49f"
   },
   "web/src/components/ToolCard/ToolCard.test.ts": {
     "upstream": "4e661b16b24b3738ea392bdbb258c1b52c603e70990183f31d37abf2ea12ed0f",
@@ -3117,7 +3117,7 @@
   },
   "web/src/lib/locales/en.ts": {
     "upstream": "6f16ceb3add59f0d5788a24fb1b6aeedbce71f3398e6aca380c925a8218ba976",
-    "vendored": "4746e49b510a75cf39f4059ac1bf5d825ae4492a9fd17aab0697e9c1f2cb83ed"
+    "vendored": "43ea8e349044463138b0a92d89069d8a17852b2dba00cc78dfe8a4c31571d271"
   },
   "web/src/lib/locales/index.ts": {
     "upstream": "c8a0a9adbf620ea05878853e954492659c14d70056ae2592548e357c0218a4ff",
@@ -3125,7 +3125,7 @@
   },
   "web/src/lib/locales/zh-CN.ts": {
     "upstream": "79e605c5d2d8f4eff2154dca31d944b676975b9520e8a7abe7380162fab9ba8b",
-    "vendored": "8815abb7bbda769a64aedb4f39d117a0bd5c3676d6bc5ae81e47ee31a05ae16d"
+    "vendored": "1162b7b2ee0879c6ea1263163ef7f320c65ac87eb0e5b0ba99a88dd74861c720"
   },
   "web/src/lib/machineHealth.test.ts": {
     "upstream": "47a77d59607a45c9554dfee9e332b0b4c0155264a5474837cc539d2d263230fe",

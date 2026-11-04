@@ -70,7 +70,9 @@ export function useSessionCatalogs(api: DesktopApi, session: Session, enabled: b
     kimi: additional,
   }
   const active = agent && Object.hasOwn(catalogs, agent) ? catalogs[agent as keyof typeof catalogs] : null
-  const effortState = agent === 'opencode' ? opencodeEffort : agent === 'grok' ? grokEffort : null
+  // OpenCode reports an unavailable effort catalog for models without variants.
+  // Like Web, keep that optional discovery independent of the model selector.
+  const effortState = agent === 'grok' ? grokEffort : null
   const isLoading = Boolean(
     active?.isLoading || effortState?.isLoading || (agent === 'cursor' && machineCursor.isLoading),
   )

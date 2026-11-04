@@ -85,36 +85,31 @@ export function RequestUserInputFooter(props: {
     const [step, setStep] = useState(0)
     const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
 
-    const [loading, setLoading] = useState(false)
+    const [submission, setSubmission] = useState<'idle' | 'submitting' | 'submitted'>('idle')
+    const loading = submission === 'submitting'
+    const submitted = submission === 'submitted'
+    const disabled = props.disabled || submission !== 'idle'
     const [error, setError] = useState<string | null>(null)
     const noteRef = useRef<HTMLTextAreaElement>(null)
+    const submissionLocked = useRef(false)
+    const requestGeneration = useRef(0)
 
     useEffect(() => {
+        requestGeneration.current += 1
+        submissionLocked.current = false
         setStep(0)
         const initial: Record<string, QuestionState> = {}
         for (const q of questions) {
             initial[q.id] = { selected: [], userNote: q.prefill ?? '' }
         }
         setStateByQuestion(initial)
-        setLoading(false)
+        setSubmission('idle')
         setError(null)
-    }, [props.tool.id])
+        return () => { requestGeneration.current += 1 }
+    }, [props.sessionId, props.tool.id, permission?.id])
 
     if (!permission || permission.status !== 'pending') return null
     if (!isRequestUserInputToolName(props.tool.name)) return null
-
-    const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
-        if (props.disabled) return
-        setError(null)
-        try {
-            await action()
-            haptic.notification(hapticType)
-            props.onDone()
-        } catch (e) {
-            haptic.notification('error')
-            setError(e instanceof Error ? e.message : t('dialog.error.default'))
-        }
-    }
 
     const total = Math.max(1, questions.length)
     const clampedStep = Math.min(Math.max(step, 0), total - 1)
@@ -125,7 +120,7 @@ export function RequestUserInputFooter(props: {
     }
 
     const submit = async () => {
-        if (loading) return
+        if (props.disabled || submissionLocked.current) return
 
         // Validate all questions
         for (let i = 0; i < questions.length; i += 1) {
@@ -152,9 +147,26 @@ export function RequestUserInputFooter(props: {
             }
         }
 
-        setLoading(true)
-        await run(() => props.api.approvePermission(props.sessionId, permission.id, formattedAnswers), 'success')
-        setLoading(false)
+        submissionLocked.current = true
+        const generation = requestGeneration.current
+        setSubmission('submitting')
+        setError(null)
+        try {
+            await props.api.approvePermission(props.sessionId, permission.id, formattedAnswers)
+        } catch (e) {
+            if (generation !== requestGeneration.current) return
+            submissionLocked.current = false
+            setSubmission('idle')
+            haptic.notification('error')
+            setError(e instanceof Error ? e.message : t('dialog.error.default'))
+            return
+        }
+        if (generation !== requestGeneration.current) return
+        // REST acceptance can precede native consumption and its SSE update.
+        // Keep the answer locked until that update resolves the question.
+        setSubmission('submitted')
+        haptic.notification('success')
+        props.onDone()
     }
 
     const next = () => {
@@ -214,8 +226,14 @@ export function RequestUserInputFooter(props: {
             </div>
 
             {error ? (
-                <div className="mt-2 shrink-0 text-xs text-red-600">
+                <div role="alert" className="mt-2 shrink-0 text-xs text-red-600">
                     {error}
+                </div>
+            ) : null}
+
+            {submitted ? (
+                <div role="status" className="mt-2 shrink-0 text-sm text-[var(--app-hint)]">
+                    {t('tool.requestUserInput.waitingForConfirmation')}
                 </div>
             ) : null}
 
@@ -232,7 +250,7 @@ export function RequestUserInputFooter(props: {
                         <textarea
                             value={currentState?.userNote ?? ''}
                             onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
                             className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                         />
@@ -246,7 +264,7 @@ export function RequestUserInputFooter(props: {
                                         <OptionRow
                                             key={optIdx}
                                             checked={isSelected}
-                                            disabled={props.disabled || loading}
+                                            disabled={disabled}
                                             title={opt.isOther ? t('tool.requestUserInput.otherLabel') : opt.label}
                                             description={opt.isOther ? t('tool.requestUserInput.otherDescription') : opt.description}
                                             onClick={() => selectOption(currentQuestion, opt)}
@@ -265,7 +283,7 @@ export function RequestUserInputFooter(props: {
                                     aria-label={t('tool.requestUserInput.noteLabel')}
                                     value={currentState?.userNote ?? ''}
                                     onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
-                                    disabled={props.disabled || loading}
+                                    disabled={disabled}
                                     placeholder={t('tool.requestUserInput.notePlaceholder')}
                                     className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                                 />
@@ -282,7 +300,7 @@ export function RequestUserInputFooter(props: {
                             type="button"
                             variant="outline"
                             size="sm"
-                            disabled={props.disabled || loading || clampedStep === 0}
+                            disabled={disabled || clampedStep === 0}
                             onClick={prev}
                         >
                             {t('tool.prev')}
@@ -296,7 +314,7 @@ export function RequestUserInputFooter(props: {
                             type="button"
                             variant="default"
                             size="sm"
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             onClick={next}
                         >
                             {t('tool.next')}
@@ -306,7 +324,7 @@ export function RequestUserInputFooter(props: {
                             type="button"
                             variant="default"
                             size="sm"
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             onClick={submit}
                             aria-busy={loading}
                             className="gap-2"
@@ -317,7 +335,7 @@ export function RequestUserInputFooter(props: {
                                     {t('tool.submitting')}
                                 </>
                             ) : (
-                                t('tool.submit')
+                                t(submitted ? 'tool.requestUserInput.submitted' : 'tool.submit')
                             )}
                         </Button>
                     )}

@@ -184,6 +184,9 @@ export class FixtureHub {
     { sessionId: string; bytes: Buffer; metadata: ScratchlistAttachmentMetadata }
   >()
   failSetting = false
+  permissionGate: Promise<void> | null = null
+  failPermission = false
+  holdPermissionResolution = false
   hermesAvailable = true
   failHermesModels = false
   emptyHermesModels = false
@@ -932,10 +935,17 @@ export class FixtureHub {
       return
     }
     if (action.startsWith('/permissions/')) {
+      await this.permissionGate
+      if (this.failPermission) {
+        reply({ error: 'Fixture rejected answer' }, 409)
+        return
+      }
       const key = decodeURIComponent(action.split('/')[2])
-      delete session.agentState!.requests![key]
-      session.agentStateVersion++
-      this.emit({ type: 'session-updated', sessionId: id, data: session })
+      if (!this.holdPermissionResolution) {
+        delete session.agentState!.requests![key]
+        session.agentStateVersion++
+        this.emit({ type: 'session-updated', sessionId: id, data: session })
+      }
       reply({ ok: true })
       return
     }

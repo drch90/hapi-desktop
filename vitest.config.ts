@@ -50,6 +50,7 @@ export default defineConfig({
             'src/hooks/queries/useCodexModels.test.tsx',
             'src/lib/sessionTitle.test.ts',
             'src/components/ToolCard/ToolGroupCard.test.tsx',
+            'src/components/ToolCard/RequestUserInputFooter.test.tsx',
             'src/components/HermesModelPicker.test.tsx',
             'src/components/AssistantChat/ScheduleTimePicker.test.ts',
             'src/lib/scheduledTime.test.ts',

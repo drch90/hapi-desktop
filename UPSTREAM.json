@@ -30,7 +30,8 @@
     "Bound code and diff rendering with lossless text sections, skip oversized syntax highlighting, and avoid per-character file-preview allocations",
     "Distinguish pending steer receipts from unknown delivery and preserve queued messages across reconnects",
     "Optional article presentation for tool groups with shared history loading and detail dialogs",
-    "Align HAPI v0.33.5 protocol, chat pipeline, model catalogs, compaction receipts, command timing and provisional titles while retaining desktop adapters"
+    "Align HAPI v0.33.5 protocol, chat pipeline, model catalogs, compaction receipts, command timing and provisional titles while retaining desktop adapters",
+    "Keep request_user_input submissions locked after REST acceptance until native confirmation, with stale-request guards and localized waiting feedback"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [

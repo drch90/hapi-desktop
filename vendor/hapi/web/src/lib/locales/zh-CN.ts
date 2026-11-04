@@ -613,6 +613,8 @@ export default {
   'tool.requestUserInput.otherLabel': '以上都不是',
   'tool.requestUserInput.otherDescription': '可在备注中补充说明（可选）。',
   'tool.requestUserInput.popupBlocked': '无法打开登录页面。请允许弹出窗口后重试。',
+  'tool.requestUserInput.submitted': '已提交',
+  'tool.requestUserInput.waitingForConfirmation': '答案已提交，正在等待 Agent 确认…',
   'toolGroup.title': '工具活动',
   'toolGroup.friendly.inspectTarget': '检查 {target}',
   'toolGroup.friendly.searchTarget': '搜索“{target}”',

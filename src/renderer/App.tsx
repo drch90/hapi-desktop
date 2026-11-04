@@ -87,6 +87,8 @@ import { NewSessionDialog } from './components/NewSessionDialog'
 
 // Adapt shared component copy to the desktop's controls and seven-language catalog.
 const desktopWebLabels: Record<string, string> = {
+  'tool.requestUserInput.submitted': 'Submitted',
+  'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
   'newSession.model': 'Model',
   'newSession.hermes.modelPlaceholder': 'Leave empty to use Hermes configuration',
   'hermes.models.default': 'Use Hermes default',

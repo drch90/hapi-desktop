@@ -167,6 +167,8 @@ export function useSessionSettings(api: DesktopApi, session: Session, connected:
   const effortDisabled =
     !editable ||
     !effortOptions.length ||
+    (flavor === 'opencode' &&
+      (catalogs.opencodeEffort.isLoading || Boolean(catalogs.opencodeEffort.error))) ||
     (flavor !== 'claude' && (catalogs.isLoading || Boolean(catalogs.error)))
 
   async function apply(field: SessionSettingField, value: string) {

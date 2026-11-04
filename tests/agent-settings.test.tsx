@@ -6,11 +6,13 @@ import type { AgentFlavor } from '@hapi/protocol'
 import { hubRequestSchema } from '../src/shared/policy'
 import { createApi } from '../src/renderer/lib/api'
 import { useLaunchSettings } from '../src/renderer/components/agent-settings/useLaunchSettings'
+import { useSessionSettings } from '../src/renderer/components/agent-settings/useSessionSettings'
 import {
   defaultLaunchSettings,
   launchParameters,
 } from '../src/renderer/components/agent-settings/launchSettings'
 import { AgentConfigFixture } from './fixtures/agent-config'
+import { fixtureSession } from './fake-server'
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
@@ -206,5 +208,60 @@ describe('launch configuration changes', () => {
     expect(result.current.parameters).toMatchObject({ effort: 'ultra', permissionMode: 'default' })
     act(() => result.current.change({ effort: 'max' }))
     expect(result.current.parameters.effort).toBeUndefined()
+  })
+})
+
+describe('OpenCode session model settings', () => {
+  const models = {
+    success: true,
+    availableModels: [{ modelId: 'opencode/plain' }, { modelId: 'opencode/reasoning' }],
+    currentModelId: 'opencode/plain',
+  }
+
+  it('allows model changes when the current model has no reasoning options', async () => {
+    const { api, request, responses, wrapper } = harness()
+    const session = { ...fixtureSession('session', 'OpenCode', 'opencode'), model: 'opencode/plain' }
+    responses.set('/api/sessions/session/opencode-models', models)
+    responses.set('/api/sessions/session/opencode-reasoning-effort-options', {
+      success: false,
+      error: 'OpenCode reasoning effort options are not available',
+      currentModelId: session.model,
+      targetModelId: session.model,
+    })
+    const { result } = renderHook(() => useSessionSettings(api, session, true), { wrapper })
+    await waitFor(() => expect(result.current.modelsDisabled).toBe(false))
+    expect(result.current.catalogs.error).toBeFalsy()
+    expect(result.current.effortOptions).toEqual([])
+    expect(result.current.effortDisabled).toBe(true)
+    await act(async () => expect(await result.current.apply('model', 'opencode/reasoning')).toBe(true))
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/sessions/session/model',
+      method: 'POST',
+      scope: 'https://hub.example:account',
+      body: { model: 'opencode/reasoning' },
+    })
+  })
+
+  it('loads models independently and makes a failed model discovery refreshable', async () => {
+    const { api, responses, wrapper } = harness()
+    const session = { ...fixtureSession('session', 'OpenCode', 'opencode'), model: 'opencode/plain' }
+    const effort = Promise.withResolvers<unknown>()
+    responses.set('/api/sessions/session/opencode-models', { success: false, error: 'Not ready' })
+    responses.set('/api/sessions/session/opencode-reasoning-effort-options', effort.promise)
+    const { result } = renderHook(() => useSessionSettings(api, session, true), { wrapper })
+    try {
+      await waitFor(() => expect(result.current.catalogs.error).toBe('Not ready'))
+      expect(result.current.modelsDisabled).toBe(true)
+      responses.set('/api/sessions/session/opencode-models', models)
+      act(() => result.current.catalogs.refetch())
+      await waitFor(() => expect(result.current.modelsDisabled).toBe(false))
+      expect(result.current.effortDisabled).toBe(true)
+      expect(result.current.catalogs.isLoading).toBe(false)
+      await act(async () => effort.resolve({ success: true, options: [{ value: 'deep' }] }))
+      await waitFor(() => expect(result.current.effortDisabled).toBe(false))
+      expect(result.current.effortOptions).toContainEqual({ value: 'deep', label: 'Deep' })
+    } finally {
+      effort.resolve({ success: true, options: [] })
+    }
   })
 })

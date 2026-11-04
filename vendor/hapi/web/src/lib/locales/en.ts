@@ -615,6 +615,8 @@ export default {
   'tool.requestUserInput.otherLabel': 'None of the above',
   'tool.requestUserInput.otherDescription': 'Optionally, add details in notes.',
   'tool.requestUserInput.popupBlocked': 'Could not open the sign-in page. Allow popups and try again.',
+  'tool.requestUserInput.submitted': 'Submitted',
+  'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
   'toolGroup.title': 'Tool activity',
   'toolGroup.friendly.inspectTarget': 'Inspect {target}',
   'toolGroup.friendly.searchTarget': 'Search “{target}”',

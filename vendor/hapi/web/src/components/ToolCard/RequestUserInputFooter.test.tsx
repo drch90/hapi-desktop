@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import type { ApiClient } from '@/api/client'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiClient } from '@/api/client'
 import type { ChatToolCall } from '@/chat/types'
 
 vi.mock('@/hooks/usePlatform', () => ({
@@ -18,12 +18,18 @@ vi.mock('@/lib/use-translation', () => ({
 
 import { RequestUserInputFooter } from './RequestUserInputFooter'
 
+afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+})
+
 const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ label: 'Alpha' }, { label: 'Beta' }] }
 
 function renderFooter(input: unknown = { questions: [choice] }) {
-    const approvePermission = vi.fn().mockResolvedValue(undefined)
+    const api = new ApiClient('fixture-token')
+    const approvePermission = vi.spyOn(api, 'approvePermission').mockResolvedValue(undefined)
     const props = {
-        api: { approvePermission } as unknown as ApiClient,
+        api,
         sessionId: 'session-1', tool: makeTool(input), disabled: false, onDone: vi.fn()
     }
     return { ...render(<RequestUserInputFooter {...props} />), props, approvePermission }
@@ -49,6 +55,50 @@ function makeTool(input: unknown): ChatToolCall {
 }
 
 describe('RequestUserInputFooter', () => {
+    it('keeps a submitted answer locked while native confirmation is delayed', async () => {
+        const response = Promise.withResolvers<void>()
+        const { props, approvePermission, rerender } = renderFooter()
+        approvePermission.mockReturnValueOnce(response.promise)
+        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        const submitting = screen.getByRole('button', { name: 'tool.submitting' })
+        expect(submitting).toBeDisabled()
+        expect(submitting).toHaveAttribute('aria-busy', 'true')
+        fireEvent.click(submitting)
+        expect(approvePermission).toHaveBeenCalledTimes(1)
+        await act(async () => response.resolve())
+        await waitFor(() => expect(props.onDone).toHaveBeenCalledTimes(1))
+        expect(screen.getByRole('status')).toHaveTextContent('tool.requestUserInput.waitingForConfirmation')
+        const submitted = screen.getByRole('button', { name: 'tool.requestUserInput.submitted' })
+        expect(submitted).toBeDisabled()
+        fireEvent.click(submitted)
+        rerender(<RequestUserInputFooter {...props} tool={{ ...props.tool, input: structuredClone(props.tool.input) }} />)
+        expect(screen.getByRole('button', { name: 'tool.requestUserInput.submitted' })).toBeDisabled()
+        expect(approvePermission).toHaveBeenCalledTimes(1)
+        rerender(<RequestUserInputFooter {...props} tool={{ ...props.tool, permission: { id: 'permission-1', status: 'resolved' } }} />)
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it('ignores the old request acknowledgement after switching to another question', async () => {
+        const response = Promise.withResolvers<void>()
+        const { props, approvePermission, rerender } = renderFooter()
+        approvePermission.mockReturnValueOnce(response.promise)
+        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'tool.submit' }))
+        rerender(<RequestUserInputFooter {...props} sessionId="session-2" tool={{
+            ...props.tool,
+            id: 'request-2',
+            permission: { id: 'permission-2', status: 'pending' }
+        }} />)
+        fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
+        await act(async () => response.resolve())
+        expect(props.onDone).not.toHaveBeenCalled()
+        expect(screen.getByRole('button', { name: 'tool.submit' })).toBeEnabled()
+        expect(screen.getByRole('button', { name: /Beta/ })).toHaveAttribute('aria-pressed', 'true')
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
     it.each(['', ' \n ', '  自定义\n说明  '])('focuses notes without submitting and posts canonical values (%j)', async (note) => {
         const { approvePermission } = renderFooter()
         fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
