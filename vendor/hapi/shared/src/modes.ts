@@ -197,13 +197,14 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
  * - Codex: app-server `turn/steer` (true mid-turn inject)
  * - Claude: stream-json stdin injection, acknowledged by native user UUID echo.
  * - Hermes: native `/steer` through a concurrent ACP prompt (no cancel).
+ * - OpenCode: native v2 inbox admission over REST while an ACP turn is active.
  * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
  *   stream-json Cursor sessions are NOT steerable — gate with
  *   {@link isSteeringSupportedForSession}.
  *
  * Other flavors are not supported. Runtime readiness uses steeringActive.
  */
-export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes'] as const
+export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes', 'opencode'] as const
 
 export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
     return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
@@ -222,7 +223,7 @@ export function isSteeringSupportedForSession(metadata?: {
     cursorSessionId?: string | null
     cursorSessionProtocol?: 'acp' | 'stream-json' | null
 } | null): boolean {
-    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes') {
+    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes' || metadata?.flavor === 'opencode') {
         return true
     }
     if (metadata?.flavor !== 'cursor') {

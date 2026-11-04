@@ -31,7 +31,8 @@
     "Distinguish pending steer receipts from unknown delivery and preserve queued messages across reconnects",
     "Optional article presentation for tool groups with shared history loading and detail dialogs",
     "Align HAPI v0.33.5 protocol, chat pipeline, model catalogs, compaction receipts, command timing and provisional titles while retaining desktop adapters",
-    "Keep request_user_input submissions locked after REST acceptance until native confirmation, with stale-request guards and localized waiting feedback"
+    "Keep request_user_input submissions locked after REST acceptance until native confirmation, with stale-request guards and localized waiting feedback",
+    "Enable OpenCode steering for a live remote runtime through the existing message delivery and receipt contracts"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -228,6 +229,15 @@
         "web/src/lib/sessionTitle.test.ts": "53f39a12cbe64af59a4e20d05de0a0ef7724329f617a8bbaab43ab4e6cf94800",
         "web/src/lib/sessionTitle.ts": "b16c4914ff723b558ed762f89269e5e260ce49bbca37f10367504c7c1ef67dc5",
         "web/src/types/api.ts": "f15a80ea5bd1919767274bd59defa0d0454d7d1cf122fc9f11031af5024cb91d"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "ae6ba11370488e3ff444906c5f62fd48ff8eef0f",
+      "state": "Selected OpenCode steering capability and tests from an uncommitted local HAPI v0.34.0 working tree. Hashes identify the exact reviewed sources; only the shared gates and tests are backported. Companion Hub and runner deployment remains separate.",
+      "files": {
+        "shared/src/modes.test.ts": "d95dfe87b1ffdfc0d548414ebac60f74c070b9d1fcd9ab8d8ff9c67716560182",
+        "shared/src/modes.ts": "48125bd405ec5435be6d3caebb924fb9d3309acb2aa2c759232db9d39382b4f6"
       }
     }
   ]

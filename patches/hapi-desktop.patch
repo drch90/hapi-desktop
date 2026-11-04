@@ -3925,10 +3925,9 @@ index 544fb5ddec0bc01624144795fecc20e2d7bea2e5..2aa609b30177adf2503eb794b77a7108
 +    return null
 +}
 diff --git a/vendor/hapi/shared/src/modes.test.ts b/vendor/hapi/shared/src/modes.test.ts
-index 4664313b4cb01cb6b9a4e4b57e07cd5fb7068905..c837fd59340a0967b0d1e0dc4723f07e8e69080c 100644
 --- a/vendor/hapi/shared/src/modes.test.ts
 +++ b/vendor/hapi/shared/src/modes.test.ts
-@@ -94,11 +94,17 @@ describe('isPermissionModeAllowedForFlavor', () => {
+@@ -94,10 +94,16 @@
  
      test("cursor includes autoReview", () => {
          expect(getPermissionModesForFlavor('cursor')).toContain('autoReview')
@@ -3937,57 +3936,58 @@ index 4664313b4cb01cb6b9a4e4b57e07cd5fb7068905..c837fd59340a0967b0d1e0dc4723f07e
          expect(getPermissionModeTone('autoReview')).toBe('warning')
          expect(isPermissionModeAllowedForFlavor('autoReview', 'cursor')).toBe(true)
          expect(isPermissionModeAllowedForFlavor('autoReview', 'claude')).toBe(false)
-     })
++    })
 +
 +    test("codex offers autoReview at launch and mid-session", () => {
 +        expect(getPermissionModesForFlavor('codex')).toEqual(['default', 'read-only', 'autoReview', 'yolo'])
 +        expect(isPermissionModeAllowedForFlavor('autoReview', 'codex')).toBe(true)
 +        expect(isPermissionModeAllowedForFlavor('autoReview', 'gemini')).toBe(false)
-+    })
+     })
  })
  
- describe('getPermissionModeLabel', () => {
-@@ -139,11 +145,12 @@ describe('claude auto permission mode', () => {
+@@ -139,21 +145,25 @@
  })
  
  describe('isSteeringSupportedForFlavor', () => {
 -    it('supports codex, cursor and pi', () => {
-+    it('supports Claude, Codex, Cursor, Pi and Hermes', () => {
++    it('supports Claude, Codex, Cursor, Pi, Hermes and OpenCode', () => {
          expect(isSteeringSupportedForFlavor('codex')).toBe(true)
          expect(isSteeringSupportedForFlavor('cursor')).toBe(true)
          expect(isSteeringSupportedForFlavor('pi')).toBe(true)
 -        expect(isSteeringSupportedForFlavor('claude')).toBe(false)
+-        expect(isSteeringSupportedForFlavor('opencode')).toBe(false)
 +        expect(isSteeringSupportedForFlavor('claude')).toBe(true)
 +        expect(isSteeringSupportedForFlavor('hermes')).toBe(true)
-         expect(isSteeringSupportedForFlavor('opencode')).toBe(false)
++        expect(isSteeringSupportedForFlavor('opencode')).toBe(true)
          expect(isSteeringSupportedForFlavor(undefined)).toBe(false)
          expect(isSteeringSupportedForFlavor(null)).toBe(false)
-@@ -151,8 +158,10 @@ describe('isSteeringSupportedForFlavor', () => {
+     })
  })
  
  describe('isSteeringSupportedForSession', () => {
 -    it('supports codex and pi sessions', () => {
-+    it('supports Claude, Codex, Pi and Hermes sessions', () => {
++    it('supports Claude, Codex, Pi, Hermes and OpenCode sessions', () => {
          expect(isSteeringSupportedForSession({ flavor: 'codex' })).toBe(true)
 +        expect(isSteeringSupportedForSession({ flavor: 'claude' })).toBe(true)
 +        expect(isSteeringSupportedForSession({ flavor: 'hermes' })).toBe(true)
          expect(isSteeringSupportedForSession({ flavor: 'pi' })).toBe(true)
++        expect(isSteeringSupportedForSession({ flavor: 'opencode' })).toBe(true)
      })
  
-@@ -178,7 +187,7 @@ describe('isSteeringSupportedForSession', () => {
+     it('supports Cursor ACP sessions', () => {
+@@ -178,7 +188,7 @@
      })
  
      it('rejects non-steerable flavors', () => {
 -        expect(isSteeringSupportedForSession({ flavor: 'claude' })).toBe(false)
-+        expect(isSteeringSupportedForSession({ flavor: 'opencode' })).toBe(false)
++        expect(isSteeringSupportedForSession({ flavor: 'grok' })).toBe(false)
          expect(isSteeringSupportedForSession(null)).toBe(false)
      })
  })
 diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
-index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf0339e8c9ba 100644
 --- a/vendor/hapi/shared/src/modes.ts
 +++ b/vendor/hapi/shared/src/modes.ts
-@@ -7,7 +7,7 @@ import { z } from 'zod'
+@@ -7,7 +7,7 @@
   */
  export const AGENT_MESSAGE_PAYLOAD_TYPE = 'codex' as const
  
@@ -3996,7 +3996,7 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf03
  export type AgentFlavor = typeof AGENT_FLAVORS[number]
  export const AgentFlavorSchema = z.enum(AGENT_FLAVORS)
  
-@@ -25,7 +25,7 @@ export type AgyPermissionMode = typeof AGY_PERMISSION_MODES[number]
+@@ -25,7 +25,7 @@
  export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan'] as const
  export type ClaudePermissionMode = typeof CLAUDE_PERMISSION_MODES[number]
  
@@ -4005,17 +4005,17 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf03
  export type CodexPermissionMode = typeof CODEX_PERMISSION_MODES[number]
  
  export const CODEX_COLLABORATION_MODES = ['default', 'plan'] as const
-@@ -40,6 +40,9 @@ export type KimiPermissionMode = typeof KIMI_PERMISSION_MODES[number]
+@@ -39,6 +39,9 @@
+ 
  export const COPILOT_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
  export type CopilotPermissionMode = typeof COPILOT_PERMISSION_MODES[number]
- 
++
 +export const HERMES_PERMISSION_MODES = ['default', 'acceptEdits'] as const
 +export type HermesPermissionMode = typeof HERMES_PERMISSION_MODES[number]
-+
+ 
  export const GROK_PERMISSION_MODES = ['default', 'auto', 'plan', 'bypassPermissions'] as const
  export type GrokPermissionMode = typeof GROK_PERMISSION_MODES[number]
- 
-@@ -74,7 +77,7 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
+@@ -74,7 +77,7 @@
      plan: 'Plan Mode',
      ask: 'Ask Mode',
      debug: 'Debug Mode',
@@ -4024,7 +4024,7 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf03
      bypassPermissions: 'Yolo',
      'read-only': 'Read Only',
      'safe-yolo': 'Safe Yolo',
-@@ -139,6 +142,7 @@ export function getPermissionModesForFlavor(flavor?: string | null): readonly Pe
+@@ -139,6 +142,7 @@
      if (flavor === 'kimi') {
          return KIMI_PERMISSION_MODES
      }
@@ -4032,24 +4032,25 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf03
      if (flavor === 'dsh') {
          return []
      }
-@@ -177,11 +181,6 @@ export function isPermissionModeAllowedForFlavor(mode: PermissionMode, flavor?:
-     return getPermissionModesForFlavor(flavor).includes(mode)
- }
+@@ -175,11 +179,6 @@
  
+ export function isPermissionModeAllowedForFlavor(mode: PermissionMode, flavor?: string | null): boolean {
+     return getPermissionModesForFlavor(flavor).includes(mode)
+-}
+-
 -/** New Codex sessions use the native shared runtime, without HAPI Safe Yolo. */
 -export function getLaunchPermissionModesForFlavor(flavor?: string | null): readonly PermissionMode[] {
 -    return getPermissionModesForFlavor(flavor).filter(mode => flavor !== 'codex' || mode !== 'safe-yolo')
--}
--
+ }
+ 
  export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption[] {
-     return CODEX_COLLABORATION_MODES.map((mode) => ({
-         mode,
-@@ -196,13 +195,15 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
+@@ -196,13 +195,16 @@
   * Steer = soft mid-turn delivery (same idea as Cursor GUI default "Send"):
   * - Pi: native steer over the Pi runtime (first-class since #1466)
   * - Codex: app-server `turn/steer` (true mid-turn inject)
 + * - Claude: stream-json stdin injection, acknowledged by native user UUID echo.
 + * - Hermes: native `/steer` through a concurrent ACP prompt (no cancel).
++ * - OpenCode: native v2 inbox admission over REST while an ACP turn is active.
   * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
   *   stream-json Cursor sessions are NOT steerable — gate with
   *   {@link isSteeringSupportedForSession}.
@@ -4058,16 +4059,16 @@ index f12b503de34bcd2c387d131b5c3fee82e2db13fe..9403a0e24010a6a7f1ace4204f40cf03
 + * Other flavors are not supported. Runtime readiness uses steeringActive.
   */
 -export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi'] as const
-+export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes'] as const
++export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes', 'opencode'] as const
  
  export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
      return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
-@@ -221,7 +222,7 @@ export function isSteeringSupportedForSession(metadata?: {
+@@ -221,7 +223,7 @@
      cursorSessionId?: string | null
      cursorSessionProtocol?: 'acp' | 'stream-json' | null
  } | null): boolean {
 -    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi') {
-+    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes') {
++    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes' || metadata?.flavor === 'opencode') {
          return true
      }
      if (metadata?.flavor !== 'cursor') {

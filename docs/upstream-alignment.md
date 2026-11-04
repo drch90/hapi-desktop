@@ -41,3 +41,9 @@ Hub/runner 负责异步答案送达、压缩确认与模型发现；旧 runner �
 - 新增共享回归纳入 `hapi-contract`；四个共享文件的当前摘要及 `patches/hapi-desktop.patch` 同步更新，原基线及既有 backport 来源保持原记录。
 
 本轮验证及交付状态见 [1.0.13 版本说明](release-notes/v1.0.13.md)。
+
+## OpenCode 运行中追加（1.0.14）
+
+- 从本地 HAPI `ae6ba11370488e3ff444906c5f62fd48ff8eef0f` 之上的未提交工作树同步 OpenCode 追加能力判断与共享测试；具体源文件 SHA-256 记录在 `UPSTREAM.json` 的独立 backport 条目中。原始基线保持 `0239edf38e2da653d662f31039e24ccea04c7837`。
+- 桌面输入框和队列复用共享会话能力判断，并继续要求 `active`、远端控制及 `steeringActive: true`。沿用 `deliveryMode: 'steer'`、队列追加接口和接收/送达不明事件，保持普通发送、草稿及恢复规则。
+- Hub/runner 的 OpenCode 原生接入独立部署，要求 OpenCode 2.x（至少 2.2.5）。本次同步范围为共享规则，不导入同级仓库的 CLI 实现；来源清单和桌面补丁随规则同步更新。验证与安装包状态见 [1.0.14 版本说明](release-notes/v1.0.14.md)。

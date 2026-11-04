@@ -263,16 +263,22 @@ export function Chat({
   }, [id, scope])
   useEffect(() => {
     alive.current = true
+    const flushDraft = () => {
+      if (!migrated.current) saveDraft(scope, id, latestDraft.current)
+    }
+    // Navigation skips React cleanup and can precede the debounced draft save.
+    window.addEventListener('pagehide', flushDraft)
     const unwatch = watchSession(id)
     const unsubscribe = window.desktop.onEvent((event) => {
       if (event.type === 'sync' && event.event.type === 'session-removed' && event.event.sessionId === id)
         migrated.current = true
     })
     return () => {
+      window.removeEventListener('pagehide', flushDraft)
       unsubscribe()
       alive.current = false
       unwatch()
-      if (!migrated.current) saveDraft(scope, id, latestDraft.current)
+      flushDraft()
     }
   }, [id, scope])
   useEffect(() => {
