@@ -1,8 +1,30 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.15，本机安装包已生成并校验；历史消息滚动补载的功能及打包记录见 [1.0.15 版本说明](v1.0.15.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.16，新建选择记忆与首屏滚动修复的功能及打包记录见 [1.0.16 版本说明](v1.0.16.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 新建会话选择记忆与首屏滚动修复（1.0.16）
+
+- 对齐 Web 的新建选择记忆：CLI 选择立即保存；模型、思考强度和权限仅在创建成功后保存，并按 Hub、账户、机器和 CLI 隔离。切换、关闭新建窗口或重载会恢复对应记录，取消和失败不覆盖上次成功配置。
+- 恢复选择时等待所需的目录和模型检查，回退已失效的模型、思考强度及不支持的权限；保持手动修改目录后的模型重置。计划模式、快速模式、Copilot 运行模式和工作树设置沿用按次选择。
+- 修复首屏不足一屏时自动补载误入历史阅读状态：自动补载继续跟随最新消息，切回会话及后续回复也保持在末尾。旧版保存的数字位置若已位于底部，会恢复跟随；主动上翻、点击历史按钮或大纲仍保留阅读位置。
+- 按要求移除 GitHub Actions 自动测试及普通推送、PR 的触发；保留手动与版本标签的版本检查、Windows 打包和发布流程。本地验证继续按仓库规范执行。
+
+旧版 1.0.15 构建已通过新增 Electron 用例复现：没有上翻操作，首屏自动补载后就错误显示“回到最新消息”。修复后 `bun run typecheck`、`bun run build` 和 30 项相关单元回归通过；补齐机器切换期间的目录校验后，11 项配置测试及类型检查再次通过。
+
+Electron 验证覆盖 31 项用例：新建选择成功保存、取消与失败保留、重载、机器/CLI 隔离、延迟模型目录、过期选项回退，以及首屏补载、切回会话、流式跟随、主动上翻、大纲、工具组、慢请求取消、目录选择、Hermes 和各 CLI 参数。Hermes 旧用例预期第二次创建重置权限，与本轮选择记忆要求冲突；改为断言保留上次成功的 `acceptEdits` 后单独复验通过，其余通过结果复用。实际命令：
+
+```sh
+bun run test --project desktop tests/agent-settings.test.tsx tests/new-session-preferences.test.ts tests/new-session-locations.test.ts tests/transcript-history.test.tsx
+xvfb-run -a bun run test:e2e tests/new-session-preferences.e2e.ts tests/new-session-agents.e2e.ts tests/transcript-history.e2e.ts
+xvfb-run -a bun run test:e2e tests/desktop.e2e.ts --grep 'new session locations|new sessions use the selected|Hermes creation uses|outline loads earlier pages|outline navigation and live message following|manual scrolling back|layout changes and late image|opening a partial exploration group'
+xvfb-run -a bun run test:e2e tests/desktop.e2e.ts --grep 'Hermes creation uses'
+```
+
+真实界面检查覆盖 920×640、最大字号、单栏/双栏、深浅主题及法语长文案的按钮可见性、滚动与键盘操作。检查在 Linux / Xvfb 与模拟 Hub 下进行，构建及测试进程树均最多使用 2 个逻辑 CPU。工作流 YAML、手动/标签触发、任务依赖及版本输出引用检查通过；未在 GitHub 运行构建发布。日志和旧构建复现记录位于本机 `build/session-preferences-following/`，安装包验证另记于 [1.0.16 版本说明](v1.0.16.md)。
+
+升级回归补齐旧版已保存的数字底部位置恢复后，重新打包并通过 16 项最终 Electron 检查及解包校验。包内 180 个构建文件与验证输出一致，1089 个源码及打包输入未变化；已归档并自动清理，保留 1.0.16 与 1.0.15 的已验证安装包，路径和 SHA-256 见[本机安装包记录](v1.0.16.md#本机安装包)。
 
 ## 历史消息滚动补载（1.0.15）
 

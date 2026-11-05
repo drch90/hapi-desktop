@@ -1,5 +1,7 @@
 # GitHub Actions 排错记录
 
+当前工作流已取消普通分支推送和 PR 触发，并移除自动测试，仅保留手动及版本标签的构建发布流程。本页记录旧自动测试工作流的问题；本地验证命令仍适用。
+
 ## 2026-10-16：连续推送失败
 
 修复前的五次 main 推送均在 `Run Electron interface tests` 失败。发布信息检查、依赖安装、类型检查、上游来源校验、本地化检查、单元测试和生产构建都通过；Windows 打包依赖验证任务，因此被跳过。
@@ -44,7 +46,7 @@ EOF
 FONTCONFIG_FILE=/tmp/hapi-ci-fonts.conf xvfb-run -a bun run test:e2e --grep 'HAPI interactive questions' --repeat-each=3
 ```
 
-字体目录需在本机存在。旧断言在此环境中失败；修复后的测试仍检查实际内容与答案契约。完整检查命令见 [README](../README.md#开发验证与打包)，最终结果以对应提交的 Actions 为准。
+字体目录需在本机存在。旧断言在此环境中失败；修复后的测试仍检查实际内容与答案契约。完整检查命令见 [README](../README.md#开发验证与打包)，验证结果应对应实际检查的源码与构建。
 
 ### 同次本地回归发现的目录查询竞态
 
@@ -62,11 +64,11 @@ Hermes 和 OpenCode 现在只在查询目录与当前输入一致、非空且已
 
 Node.js 24.15.0、Bun 1.4.2 环境下，542 项单元/协议测试和 112 项 Electron 界面测试全部通过；完整界面回归使用上述 Fontconfig 配置。发布准备测试、锁定依赖安装、类型检查、本地化检查、生产构建和上游来源校验也通过。
 
-## 查阅后续失败
+## 查阅测试失败
 
 先检查第一个失败步骤及其断言。日志中的 Node.js 20 弃用提示只是 action 运行时警告，未导致本次失败；项目检查使用 Node.js 24。
 
-Electron 测试失败后，在该次 Actions 运行的 Artifacts 下载 `electron-test-failure`，保留期为 7 天。解压后查看 `error-context.md`，或在已安装依赖的仓库中打开对应的 trace：
+本地 Electron 测试失败后，在 `test-results/` 查看 `error-context.md`，或在已安装依赖的仓库中打开对应的 trace。旧 Actions 工作流曾上传 `electron-test-failure` 诊断产物并保留 7 天，当前工作流不再生成该产物。
 
 ```sh
 bun x playwright show-trace /path/to/failed-test/trace.zip

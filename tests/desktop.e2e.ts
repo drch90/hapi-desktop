@@ -4838,7 +4838,8 @@ test('Hermes creation uses provider model IDs and native permissions, with manua
   })
   server.failHermesModels = true
   await page.locator('.sidebar').getByRole('button', { name: '新建会话', exact: true }).click()
-  await launch.getByLabel('Agent', { exact: true }).selectOption('hermes')
+  await expect(launch.getByLabel('Agent', { exact: true })).toHaveValue('hermes')
+  await expect(permissions).toHaveValue('acceptEdits')
   await launch.getByLabel('目录', { exact: true }).fill('/home/dev/other')
   await expect(model.getByRole('alert')).toContainText('无法加载会话选项')
   await model.getByRole('textbox', { name: '模型', exact: true }).fill('custom:manual:my:model')
@@ -4848,7 +4849,7 @@ test('Hermes creation uses provider model IDs and native permissions, with manua
     directory: '/home/dev/other',
     agent: 'hermes',
     model: 'custom:manual:my:model',
-    permissionMode: 'default',
+    permissionMode: 'acceptEdits',
     sessionType: 'simple',
     startingMode: 'remote',
   })
@@ -4857,12 +4858,13 @@ test('Hermes creation uses provider model IDs and native permissions, with manua
   await launch.getByLabel('目录', { exact: true }).fill('/home/dev/third')
   await model.getByRole('textbox', { name: '模型', exact: true }).fill('custom:manual:model')
   await model.getByRole('button', { name: '使用 Hermes 默认配置' }).click()
+  await expect(permissions).toHaveValue('acceptEdits')
   await launch.getByRole('button', { name: '创建会话', exact: true }).click()
   await expect(page.getByTestId('chat-created-3')).toBeVisible()
   expect(server.requests.filter((r) => r.path.endsWith('/spawn')).at(-1)?.body).toEqual({
     directory: '/home/dev/third',
     agent: 'hermes',
-    permissionMode: 'default',
+    permissionMode: 'acceptEdits',
     sessionType: 'simple',
     startingMode: 'remote',
   })

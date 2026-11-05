@@ -152,6 +152,59 @@ test('dragging the native scrollbar to the top can request another older page', 
   expect(errors).toEqual([])
 })
 
+test('short first-page history fill keeps following the latest across session switches and streaming', async ({
+  desktop,
+}) => {
+  const { page, server, errors } = desktop
+  seedHistory(server, 'design', 5)
+  seedHistory(server, 'review', 5)
+  server.messagePageSize = 1
+  await page.getByTestId('session-design').click()
+  const chat = page.getByTestId('chat-design')
+  const transcript = chat.locator('.transcript')
+  const gap = () =>
+    transcript.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+  await expect(transcript.getByText('design 历史消息 4', { exact: true })).toHaveCount(1)
+  expect(olderRequests(server)).toHaveLength(1)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  // Version 1.0.15 could persist a numeric bottom position after passive fill.
+  await chat.locator('.composer textarea').fill('升级后保留的草稿')
+  await page.getByTestId('session-review').click()
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(
+      (key) => key.startsWith('desktop:draft:') && key.endsWith(':design'),
+    )
+    if (!key) throw new Error('Saved draft missing')
+    const draft: unknown = JSON.parse(localStorage.getItem(key) ?? 'null')
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft)) throw new Error('Invalid saved draft')
+    localStorage.setItem(key, JSON.stringify({ ...draft, scrollTop: 0 }))
+  })
+  await page.reload()
+  await page.getByTestId('session-design').click()
+  await expect(transcript.getByText('design 历史消息 4', { exact: true })).toHaveCount(1)
+  await expect(chat.locator('.composer textarea')).toHaveValue('升级后保留的草稿')
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  const streamed = fixtureMessage(
+    'long-latest',
+    6,
+    Array.from({ length: 55 }, (_, index) => `新回复第 ${index + 1} 行`).join('\n'),
+    true,
+  )
+  server.messages.get('design')?.push(streamed)
+  server.emit({ type: 'message-received', sessionId: 'design', message: streamed })
+  await expect(transcript.getByText(/新回复第 55 行/)).toHaveCount(1)
+  await expect.poll(gap).toBeLessThan(3)
+  await chat.locator('.composer textarea').fill('首屏补载后保留草稿')
+  await page.getByTestId('session-review').click()
+  await expect(page.getByTestId('chat-review').getByText('review 历史消息 4', { exact: true })).toHaveCount(1)
+  await page.getByTestId('session-design').click()
+  await expect(chat.locator('.composer textarea')).toHaveValue('首屏补载后保留草稿')
+  await expect.poll(gap).toBeLessThan(3)
+  await expect(chat.getByRole('button', { name: '回到最新消息' })).toHaveCount(0)
+  expect(olderRequests(server)).toHaveLength(2)
+  expect(errors).toEqual([])
+})
+
 test('leaving the preload area cancels a slow page and returning to the latest resumes live following', async ({
   desktop,
 }) => {

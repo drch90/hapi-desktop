@@ -25,6 +25,11 @@ import { I18nContext } from '@/lib/i18n-context'
 import { getPathDisplayName } from '@/utils/path'
 import { createApi, errorKey } from '../lib/api'
 import { loadNewSessionLocations, rememberSessionLocation } from '../lib/newSessionLocations'
+import {
+  loadPreferredAgent,
+  rememberPreferredAgent,
+  rememberLaunchSettings,
+} from '../lib/newSessionPreferences'
 import { machinesKey, queries, sessionKey } from '../lib/sync'
 
 export function NewSessionDialog({
@@ -75,7 +80,8 @@ export function NewSessionDialog({
   )
   const allPaths = useDirectorySuggestions(machineId, sessions, recentPaths)
   const historyPaths = machineId ? allPaths.filter((path) => !workspaceRoots.includes(path)) : []
-  const [agent, setAgent] = useState<AgentFlavor>('codex')
+  const [agent, setAgent] = useState<AgentFlavor>(() => loadPreferredAgent(scope))
+  useEffect(() => rememberPreferredAgent(scope, agent), [scope, agent])
   // Resolve defaults once per machine selection; metadata refreshes must not move the launch.
   // An empty string is an intentional user edit, while null waits for the runner's defaults.
   const [directoryOverride, setDirectory] = useState<string | null>(initialDirectory ?? null)
@@ -128,11 +134,13 @@ export function NewSessionDialog({
     Boolean(cwd) && cwd === directory.trim() && pathExistence[cwd] === true && !outsideWorkspaceRoots.has(cwd)
   const config = useLaunchSettings({
     api,
+    scope,
     agent,
     machineId,
     cwd,
     directory: directory.trim(),
     pathReady: currentPathReady,
+    pathExists: cwd === directory.trim() ? pathExistence[cwd] : undefined,
     enabled: available,
   })
   const optionsPending = config.pending
@@ -193,6 +201,7 @@ export function NewSessionDialog({
               if (response.type !== 'success' || !response.sessionId) throw new Error('SPAWN_FAILED')
               if (!mounted.current) return
               rememberSessionLocation(scope, machineId, directory)
+              rememberLaunchSettings(scope, machineId, agent, config.settings)
               await queries.fetchQuery({
                 queryKey: sessionKey(response.sessionId),
                 queryFn: async () => SessionSchema.parse((await api.getSession(response.sessionId)).session),

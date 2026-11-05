@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getClaudeEffortLevelsForModel, resolveClaudeEffortForModel, type AgentFlavor } from '@hapi/protocol'
 import { getClaudeLaunchModelOptions } from '@/components/AssistantChat/modelOptions'
@@ -10,6 +10,7 @@ import { buildGrokEffortOptions } from '@/components/NewSession/grokModels'
 import { CODEX_REASONING_EFFORT_OPTIONS, isOpencodeReasoningEffortValid } from '@/components/NewSession/types'
 import { getCodexModelReasoningEfforts } from '@/lib/codexModelCapabilities'
 import type { DesktopApi } from '../../lib/api'
+import { loadPreferredLaunchSettings } from '../../lib/newSessionPreferences'
 import {
   agyEffortOptions,
   agyModelOptions,
@@ -19,35 +20,47 @@ import {
   piModelOptions,
   type SelectOption,
 } from './modelOptions'
-import {
-  defaultLaunchSettings,
-  defaultModelSettings,
-  launchParameters,
-  type LaunchSettings,
-} from './launchSettings'
+import { defaultModelSettings, launchParameters, type LaunchSettings } from './launchSettings'
 import { useLaunchCatalogs, usesDirectoryModels } from './useLaunchCatalogs'
 
 export function useLaunchSettings(args: {
   api: DesktopApi
+  scope: string
   agent: AgentFlavor
   machineId: string
   directory: string
   cwd: string
   pathReady: boolean
+  pathExists?: boolean
   enabled: boolean
 }) {
   const { t } = useTranslation()
-  const { agent, machineId, directory, pathReady } = args
-  const scopeKey = JSON.stringify([machineId, agent])
-  const [stored, setStored] = useState({ scopeKey, directory, value: defaultLaunchSettings(agent) })
-  const previous = stored.scopeKey === scopeKey ? stored.value : defaultLaunchSettings(agent)
+  const { scope, agent, machineId, directory, pathReady } = args
+  const scopeKey = JSON.stringify([scope, machineId, agent])
+  const preferred = useMemo(
+    () => loadPreferredLaunchSettings(scope, machineId, agent),
+    [scope, machineId, agent],
+  )
+  const [stored, setStored] = useState({ scopeKey, directory, value: preferred })
+  const previous = stored.scopeKey === scopeKey ? stored.value : preferred
   // Derive reset values immediately so a late catalog response cannot leak a model
   // into another machine, CLI, or directory between render and an effect.
   const settings =
-    usesDirectoryModels(agent) && stored.directory !== directory
+    usesDirectoryModels(agent) &&
+    stored.scopeKey === scopeKey &&
+    (args.pathExists === false || (stored.directory !== '' && stored.directory !== directory))
       ? { ...previous, ...defaultModelSettings }
       : { ...previous }
-  const catalogs = useLaunchCatalogs(args)
+  // The path hook clears the previous machine's result after the scope changes.
+  const directoryReady = pathReady && stored.scopeKey === scopeKey
+  const catalogs = useLaunchCatalogs({ ...args, pathReady: directoryReady })
+  // Disabled queries have no catalog yet. Do not erase a preference while
+  // runner availability or the current directory is still being checked.
+  const catalogReady =
+    args.enabled &&
+    Boolean(machineId) &&
+    !catalogs.isLoading &&
+    (!usesDirectoryModels(agent) || directoryReady)
   const withDefault = (options: SelectOption[]) => [{ value: 'auto', label: t('Default') }, ...options]
   const optionsByAgent: Record<AgentFlavor, SelectOption[]> = {
     claude: getClaudeLaunchModelOptions(
@@ -75,9 +88,8 @@ export function useLaunchSettings(args: {
   if (
     agent !== 'claude' &&
     agent !== 'hermes' &&
-    !catalogs.isLoading &&
+    catalogReady &&
     !catalogs.error &&
-    (!usesDirectoryModels(agent) || pathReady) &&
     !modelOptions.some((option) => option.value === settings.model)
   )
     settings.model = 'auto'
@@ -101,7 +113,7 @@ export function useLaunchSettings(args: {
     piModel?.reasoning === false ? [] : getPiThinkingLevelOptions(null, piModel?.thinkingLevelMap)
   const effortOptions =
     agent === 'agy' ? agyEfforts : agent === 'grok' ? grokEfforts : agent === 'pi' ? piEfforts : claudeEfforts
-  if (agent === 'claude') {
+  if (agent === 'claude' && catalogReady) {
     settings.effort =
       resolveClaudeEffortForModel(
         settings.effort === 'auto' ? null : settings.effort,
@@ -109,7 +121,8 @@ export function useLaunchSettings(args: {
         catalogs.claude.availableModels,
       ) ?? 'auto'
   } else if (
-    !catalogs.isLoading &&
+    catalogReady &&
+    !catalogs.error &&
     settings.effort !== 'auto' &&
     !effortOptions.some((option) => option.value === settings.effort)
   ) {
@@ -122,16 +135,23 @@ export function useLaunchSettings(args: {
       ? (catalogs.variants.variants[opencodeModel] ?? [])
       : null
   if (
-    !catalogs.isLoading &&
+    catalogReady &&
+    !catalogs.error &&
     settings.reasoning !== 'default' &&
-    ((agent === 'codex' && codexEfforts && !codexEfforts.includes(settings.reasoning)) ||
+    ((agent === 'codex' &&
+      !getCodexComposerReasoningEffortOptions(
+        null,
+        agent,
+        codexEfforts?.map((value) => ({ value })),
+      ).some((option) => option.value === settings.reasoning)) ||
       (agent === 'opencode' && !isOpencodeReasoningEffortValid(settings.reasoning, variants)))
   )
     settings.reasoning = 'default'
   if (
     agent === 'grok' &&
     settings.permission === 'auto' &&
-    catalogs.grok.autoPermissionModeSupported === false
+    ((catalogReady && catalogs.grok.autoPermissionModeSupported === false) ||
+      (stored.scopeKey === scopeKey && args.pathExists === false))
   ) {
     settings.permission = 'default'
   }
@@ -139,8 +159,15 @@ export function useLaunchSettings(args: {
     agent === 'codex' &&
     !catalogs.codex.error &&
     codexModelAdvertisesFastTier(effectiveModel, catalogs.codex.models)
-  if (!fastMode && !catalogs.isLoading) settings.tier = 'standard'
-  const pending = catalogs.isLoading
+  if (!fastMode && catalogReady) settings.tier = 'standard'
+  const needsDirectoryValidation =
+    usesDirectoryModels(agent) &&
+    !directoryReady &&
+    (settings.model !== 'auto' ||
+      settings.effort !== 'auto' ||
+      settings.reasoning !== 'default' ||
+      (agent === 'grok' && settings.permission === 'auto'))
+  const pending = catalogs.isLoading || needsDirectoryValidation
   const showEffort =
     agent === 'codex' ||
     agent === 'claude' ||
@@ -200,7 +227,7 @@ export function useLaunchSettings(args: {
     pending,
     change,
     modelDisabled:
-      catalogs.isLoading || Boolean(catalogs.error) || (usesDirectoryModels(agent) && !pathReady),
+      catalogs.isLoading || Boolean(catalogs.error) || (usesDirectoryModels(agent) && !directoryReady),
     parameters: launchParameters(agent, settings, fastMode),
   }
 }

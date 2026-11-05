@@ -75,7 +75,7 @@ export function useTranscriptNavigation(props: {
       scrollIntent.current.direction = direction
       scrollIntent.current.until = Date.now() + 750
       // Stop before the next render/resize can snap an upward gesture back.
-      if (direction < 0 && el && el.scrollTop > 0 && following.current) pauseFollowing()
+      if (direction < 0 && el && following.current) pauseFollowing()
     }
     const onWheel = (event: WheelEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.deltaY === 0) return
@@ -187,8 +187,14 @@ export function useTranscriptNavigation(props: {
       pendingHistory.current = null
     } else if (!restored.current) {
       el.scrollTop = props.initialScrollTop < 0 ? el.scrollHeight : props.initialScrollTop
+      // A saved numeric position can already be at the tail, including
+      // positions recorded by 1.0.15's automatic first-page fill.
+      if (el.clientHeight > 0 && el.scrollHeight - el.scrollTop - el.clientHeight <= 1) {
+        following.current = true
+        setAway(false)
+      }
       restored.current = true
-      if (!following.current) setMessageViewMode(props.sessionId, 'history')
+      setMessageViewMode(props.sessionId, following.current ? 'tail' : 'history')
     } else if (following.current) scrollFollowingToBottom()
     lastScrollTop.current = el.scrollTop
     props.onPosition(following.current ? -1 : el.scrollTop)
@@ -264,18 +270,24 @@ export function useTranscriptNavigation(props: {
       if (props.messages.isLoadingMore || props.messages.isSyncingTail) return 'transient-stop'
       const run = ++navigation.current
       scrollIntent.current.until = 0
-      following.current = false
-      setAway(true)
-      setMessageViewMode(props.sessionId, 'history')
+      // Filling a short first page is not a reading gesture. Keep following
+      // until the reader scrolls up or explicitly asks for older messages.
+      if (!canApply || !following.current) {
+        following.current = false
+        setAway(true)
+        setMessageViewMode(props.sessionId, 'history')
+      }
       const outcome = await props.messages.loadMore((version) => {
         const el = viewport.current
         if (!active.current || run !== navigation.current || !el || (canApply && !canApply())) return false
         // Capture immediately before applying the page: the reader may have scrolled while waiting.
-        pendingHistory.current = {
-          version,
-          anchor: captureScrollAnchor(el),
-          top: el.scrollTop,
-          height: el.scrollHeight,
+        if (!following.current) {
+          pendingHistory.current = {
+            version,
+            anchor: captureScrollAnchor(el),
+            top: el.scrollTop,
+            height: el.scrollHeight,
+          }
         }
         return true
       })

@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.15**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版对齐 Web 的历史消息滚动补载，接近顶部时自动获取更早消息并保持阅读位置，本机安装包已生成并校验；更新内容与打包记录见 [1.0.15 版本说明](docs/release-notes/v1.0.15.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.16**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版记住新建会话的选择，并修复首屏自动补载导致切回后离开最新消息的问题；更新内容与打包记录见 [1.0.16 版本说明](docs/release-notes/v1.0.16.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -16,7 +16,9 @@
 
 CLI 列表根据所选机器的安装检测结果生成，只显示可用项；支持 Antigravity、Claude、Codex、DeepSeek Harness、Copilot、Cursor、Grok Build、Hermes、Kimi、OpenCode 和 Pi。Gemini 保留历史会话兼容，不提供新建入口。检测发生在远端 runner 所在机器，桌面电脑无需安装这些 CLI。切换机器后，若原 CLI 不可用则自动选择该机器的首个可用项；检测中、检测失败或没有可用 CLI 时禁止创建，并提供重试。旧 runner 不支持检测时会提示升级。
 
-模型与权限按 CLI 分别提供。切换机器或 CLI 会重置创建配置；依赖项目目录的模型选择在目录改变时重置，并在目录检查通过后请求新目录的模型列表。模型目录查询失败或列表为空时可使用 CLI 的默认配置，并可刷新重试。Pi 和 DeepSeek Harness 不发送权限设置，其他 CLI 使用其原生权限模式，Grok 不支持的 Auto 模式会禁用。
+模型与权限按 CLI 分别提供。CLI 选择会立即记住，取消创建后也保留；模型、思考强度和权限在创建成功后按 Hub、账户、机器和 CLI 保存，切换机器或 CLI、关闭窗口和重载后会恢复对应配置。取消或创建失败不会覆盖上次成功记录。计划模式、快速模式、Copilot 运行模式及工作树设置仍按次选择，与 Web 一致。
+
+记住的模型和思考强度会按当前机器的可用列表重新检查，已移除的选项回退默认；目录或模型检查期间不能提交尚未确认的记忆值。依赖项目目录的模型选择在手动改变目录时重置，并在目录检查通过后请求新目录的模型列表。模型目录查询失败或列表为空时可使用 CLI 的默认配置，并可刷新重试。Pi 和 DeepSeek Harness 不发送权限设置，其他 CLI 使用其原生权限模式，Grok 不支持的 Auto 模式会禁用。
 
 新建窗口提供 **Runner 工作区** 和 **最近及会话目录**，可直接点击选择；按钮显示简短目录，悬停查看完整路径。工作区来自所选 runner 上报的 `workspaceRoots`，第一个标为默认；runner 可通过 `hapi runner start --workspace-root /path/a --workspace-root /path/b` 配置多个根目录。仍可手动输入或点击“浏览”选择子目录，支持 Linux 路径、Windows 盘符和 UNC 路径。
 
@@ -107,7 +109,7 @@ Codex 问答提交时显示“提交中…”。Hub 接收后，当前卡片显�
 
 首次打开和切回会话默认请求最新 20 条服务端记录；切回时的数量自 1.0.9 起由 200 条调整为 20 条。记录包含工具调用和状态事件，合并后可能只显示少量正文，历史仍保存在 Hub。首次打开时若最新页只有工具活动，共享消息管线仍会额外尝试补取一页上下文。
 
-向上滚动到距历史顶部约 200 像素时自动补载更早的消息，每页最多 200 条，并保持当前阅读位置；首屏内容不足时也会尝试补载一页。每次补载后等待继续上翻，不因内容重排连续拉取历史。滚轮、键盘与滚动条均可触发，顶部“加载更早的消息”和大纲入口仍可手动加载或在失败后重试。离开顶部区域、回到最新消息或切换会话后，迟到的自动补载结果不会打断当前阅读。
+向上滚动到距历史顶部约 200 像素时自动补载更早的消息，每页最多 200 条，并保持当前阅读位置；首屏内容不足时也会尝试补载一页，并继续停在最新消息。首屏自动补载不会进入历史阅读状态，切回会话和新回复到达后继续跟随末尾。每次补载后等待继续上翻，不因内容重排连续拉取历史。滚轮、键盘与滚动条均可触发，顶部“加载更早的消息”和大纲入口仍可手动加载或在失败后重试。离开顶部区域、回到最新消息或切换会话后，迟到的自动补载结果不会打断当前阅读。
 
 ### 会话引用和原生命令
 
@@ -276,7 +278,7 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-打包后的暂存路径为 `build/HAPI-Desktop-1.0.15-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.15/HAPI-Desktop-1.0.15-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+打包后的暂存路径为 `build/HAPI-Desktop-1.0.16-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.16/HAPI-Desktop-1.0.16-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 需要归档并验证安装包时，安装 7-Zip 并保证 `7z` 在 PATH 中；使用 [安装包校验脚本](scripts/verify-package.mjs) 按以下顺序执行。版本取自 `package.json`，记录摘要时若文件已存在会停止，避免覆盖旧证据。
 
@@ -294,7 +296,7 @@ node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify
 
 安装包只保存在被 Git 忽略的 `build/` 下。[清理脚本](scripts/cleanup-builds.mjs) 在安装包校验、归档成功后自动执行：保留本次与上一份已验证安装包，删除更早版本的安装包及对应 blockmap、已归档的暂存副本、与校验记录一致的历史 `verification/` 解包目录和本次 `win-unpacked/`。清理前重新核对保留安装包的 SHA-256；本次归档不完整或存在更新的已归档版本时停止清理。
 
-所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.15 安装包记录](docs/release-notes/v1.0.15.md#本机安装包)。
+所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.16 安装包记录](docs/release-notes/v1.0.16.md#本机安装包)。
 
 补做清理可以先预览，再执行：
 
@@ -307,26 +309,26 @@ bun run cleanup:build --apply
 
 ### 自动构建与公开发布
 
-[Desktop CI and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 在推送 `main`、提交 PR 或手动运行时，执行类型检查、上游来源校验、本地化检查、单元/协议测试、生产构建和 Electron 界面测试；通过后在 Windows runner 生成 x64 安装包。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
+[Desktop Build and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 仅在手动运行或推送 `v*` 标签时执行版本信息检查与 Windows x64 打包。普通分支推送和 PR 不触发 Actions；工作流已移除自动测试步骤，本地仍须按改动范围完成类型、单元和 Electron 验证。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前源码使用 1.0.15 版本号，支持接近顶部时自动补载历史消息；继续包含 OpenCode 运行中追加、草稿保存、模型选择、Codex 问答反馈及此前的桌面改进。本次本机安装包的位置、校验与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
+当前源码使用 1.0.16 版本号，支持新建选择记忆，首屏自动补载继续跟随最新消息；继续包含 OpenCode 运行中追加、草稿保存、模型选择、Codex 问答反馈及此前的桌面改进。本次本机安装包的位置、校验与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
 
-Electron 界面测试失败时，工作流保留 `electron-test-failure` 诊断产物 7 天，包含 Playwright trace 和失败页面上下文。此前连续失败的原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
+本地 Electron 界面测试失败时，`test-results/` 保留 Playwright trace 和失败页面上下文。旧自动测试工作流的失败原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
 维护者发布新版本的步骤：
 
 1. 更新 `package.json` 的版本、README 中的当前版本，并添加 `docs/release-notes/v<版本>.md` 更新说明。
-2. 提交并推送到 `main`，确认上述工作流通过。
+2. 完成适用的本地验证，提交并推送到 `main`；需要先检查 Windows 构建时，手动运行上述工作流。
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.15 -m "HAPI Desktop 1.0.15"
-git push origin v1.0.15
+git tag -a v1.0.16 -m "HAPI Desktop 1.0.16"
+git push origin v1.0.16
 ```
 
-推送 `v*` 标签会重新验证和构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.15-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会检查版本信息并构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.16-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
-标签与版本不一致、缺少更新说明、测试或打包失败时不会公开发布。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
+标签与版本不一致、缺少更新说明或打包失败时不会公开发布；测试需在发布前本地完成。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 
 可在本地检查发布信息和准备文件：
 

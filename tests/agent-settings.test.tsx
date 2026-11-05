@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentFlavor } from '@hapi/protocol'
 import { hubRequestSchema } from '../src/shared/policy'
 import { createApi } from '../src/renderer/lib/api'
+import { rememberLaunchSettings } from '../src/renderer/lib/newSessionPreferences'
 import { useLaunchSettings } from '../src/renderer/components/agent-settings/useLaunchSettings'
 import { useSessionSettings } from '../src/renderer/components/agent-settings/useSessionSettings'
 import {
@@ -17,6 +18,7 @@ import { fixtureSession } from './fake-server'
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
 const clients: QueryClient[] = []
+const scope = 'https://hub.example:account'
 function harness() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   clients.push(client)
@@ -29,7 +31,7 @@ function harness() {
     return { ok: true, value: await response }
   })
   Object.defineProperty(window, 'desktop', { configurable: true, value: { request } })
-  const api = createApi('https://hub.example:account')
+  const api = createApi(scope)
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
@@ -41,6 +43,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear())
   Reflect.deleteProperty(window, 'desktop')
   vi.restoreAllMocks()
+  localStorage.clear()
 })
 
 describe('CLI settings contracts', () => {
@@ -136,7 +139,7 @@ describe('launch configuration changes', () => {
       cwd: '/project-a',
       pathReady: true,
     }
-    const view = renderHook((props) => useLaunchSettings({ ...props, api, enabled: true }), {
+    const view = renderHook((props) => useLaunchSettings({ ...props, api, scope, enabled: true }), {
       initialProps: args,
       wrapper,
     })
@@ -163,6 +166,7 @@ describe('launch configuration changes', () => {
       () =>
         useLaunchSettings({
           api,
+          scope,
           agent: 'pi',
           machineId: 'runner',
           cwd: '/project',
@@ -194,6 +198,7 @@ describe('launch configuration changes', () => {
       () =>
         useLaunchSettings({
           api,
+          scope,
           agent: 'grok',
           machineId: 'runner',
           cwd: '/project',
@@ -208,6 +213,123 @@ describe('launch configuration changes', () => {
     expect(result.current.parameters).toMatchObject({ effort: 'ultra', permissionMode: 'default' })
     act(() => result.current.change({ effort: 'max' }))
     expect(result.current.parameters.effort).toBeUndefined()
+  })
+
+  it('restores each runner and CLI after availability and directory checks, ignoring late catalogs', async () => {
+    const { api, responses, wrapper } = harness()
+    rememberLaunchSettings(scope, 'runner-a', 'kimi', {
+      ...defaultLaunchSettings('kimi'),
+      model: 'office-kimi',
+      permission: 'yolo',
+    })
+    rememberLaunchSettings(scope, 'runner-b', 'pi', {
+      ...defaultLaunchSettings('pi'),
+      model: 'office/shared-model',
+      effort: 'max',
+    })
+    const gate = Promise.withResolvers<unknown>()
+    responses.set('/api/machines/runner-a/kimi-models?cwd=%2Fproject', gate.promise)
+    const args = {
+      api,
+      scope,
+      machineId: 'runner-a',
+      agent: 'kimi' as AgentFlavor,
+      directory: '',
+      cwd: '',
+      pathReady: false,
+      enabled: false,
+    }
+    const { result, rerender } = renderHook(useLaunchSettings, { initialProps: args, wrapper })
+    expect(result.current.settings.model).toBe('office-kimi')
+    rerender({ ...args, directory: '/project', cwd: '/project' })
+    expect(result.current.settings.model).toBe('office-kimi')
+    expect(result.current.pending).toBe(true)
+    rerender({ ...args, directory: '/project', cwd: '/project', pathReady: true, enabled: true })
+    await waitFor(() => expect(result.current.catalogs.isLoading).toBe(true))
+    rerender({ ...args, machineId: 'runner-b', agent: 'pi', enabled: true })
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(result.current.parameters).toMatchObject({ model: 'office/shared-model', effort: 'max' })
+    await act(async () => gate.resolve({ success: true, availableModels: [{ modelId: 'office-kimi' }] }))
+    expect(result.current.parameters.model).toBe('office/shared-model')
+    rerender({ ...args, directory: '/project', cwd: '/project', pathReady: true, enabled: true })
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(result.current.parameters).toMatchObject({ model: 'office-kimi', permissionMode: 'yolo' })
+  })
+
+  it('falls back from removed models and reasoning values using the loaded catalog', async () => {
+    const { api, responses, wrapper } = harness()
+    rememberLaunchSettings(scope, 'runner', 'codex', {
+      ...defaultLaunchSettings('codex'),
+      model: 'retired-model',
+      reasoning: 'retired-effort',
+      permission: 'yolo',
+    })
+    responses.set('/api/machines/runner/codex-models', {
+      success: true,
+      models: [
+        { id: 'current', displayName: 'Current', isDefault: true, supportedReasoningEfforts: ['low'] },
+      ],
+    })
+    const { result } = renderHook(
+      () =>
+        useLaunchSettings({
+          api,
+          scope,
+          machineId: 'runner',
+          agent: 'codex',
+          directory: '/project',
+          cwd: '/project',
+          pathReady: true,
+          enabled: true,
+        }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(result.current.parameters).toMatchObject({
+      model: undefined,
+      modelReasoningEffort: undefined,
+      permissionMode: 'yolo',
+    })
+    expect(result.current.settings).toMatchObject({ model: 'auto', reasoning: 'default' })
+  })
+
+  it('waits for a remembered OpenCode variant and falls back when the directory is missing', async () => {
+    const { api, responses, wrapper } = harness()
+    rememberLaunchSettings(scope, 'runner', 'opencode', {
+      ...defaultLaunchSettings('opencode'),
+      model: 'office/model',
+      reasoning: 'deep',
+    })
+    responses.set('/api/machines/runner/opencode-models?cwd=%2Fproject', {
+      success: true,
+      availableModels: [{ modelId: 'office/model' }],
+      currentModelId: 'office/model',
+    })
+    const gate = Promise.withResolvers<unknown>()
+    responses.set('/api/machines/runner/opencode-model-variants?cwd=%2Fproject', gate.promise)
+    const args = {
+      api,
+      scope,
+      machineId: 'runner',
+      agent: 'opencode' as AgentFlavor,
+      directory: '/project',
+      cwd: '/project',
+      pathReady: false,
+      pathExists: undefined as boolean | undefined,
+      enabled: true,
+    }
+    const { result, rerender } = renderHook(useLaunchSettings, { initialProps: args, wrapper })
+    expect(result.current.pending).toBe(true)
+    expect(result.current.settings.reasoning).toBe('deep')
+    rerender({ ...args, pathReady: true, pathExists: true })
+    await waitFor(() => expect(result.current.catalogs.variants.isLoading).toBe(true))
+    expect(result.current.pending).toBe(true)
+    await act(async () => gate.resolve({ success: true, variants: { 'office/model': ['deep'] } }))
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(result.current.parameters).toMatchObject({ model: 'office/model', modelReasoningEffort: 'deep' })
+    rerender({ ...args, pathExists: false })
+    expect(result.current.pending).toBe(false)
+    expect(result.current.parameters).toMatchObject({ model: undefined, modelReasoningEffort: undefined })
   })
 })
 
