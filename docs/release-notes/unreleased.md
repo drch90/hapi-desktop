@@ -1,8 +1,20 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.14，本机安装包已生成并校验；本版 OpenCode 追加适配与打包记录见 [1.0.14 版本说明](v1.0.14.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.15，本机安装包已生成并校验；历史消息滚动补载的功能及打包记录见 [1.0.15 版本说明](v1.0.15.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 历史消息滚动补载（1.0.15）
+
+- 对齐 Web 的顶部位置判断：向上滚动到历史顶部约 200 像素内自动获取更早消息，首屏不足时也会尝试补载一页。沿用最新 20 条、历史每页最多 200 条的请求数量。
+- 补载后保持当前阅读位置；一次上翻手势只触发一页，内容重排与滚动位置恢复不会连续拉取历史。保留顶部按钮、大纲及工具组的手动补载入口，失败时保留错误提示并允许重试。
+- 自动请求返回前会重新检查当前阅读位置；离开顶部区域、回到最新消息或切换会话后丢弃迟到结果。滚轮、键盘和滚动条沿用各会话栏的独立导航状态。
+
+验证：`bun run typecheck`、`bun run build` 和 `bun run test --project desktop tests/transcript-history.test.tsx` 通过，单元回归共 7 项。Electron 共覆盖 6 项新增用例及 6 项既有回归：滚轮、键盘、原生滚动条、首屏补载、失败重试、历史耗尽、慢请求取消、会话切换、双栏隔离、大纲、工具组补载、窗口裁剪后回到最新及流式跟随。首次运行新用例时，慢请求检查在 PageDown 动画结束前取样；改为等待 `scrollend` 后，保持原位置断言并重跑通过，其他 5 项未改用例复用通过结果。
+
+实际 Electron 命令为 `xvfb-run -a bun run test:e2e tests/transcript-history.e2e.ts`，以及 `xvfb-run -a bun run test:e2e tests/transcript-history.e2e.ts tests/desktop.e2e.ts --grep 'leaving the preload area|outline loads earlier pages|return to latest reloads|opening a partial exploration group|outline navigation and live message following|manual scrolling back|layout changes and late image'`。检查覆盖 920×640、单栏/双栏、最大字号、深浅主题及法语长文案，截图位于本机 `build/transcript-history/`。所有构建、类型检查与测试最多使用 2 个逻辑 CPU；Electron 使用 Linux / Xvfb 与模拟 Hub，未做 Windows 实机验证。以上为打包前的功能验证，1.0.15 的本机包验证另记于[版本说明](v1.0.15.md#验证记录)。
+
+1.0.15 本机包另通过新构建的 7 项 Electron 检查及安装包解包校验：包内 180 个构建文件与测试输出一致，1088 个源码及打包输入未变化。归档成功后自动清理，保留 1.0.15 与 1.0.14 安装包并复核二者 SHA-256；路径、大小与校验记录见 [1.0.15 本机安装包](v1.0.15.md#本机安装包)。
 
 ## OpenCode 运行中追加（1.0.14）
 

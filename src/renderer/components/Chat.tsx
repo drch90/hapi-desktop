@@ -987,7 +987,7 @@ export function Chat({
           </div>
         )}
         <div className="transcript-area">
-          <div className="transcript" ref={navigation.viewport} onScroll={navigation.onScroll}>
+          <div className="transcript" ref={navigation.viewport} onScroll={navigation.onScroll} tabIndex={0}>
             <div ref={navigation.content}>
               {messages.hasMore && (
                 <Button

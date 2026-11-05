@@ -5,6 +5,7 @@ import type { useMessages } from '@/hooks/queries/useMessages'
 import { getConversationMessageAnchorId } from '@/chat/outline'
 import { captureScrollAnchor, restoreScrollAnchor } from '@/components/AssistantChat/HappyThread'
 import { setMessageViewMode } from '@/lib/message-window-store'
+import { useTranscriptHistoryLoader } from './useTranscriptHistoryLoader'
 
 export function useTranscriptNavigation(props: {
   sessionId: string
@@ -79,7 +80,9 @@ export function useTranscriptNavigation(props: {
     const onWheel = (event: WheelEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.deltaY === 0) return
       const direction = Math.sign(event.deltaY)
-      if (!nestedScrollerConsumes(event.target, direction)) noteIntent(direction)
+      if (nestedScrollerConsumes(event.target, direction)) return
+      noteIntent(direction)
+      if (direction < 0) historyLoader.noteIntent('wheel')
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.metaKey) return
@@ -94,7 +97,9 @@ export function useTranscriptNavigation(props: {
               ? -1
               : 1
             : 0
-      if (direction && !nestedScrollerConsumes(event.target, direction)) noteIntent(direction)
+      if (!direction || nestedScrollerConsumes(event.target, direction)) return
+      noteIntent(direction)
+      if (direction < 0 && !event.repeat) historyLoader.noteIntent('keyboard')
     }
     const onPointerDown = (event: PointerEvent) => {
       cancelAnimationFrame(pointerReleaseFrame)
@@ -104,6 +109,7 @@ export function useTranscriptNavigation(props: {
       const gutter = Math.max(12, el.offsetWidth - el.clientWidth)
       if (event.clientX < el.getBoundingClientRect().right - gutter) return
       scrollIntent.current = { direction: 0, until: Date.now() + 750, pointerDown: true }
+      historyLoader.noteIntent('pointer')
     }
     const onDisclosureClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null
@@ -129,6 +135,7 @@ export function useTranscriptNavigation(props: {
     let touchY: number | null = null
     const onTouchStart = (event: TouchEvent) => {
       touchY = event.touches.length === 1 ? event.touches[0].clientY : null
+      if (touchY !== null) historyLoader.noteIntent('touch')
     }
     const onTouchMove = (event: TouchEvent) => {
       const nextY = event.touches.length === 1 ? event.touches[0].clientY : null
@@ -210,9 +217,11 @@ export function useTranscriptNavigation(props: {
     }
     setAway(!following.current)
     props.onPosition(following.current ? -1 : el.scrollTop)
+    historyLoader.onScroll(manual && movedUp && intent.direction <= 0)
   }
 
   function followLatest() {
+    historyLoader.pause()
     navigation.current++
     pendingHistory.current = null
     scrollIntent.current.until = 0
@@ -233,6 +242,7 @@ export function useTranscriptNavigation(props: {
     const el = viewport.current
     const target = document.getElementById(anchorId(messageId))
     if (!el || !target || !el.contains(target)) return false
+    historyLoader.pause()
     navigation.current++
     pendingHistory.current = null
     scrollIntent.current.until = 0
@@ -248,38 +258,49 @@ export function useTranscriptNavigation(props: {
     return true
   }
 
-  const loadEarlier = useCallback(async (): Promise<OlderHistoryLoadResult> => {
-    if (!props.messages.hasMore) return 'terminal-stop'
-    if (props.messages.isLoadingMore || props.messages.isSyncingTail) return 'transient-stop'
-    const run = ++navigation.current
-    scrollIntent.current.until = 0
-    following.current = false
-    setAway(true)
-    setMessageViewMode(props.sessionId, 'history')
-    const outcome = await props.messages.loadMore((version) => {
-      const el = viewport.current
-      if (!active.current || run !== navigation.current || !el) return false
-      // Capture immediately before applying the page: the reader may have scrolled while waiting.
-      pendingHistory.current = {
-        version,
-        anchor: captureScrollAnchor(el),
-        top: el.scrollTop,
-        height: el.scrollHeight,
-      }
-      return true
-    })
-    if (run === navigation.current && outcome.kind !== 'applied') pendingHistory.current = null
-    if (outcome.kind === 'applied') return 'loaded'
-    if (outcome.kind === 'stopped' && (outcome.reason === 'busy' || outcome.reason === 'epoch-reset'))
-      return 'transient-stop'
-    return 'terminal-stop'
-  }, [
-    props.sessionId,
-    props.messages.hasMore,
-    props.messages.isLoadingMore,
-    props.messages.isSyncingTail,
-    props.messages.loadMore,
-  ])
+  const loadEarlier = useCallback(
+    async (canApply?: () => boolean): Promise<OlderHistoryLoadResult> => {
+      if (!props.messages.hasMore) return 'terminal-stop'
+      if (props.messages.isLoadingMore || props.messages.isSyncingTail) return 'transient-stop'
+      const run = ++navigation.current
+      scrollIntent.current.until = 0
+      following.current = false
+      setAway(true)
+      setMessageViewMode(props.sessionId, 'history')
+      const outcome = await props.messages.loadMore((version) => {
+        const el = viewport.current
+        if (!active.current || run !== navigation.current || !el || (canApply && !canApply())) return false
+        // Capture immediately before applying the page: the reader may have scrolled while waiting.
+        pendingHistory.current = {
+          version,
+          anchor: captureScrollAnchor(el),
+          top: el.scrollTop,
+          height: el.scrollHeight,
+        }
+        return true
+      })
+      if (run === navigation.current && outcome.kind !== 'applied') pendingHistory.current = null
+      if (outcome.kind === 'applied') return 'loaded'
+      if (outcome.kind === 'stopped' && (outcome.reason === 'busy' || outcome.reason === 'epoch-reset'))
+        return 'transient-stop'
+      return 'terminal-stop'
+    },
+    [
+      props.sessionId,
+      props.messages.hasMore,
+      props.messages.isLoadingMore,
+      props.messages.isSyncingTail,
+      props.messages.loadMore,
+    ],
+  )
+
+  const historyLoader = useTranscriptHistoryLoader({
+    viewport,
+    content,
+    isReady: () => active.current && restored.current,
+    messages: props.messages,
+    loadEarlier,
+  })
 
   return {
     viewport,
