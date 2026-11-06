@@ -10,10 +10,27 @@ index 4f8b527168e97dd6aad65095d87aec650d13ba91..3412aafa4512d3a06a9a7951c7184a33
  type EventEnvelope = {
      type?: unknown
 diff --git a/vendor/hapi/shared/fixtures/catalogs/modes.json b/vendor/hapi/shared/fixtures/catalogs/modes.json
-index e83f63e566860a78d7378ab051f285362121d9e8..88416dee841223df2780e0cfc004eda2ae661b07 100644
+index e83f63e566860a78d7378ab051f285362121d9e8..b819c1fe6c68ed062fa3206139bf105aaf1592f2 100644
 --- a/vendor/hapi/shared/fixtures/catalogs/modes.json
 +++ b/vendor/hapi/shared/fixtures/catalogs/modes.json
-@@ -61,8 +61,8 @@
+@@ -16,6 +16,16 @@
+                 "mode": "request-review",
+                 "tone": "neutral"
+             },
++            {
++                "label": "Auto",
++                "mode": "auto",
++                "tone": "warning"
++            },
++            {
++                "label": "Plan Mode",
++                "mode": "plan",
++                "tone": "info"
++            },
+             {
+                 "label": "Always Proceed",
+                 "mode": "always-proceed",
+@@ -61,8 +71,8 @@
                  "tone": "warning"
              },
              {
@@ -24,7 +41,7 @@ index e83f63e566860a78d7378ab051f285362121d9e8..88416dee841223df2780e0cfc004eda2
                  "tone": "warning"
              },
              {
-@@ -115,7 +115,7 @@
+@@ -115,7 +125,7 @@
                  "tone": "info"
              },
              {
@@ -33,7 +50,7 @@ index e83f63e566860a78d7378ab051f285362121d9e8..88416dee841223df2780e0cfc004eda2
                  "mode": "autoReview",
                  "tone": "warning"
              },
-@@ -170,6 +170,18 @@
+@@ -170,6 +180,18 @@
                  "tone": "danger"
              }
          ],
@@ -52,6 +69,707 @@ index e83f63e566860a78d7378ab051f285362121d9e8..88416dee841223df2780e0cfc004eda2
          "kimi": [
              {
                  "label": "Default",
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-acp-permission-approved.json b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-approved.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e49f15a2b1c5845789f2e89dbbb7b2e6b98c5d2
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-approved.json
+@@ -0,0 +1,104 @@
++{
++    "description": "Antigravity ACP approved approval attaches to its canonical tool card with the exact native call id.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "decision": "approved",
++                        "status": "approved"
++                    },
++                    "state": "running"
++                }
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "decision": "approved",
++                        "status": "approved"
++                    },
++                    "state": "running"
++                }
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": {
++            "completedRequests": {
++                "agy-approval-call": {
++                    "arguments": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "completedAt": 1755000001000,
++                    "createdAt": 1755000000000,
++                    "decision": "approved",
++                    "status": "approved",
++                    "tool": "Bash"
++                }
++            },
++            "requests": {}
++        },
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "agy-approval-call",
++                            "input": {
++                                "CommandLine": "python3 script.py",
++                                "Cwd": "/repo",
++                                "command": "python3 script.py",
++                                "cwd": "/repo"
++                            },
++                            "name": "Bash",
++                            "status": "pending",
++                            "type": "tool-call"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-approval-tool",
++                "localId": null,
++                "seq": 1
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-acp-permission-approved"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-acp-permission-denied.json b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-denied.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..8c78bc79b1b18e2c9af0dcb1be3814a36b244177
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-denied.json
+@@ -0,0 +1,104 @@
++{
++    "description": "Antigravity ACP denied approval attaches to its canonical tool card with the exact native call id.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "decision": "denied",
++                        "status": "denied"
++                    },
++                    "state": "error"
++                }
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "decision": "denied",
++                        "status": "denied"
++                    },
++                    "state": "error"
++                }
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": {
++            "completedRequests": {
++                "agy-approval-call": {
++                    "arguments": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "completedAt": 1755000001000,
++                    "createdAt": 1755000000000,
++                    "decision": "denied",
++                    "status": "denied",
++                    "tool": "Bash"
++                }
++            },
++            "requests": {}
++        },
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "agy-approval-call",
++                            "input": {
++                                "CommandLine": "python3 script.py",
++                                "Cwd": "/repo",
++                                "command": "python3 script.py",
++                                "cwd": "/repo"
++                            },
++                            "name": "Bash",
++                            "status": "pending",
++                            "type": "tool-call"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-approval-tool",
++                "localId": null,
++                "seq": 1
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-acp-permission-denied"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-acp-permission-pending.json b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-pending.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..488a03804fbb3b54a256e4156045e73a5807f717
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-acp-permission-pending.json
+@@ -0,0 +1,98 @@
++{
++    "description": "Antigravity ACP pending approval attaches to its canonical tool card with the exact native call id.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "status": "pending"
++                    },
++                    "state": "running"
++                }
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-approval-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-approval-call",
++                    "input": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "status": "pending"
++                    },
++                    "state": "running"
++                }
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": {
++            "requests": {
++                "agy-approval-call": {
++                    "arguments": {
++                        "CommandLine": "python3 script.py",
++                        "Cwd": "/repo",
++                        "command": "python3 script.py",
++                        "cwd": "/repo"
++                    },
++                    "createdAt": 1755000000000,
++                    "tool": "Bash"
++                }
++            }
++        },
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "agy-approval-call",
++                            "input": {
++                                "CommandLine": "python3 script.py",
++                                "Cwd": "/repo",
++                                "command": "python3 script.py",
++                                "cwd": "/repo"
++                            },
++                            "name": "Bash",
++                            "status": "pending",
++                            "type": "tool-call"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-approval-tool",
++                "localId": null,
++                "seq": 1
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-acp-permission-pending"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-acp-tools-and-prose.json b/vendor/hapi/shared/fixtures/chat/agy-acp-tools-and-prose.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..13595c817c48288c521afc70a8fffd78b61c3c0c
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-acp-tools-and-prose.json
+@@ -0,0 +1,121 @@
++{
++    "description": "Antigravity ACP combines canonical tool lifecycle records with model-attributed agy prose after a steered turn.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-acp-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-acp-call",
++                    "input": {
++                        "command": "git status"
++                    },
++                    "name": "Bash",
++                    "result": "Working tree clean.",
++                    "state": "completed"
++                }
++            },
++            {
++                "createdAt": 1755000000002,
++                "id": "agy-acp-prose:0",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "I applied your updated instructions."
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-acp-call",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "agy-acp-call",
++                    "input": {
++                        "command": "git status"
++                    },
++                    "name": "Bash",
++                    "result": "Working tree clean.",
++                    "state": "completed"
++                }
++            },
++            {
++                "createdAt": 1755000000002,
++                "id": "agy-acp-prose:0",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "I applied your updated instructions."
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": null,
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "agy-acp-call",
++                            "input": {
++                                "command": "git status"
++                            },
++                            "name": "Bash",
++                            "status": "in_progress",
++                            "type": "tool-call"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-acp-tool",
++                "localId": null,
++                "seq": 1
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "agy-acp-call",
++                            "is_error": false,
++                            "output": "Working tree clean.",
++                            "type": "tool-call-result"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000001,
++                "id": "agy-acp-result",
++                "localId": null,
++                "seq": 2
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "I applied your updated instructions.",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000002,
++                "id": "agy-acp-prose",
++                "localId": null,
++                "seq": 3
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-acp-tools-and-prose"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json b/vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..91d09bc6d3b4596afcd1f184e204b8e3cb9ee6f4
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json
+@@ -0,0 +1,100 @@
++{
++    "description": "Native Antigravity uses a one-time approval reply ID linked to the real tool call, including after a previous reply was canceled.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "native-call-1",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "native-call-1",
++                    "input": {
++                        "command": "python3 script.py"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "status": "pending"
++                    },
++                    "state": "running"
++                }
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "native-call-1",
++                "kind": "tool-call",
++                "localId": null,
++                "tool": {
++                    "id": "native-call-1",
++                    "input": {
++                        "command": "python3 script.py"
++                    },
++                    "name": "Bash",
++                    "permission": {
++                        "status": "pending"
++                    },
++                    "state": "running"
++                }
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": {
++            "completedRequests": {
++                "agy-permission-old": {
++                    "arguments": {
++                        "command": "python3 script.py"
++                    },
++                    "completedAt": 1755000000001,
++                    "createdAt": 1755000000000,
++                    "decision": "abort",
++                    "status": "canceled",
++                    "tool": "Bash",
++                    "toolCallId": "native-call-1"
++                }
++            },
++            "requests": {
++                "agy-permission-new": {
++                    "arguments": {
++                        "command": "python3 script.py"
++                    },
++                    "createdAt": 1755000000002,
++                    "tool": "Bash",
++                    "toolCallId": "native-call-1"
++                }
++            }
++        },
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "callId": "native-call-1",
++                            "input": {
++                                "command": "python3 script.py"
++                            },
++                            "name": "Bash",
++                            "status": "pending",
++                            "type": "tool-call"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-native-tool",
++                "localId": null,
++                "seq": 1
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-native-permission-reply-id"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-streamed-prose.json b/vendor/hapi/shared/fixtures/chat/agy-native-streamed-prose.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..1cf6a0720e02041b7f4bda8986db643e1c276bfd
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-native-streamed-prose.json
+@@ -0,0 +1,138 @@
++{
++    "description": "Native Antigravity prose snapshots replace the same text stream and preserve the response model; thinking settles separately.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-think-1",
++                "kind": "agent-reasoning",
++                "localId": null,
++                "text": "Consider the plan and request review."
++            },
++            {
++                "createdAt": 1755000000001,
++                "id": "agy-text-1",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "First, prepare the plan. Second, request review."
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": null,
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-think-1",
++                "kind": "agent-reasoning",
++                "localId": null,
++                "text": "Consider the plan and request review."
++            },
++            {
++                "createdAt": 1755000000001,
++                "id": "agy-text-1",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "First, prepare the plan. Second, request review."
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": null,
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "id": "agy-think-1",
++                            "live": true,
++                            "message": "Consider the plan",
++                            "type": "reasoning"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-thinking-live",
++                "localId": null,
++                "seq": 1
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "First",
++                            "id": "agy-text-1",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000001,
++                "id": "agy-text-live-1",
++                "localId": null,
++                "seq": 2
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "First, prepare the plan.",
++                            "id": "agy-text-1",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000002,
++                "id": "agy-text-live-2",
++                "localId": null,
++                "seq": 3
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "id": "agy-think-1",
++                            "message": "Consider the plan and request review.",
++                            "type": "reasoning"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000003,
++                "id": "agy-thinking-final",
++                "localId": null,
++                "seq": 4
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "First, prepare the plan. Second, request review.",
++                            "id": "agy-text-1",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000004,
++                "id": "agy-text-final",
++                "localId": null,
++                "seq": 5
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-native-streamed-prose"
++}
 diff --git a/vendor/hapi/shared/fixtures/chat/codex-compact-summary-estimated-after.json b/vendor/hapi/shared/fixtures/chat/codex-compact-summary-estimated-after.json
 new file mode 100644
 index 0000000000000000000000000000000000000000..86f96eb970a4f172b7f04cd009bc714e5b4f295b
@@ -3925,9 +4643,23 @@ index 544fb5ddec0bc01624144795fecc20e2d7bea2e5..2aa609b30177adf2503eb794b77a7108
 +    return null
 +}
 diff --git a/vendor/hapi/shared/src/modes.test.ts b/vendor/hapi/shared/src/modes.test.ts
+index 4664313b4cb01cb6b9a4e4b57e07cd5fb7068905..28889bcbdf27a32fecb4b9b39b07f184147d979d 100644
 --- a/vendor/hapi/shared/src/modes.test.ts
 +++ b/vendor/hapi/shared/src/modes.test.ts
-@@ -94,10 +94,16 @@
+@@ -31,6 +31,12 @@ describe('Gemini CLI sunset (read-only, not creatable)', () => {
+ })
+ 
+ describe('getPermissionModesForFlavor', () => {
++    test('offers native Antigravity Auto and Plan alongside review and bypass', () => {
++        expect(getPermissionModesForFlavor('agy')).toEqual(['request-review', 'auto', 'plan', 'always-proceed'])
++        expect(isPermissionModeAllowedForFlavor('auto', 'agy')).toBe(true)
++        expect(isPermissionModeAllowedForFlavor('plan', 'agy')).toBe(true)
++        expect(isPermissionModeAllowedForFlavor('default', 'agy')).toBe(false)
++    })
+     test("returns the conservative Grok modes", () => {
+         expect(getPermissionModesForFlavor('grok')).toEqual([
+             'default',
+@@ -94,11 +100,17 @@ describe('isPermissionModeAllowedForFlavor', () => {
  
      test("cursor includes autoReview", () => {
          expect(getPermissionModesForFlavor('cursor')).toContain('autoReview')
@@ -3936,20 +4668,25 @@ diff --git a/vendor/hapi/shared/src/modes.test.ts b/vendor/hapi/shared/src/modes
          expect(getPermissionModeTone('autoReview')).toBe('warning')
          expect(isPermissionModeAllowedForFlavor('autoReview', 'cursor')).toBe(true)
          expect(isPermissionModeAllowedForFlavor('autoReview', 'claude')).toBe(false)
-+    })
+     })
 +
 +    test("codex offers autoReview at launch and mid-session", () => {
 +        expect(getPermissionModesForFlavor('codex')).toEqual(['default', 'read-only', 'autoReview', 'yolo'])
 +        expect(isPermissionModeAllowedForFlavor('autoReview', 'codex')).toBe(true)
 +        expect(isPermissionModeAllowedForFlavor('autoReview', 'gemini')).toBe(false)
-     })
++    })
  })
  
-@@ -139,21 +145,25 @@
+ describe('getPermissionModeLabel', () => {
+@@ -139,21 +151,29 @@ describe('claude auto permission mode', () => {
  })
  
  describe('isSteeringSupportedForFlavor', () => {
 -    it('supports codex, cursor and pi', () => {
++    it('supports Antigravity native steering', () => {
++        expect(isSteeringSupportedForFlavor('agy')).toBe(true)
++        expect(isSteeringSupportedForSession({ flavor: 'agy' })).toBe(true)
++    })
 +    it('supports Claude, Codex, Cursor, Pi, Hermes and OpenCode', () => {
          expect(isSteeringSupportedForFlavor('codex')).toBe(true)
          expect(isSteeringSupportedForFlavor('cursor')).toBe(true)
@@ -3975,7 +4712,7 @@ diff --git a/vendor/hapi/shared/src/modes.test.ts b/vendor/hapi/shared/src/modes
      })
  
      it('supports Cursor ACP sessions', () => {
-@@ -178,7 +188,7 @@
+@@ -178,7 +198,7 @@ describe('isSteeringSupportedForSession', () => {
      })
  
      it('rejects non-steerable flavors', () => {
@@ -3985,9 +4722,10 @@ diff --git a/vendor/hapi/shared/src/modes.test.ts b/vendor/hapi/shared/src/modes
      })
  })
 diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
+index f12b503de34bcd2c387d131b5c3fee82e2db13fe..a5fa209d207e9414f1f59194a820a83dc73bccbe 100644
 --- a/vendor/hapi/shared/src/modes.ts
 +++ b/vendor/hapi/shared/src/modes.ts
-@@ -7,7 +7,7 @@
+@@ -7,7 +7,7 @@ import { z } from 'zod'
   */
  export const AGENT_MESSAGE_PAYLOAD_TYPE = 'codex' as const
  
@@ -3996,7 +4734,14 @@ diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
  export type AgentFlavor = typeof AGENT_FLAVORS[number]
  export const AgentFlavorSchema = z.enum(AGENT_FLAVORS)
  
-@@ -25,7 +25,7 @@
+@@ -19,13 +19,13 @@ export const CREATABLE_AGENT_FLAVORS: readonly AgentFlavor[] = AGENT_FLAVORS.fil
+     (flavor) => flavor !== 'gemini'
+ )
+ 
+-export const AGY_PERMISSION_MODES = ['request-review', 'always-proceed'] as const
++export const AGY_PERMISSION_MODES = ['request-review', 'auto', 'plan', 'always-proceed'] as const
+ export type AgyPermissionMode = typeof AGY_PERMISSION_MODES[number]
+ 
  export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan'] as const
  export type ClaudePermissionMode = typeof CLAUDE_PERMISSION_MODES[number]
  
@@ -4005,17 +4750,17 @@ diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
  export type CodexPermissionMode = typeof CODEX_PERMISSION_MODES[number]
  
  export const CODEX_COLLABORATION_MODES = ['default', 'plan'] as const
-@@ -39,6 +39,9 @@
- 
+@@ -40,6 +40,9 @@ export type KimiPermissionMode = typeof KIMI_PERMISSION_MODES[number]
  export const COPILOT_PERMISSION_MODES = ['default', 'read-only', 'safe-yolo', 'yolo'] as const
  export type CopilotPermissionMode = typeof COPILOT_PERMISSION_MODES[number]
-+
+ 
 +export const HERMES_PERMISSION_MODES = ['default', 'acceptEdits'] as const
 +export type HermesPermissionMode = typeof HERMES_PERMISSION_MODES[number]
- 
++
  export const GROK_PERMISSION_MODES = ['default', 'auto', 'plan', 'bypassPermissions'] as const
  export type GrokPermissionMode = typeof GROK_PERMISSION_MODES[number]
-@@ -74,7 +77,7 @@
+ 
+@@ -74,7 +77,7 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
      plan: 'Plan Mode',
      ask: 'Ask Mode',
      debug: 'Debug Mode',
@@ -4024,7 +4769,7 @@ diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
      bypassPermissions: 'Yolo',
      'read-only': 'Read Only',
      'safe-yolo': 'Safe Yolo',
-@@ -139,6 +142,7 @@
+@@ -139,6 +142,7 @@ export function getPermissionModesForFlavor(flavor?: string | null): readonly Pe
      if (flavor === 'kimi') {
          return KIMI_PERMISSION_MODES
      }
@@ -4032,23 +4777,26 @@ diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
      if (flavor === 'dsh') {
          return []
      }
-@@ -175,11 +179,6 @@
- 
- export function isPermissionModeAllowedForFlavor(mode: PermissionMode, flavor?: string | null): boolean {
+@@ -177,11 +181,6 @@ export function isPermissionModeAllowedForFlavor(mode: PermissionMode, flavor?:
      return getPermissionModesForFlavor(flavor).includes(mode)
--}
--
+ }
+ 
 -/** New Codex sessions use the native shared runtime, without HAPI Safe Yolo. */
 -export function getLaunchPermissionModesForFlavor(flavor?: string | null): readonly PermissionMode[] {
 -    return getPermissionModesForFlavor(flavor).filter(mode => flavor !== 'codex' || mode !== 'safe-yolo')
- }
- 
+-}
+-
  export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption[] {
-@@ -196,13 +195,16 @@
+     return CODEX_COLLABORATION_MODES.map((mode) => ({
+         mode,
+@@ -195,14 +194,19 @@ export function getCodexCollaborationModeOptions(): CodexCollaborationModeOption
+  *
   * Steer = soft mid-turn delivery (same idea as Cursor GUI default "Send"):
   * - Pi: native steer over the Pi runtime (first-class since #1466)
++ * - Antigravity: native terminal input, acknowledged by durable user receipts.
   * - Codex: app-server `turn/steer` (true mid-turn inject)
-+ * - Claude: stream-json stdin injection, acknowledged by native user UUID echo.
++ * - Claude: stream-json stdin injection, acknowledged by native user UUID echo;
++ *   Claude folds it in at the next tool boundary. Remote mode only.
 + * - Hermes: native `/steer` through a concurrent ACP prompt (no cancel).
 + * - OpenCode: native v2 inbox admission over REST while an ACP turn is active.
   * - Cursor ACP: concurrent `session/prompt` soft-send (no cancel). Legacy
@@ -4059,16 +4807,16 @@ diff --git a/vendor/hapi/shared/src/modes.ts b/vendor/hapi/shared/src/modes.ts
 + * Other flavors are not supported. Runtime readiness uses steeringActive.
   */
 -export const STEERING_SUPPORTED_FLAVORS = ['codex', 'cursor', 'pi'] as const
-+export const STEERING_SUPPORTED_FLAVORS = ['claude', 'codex', 'cursor', 'pi', 'hermes', 'opencode'] as const
++export const STEERING_SUPPORTED_FLAVORS = ['agy', 'claude', 'codex', 'cursor', 'pi', 'hermes', 'opencode'] as const
  
  export function isSteeringSupportedForFlavor(flavor?: string | null): boolean {
      return (STEERING_SUPPORTED_FLAVORS as readonly string[]).includes(flavor ?? '')
-@@ -221,7 +223,7 @@
+@@ -221,7 +225,7 @@ export function isSteeringSupportedForSession(metadata?: {
      cursorSessionId?: string | null
      cursorSessionProtocol?: 'acp' | 'stream-json' | null
  } | null): boolean {
 -    if (metadata?.flavor === 'codex' || metadata?.flavor === 'pi') {
-+    if (metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes' || metadata?.flavor === 'opencode') {
++    if (metadata?.flavor === 'agy' || metadata?.flavor === 'claude' || metadata?.flavor === 'codex' || metadata?.flavor === 'pi' || metadata?.flavor === 'hermes' || metadata?.flavor === 'opencode') {
          return true
      }
      if (metadata?.flavor !== 'cursor') {
@@ -4924,6 +5672,90 @@ index 9a81d0bb498bbb390c3654586995859ff9fc70d3..2509eb738021b654d51fc4c520fce400
              tts: {
                  voice_id: 'cgSgspJ2msm6clMCkdW9', // Jessica
                  model_id: 'eleven_flash_v2',
+diff --git a/vendor/hapi/web/scripts/fixtures/cases/agy.ts b/vendor/hapi/web/scripts/fixtures/cases/agy.ts
+index 317cb2bdf54912af45e9047808b1d4dfbe8677ea..823efa94cf16d1e43424eee0ee83f3eae1b6022f 100644
+--- a/vendor/hapi/web/scripts/fixtures/cases/agy.ts
++++ b/vendor/hapi/web/scripts/fixtures/cases/agy.ts
+@@ -2,13 +2,77 @@ import type { FixtureCase } from '../fixtureTypes'
+ import { T0, wireMessage } from './support'
+ 
+ /**
+- * agy (Antigravity) flavor: NOT the codex family — entries arrive through the
++ * agy (Antigravity) prose and historical tools arrive through the
+  * Claude-style output envelope (content.type === 'output') with
+  * data.type === 'agy_message' (planner prose) and 'agy_tool_action' (a DONE
+  * tool action whose content is its result). See normalizeAgent.ts (agy
+- * branches) and cli/src/api/apiSession.ts sendAgySessionMessage.
++ * branches) and cli/src/api/apiSession.ts sendAgySessionMessage. Current native
++ * sessions combine that prose with common codex-family tool lifecycle records.
+  */
+ export const agyCases: FixtureCase[] = [
++    {
++        name: 'agy-native-permission-reply-id',
++        description: 'Native Antigravity uses a one-time approval reply ID linked to the real tool call, including after a previous reply was canceled.',
++        messages: [wireMessage({ id: 'agy-native-tool', seq: 1, createdAt: T0, content: { role: 'agent', content: { type: 'codex', data: {
++            type: 'tool-call', callId: 'native-call-1', name: 'Bash', input: { command: 'python3 script.py' }, status: 'pending',
++        } } } })],
++        agentState: {
++            requests: { 'agy-permission-new': { tool: 'Bash', toolCallId: 'native-call-1', arguments: { command: 'python3 script.py' }, createdAt: T0 + 2 } },
++            completedRequests: { 'agy-permission-old': { tool: 'Bash', toolCallId: 'native-call-1', arguments: { command: 'python3 script.py' },
++                createdAt: T0, completedAt: T0 + 1, status: 'canceled', decision: 'abort' } },
++        },
++    },
++    {
++        name: 'agy-native-streamed-prose',
++        description: 'Native Antigravity prose snapshots replace the same text stream and preserve the response model; thinking settles separately.',
++        messages: [
++            wireMessage({ id: 'agy-thinking-live', seq: 1, createdAt: T0, content: { role: 'agent',
++                content: { type: 'codex', data: { type: 'reasoning', id: 'agy-think-1', message: 'Consider the plan', live: true } } } }),
++            wireMessage({ id: 'agy-text-live-1', seq: 2, createdAt: T0 + 1, content: { role: 'agent',
++                content: { type: 'output', data: { type: 'agy_message', id: 'agy-text-1', content: 'First', model: 'Gemini 3.8 Flash (High)' } } } }),
++            wireMessage({ id: 'agy-text-live-2', seq: 3, createdAt: T0 + 2, content: { role: 'agent',
++                content: { type: 'output', data: { type: 'agy_message', id: 'agy-text-1', content: 'First, prepare the plan.', model: 'Gemini 3.8 Flash (High)' } } } }),
++            wireMessage({ id: 'agy-thinking-final', seq: 4, createdAt: T0 + 3, content: { role: 'agent',
++                content: { type: 'codex', data: { type: 'reasoning', id: 'agy-think-1', message: 'Consider the plan and request review.' } } } }),
++            wireMessage({ id: 'agy-text-final', seq: 5, createdAt: T0 + 4, content: { role: 'agent',
++                content: { type: 'output', data: { type: 'agy_message', id: 'agy-text-1', content: 'First, prepare the plan. Second, request review.', model: 'Gemini 3.8 Flash (High)' } } } }),
++        ],
++    },
++    ...(['pending', 'approved', 'denied'] as const).map((status): FixtureCase => {
++        const input = { CommandLine: 'python3 script.py', Cwd: '/repo', command: 'python3 script.py', cwd: '/repo' }
++        const request = { tool: 'Bash', arguments: input, createdAt: T0 }
++        return {
++            name: `agy-acp-permission-${status}`,
++            description: `Antigravity ACP ${status} approval attaches to its canonical tool card with the exact native call id.`,
++            messages: [wireMessage({ id: 'agy-approval-tool', seq: 1, createdAt: T0, content: {
++                role: 'agent', content: { type: 'codex', data: { type: 'tool-call', callId: 'agy-approval-call',
++                    name: 'Bash', input, status: 'pending' } },
++            } })],
++            agentState: status === 'pending'
++                ? { requests: { 'agy-approval-call': request } }
++                : { requests: {}, completedRequests: { 'agy-approval-call': {
++                    ...request, status, decision: status, completedAt: T0 + 1000,
++                } } },
++        }
++    }),
++    {
++        name: 'agy-acp-tools-and-prose',
++        description: 'Antigravity ACP combines canonical tool lifecycle records with model-attributed agy prose after a steered turn.',
++        messages: [
++            wireMessage({ id: 'agy-acp-tool', seq: 1, createdAt: T0, content: {
++                role: 'agent', content: { type: 'codex', data: { type: 'tool-call', callId: 'agy-acp-call',
++                    name: 'Bash', input: { command: 'git status' }, status: 'in_progress' } },
++            } }),
++            wireMessage({ id: 'agy-acp-result', seq: 2, createdAt: T0 + 1, content: {
++                role: 'agent', content: { type: 'codex', data: { type: 'tool-call-result', callId: 'agy-acp-call',
++                    output: 'Working tree clean.', is_error: false } },
++            } }),
++            wireMessage({ id: 'agy-acp-prose', seq: 3, createdAt: T0 + 2, content: {
++                role: 'agent', content: { type: 'output', data: { type: 'agy_message',
++                    content: 'I applied your updated instructions.', model: 'Gemini 3.8 Flash (High)' } },
++            } }),
++        ],
++    },
+     {
+         name: 'agy-message',
+         description: 'agy flavor: agy_message planner prose becomes a plain agent-text block (per-turn data.model is footer metadata outside the normative projection; meta.sentFrom cli is carried on the wire but dropped).',
 diff --git a/vendor/hapi/web/scripts/fixtures/cases/codex.ts b/vendor/hapi/web/scripts/fixtures/cases/codex.ts
 index 236a58f5b335ea0c5bc2abd01334a6e7e781af48..bb0d5a6fa9193cbb1c27aacce5a109597108e657 100644
 --- a/vendor/hapi/web/scripts/fixtures/cases/codex.ts
@@ -5687,7 +6519,7 @@ index 55a3a13e3009bfff74e510ba90ba93208b3a4cdf..e7f27b5a36b335c780be6b6e65068d6b
 +    expect(normalized?.role === 'event' && normalized.content).not.toHaveProperty('tokensBefore', 0)
 +})
 diff --git a/vendor/hapi/web/src/chat/normalizeAgent.ts b/vendor/hapi/web/src/chat/normalizeAgent.ts
-index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc30cdbe004 100644
+index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..09c5ffcee7a70db1e92b2bb7b26588ac536f717c 100644
 --- a/vendor/hapi/web/src/chat/normalizeAgent.ts
 +++ b/vendor/hapi/web/src/chat/normalizeAgent.ts
 @@ -733,6 +733,29 @@ export function normalizeAgentRecord(
@@ -5720,7 +6552,33 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
          if (data.type === 'assistant') {
              return normalizeAssistantOutput(messageId, localId, createdAt, data, meta)
          }
-@@ -999,6 +1022,8 @@ export function normalizeAgentRecord(
+@@ -852,13 +875,14 @@ export function normalizeAgentRecord(
+         // fallback. Empty planner steps (intermediate, no content) are skipped so
+         // they don't produce empty chat bubbles.
+         if (data.type === 'agy_message') {
+-            const text = stripAgyEchoedTaskResult(asString(data.content) ?? '')
++            const streamId = asString(data.id)
++            const text = streamId !== null ? asString(data.content) ?? '' : stripAgyEchoedTaskResult(asString(data.content) ?? '')
+             if (!text.trim()) return null
+             // Transitional "Inside the task-NNN log…" narration → a compact
+             // Send-Message-style chip, not a full agent bubble. The actual task
+             // result renders in its own background-task card, so this stays a thin
+             // marker of what the agent is doing.
+-            const taskLog = text.match(/^Inside the task-(\d+) log\b/)
++            const taskLog = streamId === null ? text.match(/^Inside the task-(\d+) log\b/) : null
+             if (taskLog) {
+                 const toolCallId = `${messageId}:tasklog`
+                 return {
+@@ -880,7 +904,7 @@ export function normalizeAgentRecord(
+                 createdAt,
+                 role: 'agent',
+                 isSidechain: false,
+-                content: [{ type: 'text', text, uuid: messageId, parentUUID: null }],
++                content: [{ type: 'text', text, uuid: messageId, ...(streamId !== null ? { streamId } : {}), parentUUID: null }],
+                 // Per-turn model (display name from the conversation DB), surfaced
+                 // in the message metadata footer like the other flavors.
+                 model: asString(data.model) ?? null,
+@@ -999,6 +1023,8 @@ export function normalizeAgentRecord(
      if (content.type === AGENT_MESSAGE_PAYLOAD_TYPE) {
          const data = isObject(content.data) ? content.data : null
          if (!data || typeof data.type !== 'string') return null
@@ -5729,7 +6587,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
  
          if (
              data.type === 'agent-run-start'
-@@ -1108,9 +1133,12 @@ export function normalizeAgentRecord(
+@@ -1108,9 +1134,12 @@ export function normalizeAgentRecord(
                  createdAt,
                  role: 'event',
                  content: {
@@ -5745,7 +6603,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
                  },
                  isSidechain: false,
                  meta
-@@ -1120,8 +1148,7 @@ export function normalizeAgentRecord(
+@@ -1120,8 +1149,7 @@ export function normalizeAgentRecord(
          // Defensive parity with context_compacted above: a compact-summary
          // arriving in the codex envelope (e.g. from an older import path or a
          // future producer) must not be silently dropped by the codex-content
@@ -5755,7 +6613,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
          if (data.type === 'compact-summary' && typeof data.summary === 'string') {
              return {
                  id: messageId,
-@@ -1131,7 +1158,9 @@ export function normalizeAgentRecord(
+@@ -1131,7 +1159,9 @@ export function normalizeAgentRecord(
                  content: {
                      type: 'compact-summary',
                      summary: data.summary,
@@ -5765,7 +6623,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
                      estimatedTokensAfter: asNumber(data.estimatedTokensAfter) ?? undefined
                  },
                  isSidechain: false,
-@@ -1139,6 +1168,23 @@ export function normalizeAgentRecord(
+@@ -1139,6 +1169,23 @@ export function normalizeAgentRecord(
              }
          }
  
@@ -5789,7 +6647,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
          if (data.type === 'token_count') {
              const usage = normalizeCodexTokenUsage(data.info, data)
              return usage ? {
-@@ -1152,6 +1198,7 @@ export function normalizeAgentRecord(
+@@ -1152,6 +1199,7 @@ export function normalizeAgentRecord(
                      ...(data.flavor === 'codex'
                          ? {
                              provider: 'codex' as const,
@@ -5797,7 +6655,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
                              model: asString(data.model) ?? undefined
                          }
                          : {})
-@@ -1222,6 +1269,18 @@ export function normalizeAgentRecord(
+@@ -1222,6 +1270,18 @@ export function normalizeAgentRecord(
  
          if (data.type === 'tool-call-result' && typeof data.callId === 'string') {
              const uuid = asString(data.id) ?? messageId
@@ -5816,7 +6674,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..81b5e234a9c78807bb9854b17b38fbc3
              return {
                  id: messageId,
                  localId,
-@@ -1232,7 +1291,8 @@ export function normalizeAgentRecord(
+@@ -1232,7 +1292,8 @@ export function normalizeAgentRecord(
                      type: 'tool-result',
                      tool_use_id: data.callId,
                      content: data.output,
@@ -9324,6 +10182,7 @@ index 5466b94a27806e58c08e30e9bb53cb82982365a4..a375c83c8e8b8de075e568630d82b695
          || toolName.startsWith('Codex')
          || toolName.startsWith('Gemini')
 diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
+index a59fcc79dbb6bfe92007029f5e34ca04253b2868..d5db20e63d33a9173a0e4a24396d61fa35958ee4 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
 @@ -1,6 +1,6 @@
@@ -9336,7 +10195,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test
  import type { ChatToolCall } from '@/chat/types'
  
  vi.mock('@/hooks/usePlatform', () => ({
-@@ -18,12 +18,18 @@
+@@ -18,12 +18,18 @@ vi.mock('@/lib/use-translation', () => ({
  
  import { RequestUserInputFooter } from './RequestUserInputFooter'
  
@@ -9357,7 +10216,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test
          sessionId: 'session-1', tool: makeTool(input), disabled: false, onDone: vi.fn()
      }
      return { ...render(<RequestUserInputFooter {...props} />), props, approvePermission }
-@@ -49,6 +55,50 @@
+@@ -49,6 +55,50 @@ function makeTool(input: unknown): ChatToolCall {
  }
  
  describe('RequestUserInputFooter', () => {
@@ -9409,9 +10268,10 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test
          const { approvePermission } = renderFooter()
          fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
 diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
+index b4b5d684e2c86063e059bac960b210fba898149d..f99be5889f7253b2f0990b51e458926bdce04aa2 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
-@@ -74,6 +74,7 @@
+@@ -74,6 +74,7 @@ export function RequestUserInputFooter(props: {
      tool: ChatToolCall
      disabled: boolean
      onDone: () => void
@@ -9419,7 +10279,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
  }) {
      const { t } = useTranslation()
      const { haptic } = usePlatform()
-@@ -84,36 +85,31 @@
+@@ -84,37 +85,32 @@ export function RequestUserInputFooter(props: {
      const [step, setStep] = useState(0)
      const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
  
@@ -9443,16 +10303,15 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
          }
          setStateByQuestion(initial)
 -        setLoading(false)
--        setError(null)
--    }, [props.tool.id])
 +        setSubmission('idle')
-+        setError(null)
+         setError(null)
+-    }, [props.tool.id])
 +        return () => { requestGeneration.current += 1 }
 +    }, [props.sessionId, props.tool.id, permission?.id])
  
      if (!permission || permission.status !== 'pending') return null
      if (!isRequestUserInputToolName(props.tool.name)) return null
--
+ 
 -    const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
 -        if (props.disabled) return
 -        setError(null)
@@ -9465,10 +10324,11 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
 -            setError(e instanceof Error ? e.message : t('dialog.error.default'))
 -        }
 -    }
- 
+-
      const total = Math.max(1, questions.length)
      const clampedStep = Math.min(Math.max(step, 0), total - 1)
-@@ -124,7 +120,7 @@
+     const currentQuestion = questions[clampedStep] as RequestUserInputQuestion | undefined
+@@ -124,7 +120,7 @@ export function RequestUserInputFooter(props: {
      }
  
      const submit = async () => {
@@ -9477,7 +10337,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
  
          // Validate all questions
          for (let i = 0; i < questions.length; i += 1) {
-@@ -151,9 +147,26 @@
+@@ -151,9 +147,26 @@ export function RequestUserInputFooter(props: {
              }
          }
  
@@ -9507,7 +10367,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
      }
  
      const next = () => {
-@@ -198,8 +211,8 @@
+@@ -198,8 +211,8 @@ export function RequestUserInputFooter(props: {
      const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
  
      return (
@@ -9518,7 +10378,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -213,13 +226,19 @@
+@@ -213,13 +226,19 @@ export function RequestUserInputFooter(props: {
              </div>
  
              {error ? (
@@ -9540,7 +10400,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                      {currentQuestion.question ? (
                          <div>
                              <MarkdownRenderer content={currentQuestion.question} />
-@@ -231,7 +250,7 @@
+@@ -231,7 +250,7 @@ export function RequestUserInputFooter(props: {
                          <textarea
                              value={currentState?.userNote ?? ''}
                              onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
@@ -9549,7 +10409,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                              placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
                              className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                          />
-@@ -245,7 +264,7 @@
+@@ -245,7 +264,7 @@ export function RequestUserInputFooter(props: {
                                          <OptionRow
                                              key={optIdx}
                                              checked={isSelected}
@@ -9558,7 +10418,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                                              title={opt.isOther ? t('tool.requestUserInput.otherLabel') : opt.label}
                                              description={opt.isOther ? t('tool.requestUserInput.otherDescription') : opt.description}
                                              onClick={() => selectOption(currentQuestion, opt)}
-@@ -264,7 +283,7 @@
+@@ -264,7 +283,7 @@ export function RequestUserInputFooter(props: {
                                      aria-label={t('tool.requestUserInput.noteLabel')}
                                      value={currentState?.userNote ?? ''}
                                      onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
@@ -9567,7 +10427,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                                      placeholder={t('tool.requestUserInput.notePlaceholder')}
                                      className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                                  />
-@@ -274,14 +293,14 @@
+@@ -274,14 +293,14 @@ export function RequestUserInputFooter(props: {
                  </div>
              ) : null}
  
@@ -9584,7 +10444,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                              onClick={prev}
                          >
                              {t('tool.prev')}
-@@ -295,7 +314,7 @@
+@@ -295,7 +314,7 @@ export function RequestUserInputFooter(props: {
                              type="button"
                              variant="default"
                              size="sm"
@@ -9593,7 +10453,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                              onClick={next}
                          >
                              {t('tool.next')}
-@@ -305,7 +324,7 @@
+@@ -305,7 +324,7 @@ export function RequestUserInputFooter(props: {
                              type="button"
                              variant="default"
                              size="sm"
@@ -9602,7 +10462,7 @@ diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx 
                              onClick={submit}
                              aria-busy={loading}
                              className="gap-2"
-@@ -316,7 +335,7 @@
+@@ -316,7 +335,7 @@ export function RequestUserInputFooter(props: {
                                      {t('tool.submitting')}
                                  </>
                              ) : (
@@ -10497,6 +11357,7 @@ index 1b5b5053027070062d181b61ee6bb7ddc22a4da4..6d635dcdd187ede4d33ae99e3c417a62
  
  /**
 diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/locales/en.ts
+index fb62fac69d752f75ee60e74ee52700faf5c20ae8..268e79cf35cca6bc4a88e5484f96163f20ee7537 100644
 --- a/vendor/hapi/web/src/lib/locales/en.ts
 +++ b/vendor/hapi/web/src/lib/locales/en.ts
 @@ -1,4 +1,13 @@
@@ -10513,7 +11374,7 @@ diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/loc
    // Loading states
    'loading': 'Loading…',
    'authorizing': 'Authorizing…',
-@@ -606,6 +615,8 @@
+@@ -606,6 +615,8 @@ export default {
    'tool.requestUserInput.otherLabel': 'None of the above',
    'tool.requestUserInput.otherDescription': 'Optionally, add details in notes.',
    'tool.requestUserInput.popupBlocked': 'Could not open the sign-in page. Allow popups and try again.',
@@ -10522,7 +11383,7 @@ diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/loc
    'toolGroup.title': 'Tool activity',
    'toolGroup.friendly.inspectTarget': 'Inspect {target}',
    'toolGroup.friendly.searchTarget': 'Search “{target}”',
-@@ -672,6 +683,7 @@
+@@ -672,6 +683,7 @@ export default {
    'queuedMessages.steer': 'Deliver into the running turn now',
    'queuedMessages.steerFailed': 'Steer failed — message stays queued',
    'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
@@ -10531,6 +11392,7 @@ diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/loc
    'queuedMessages.retryFailed': 'Retry failed',
    'queuedMessages.retryMissing': 'The message is no longer available',
 diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/locales/zh-CN.ts
+index 1633362861eb1462ddb545a325e7a57d1042772f..237c1c6f3243ae97dc974065a3df848bf0891f38 100644
 --- a/vendor/hapi/web/src/lib/locales/zh-CN.ts
 +++ b/vendor/hapi/web/src/lib/locales/zh-CN.ts
 @@ -1,4 +1,13 @@
@@ -10547,7 +11409,7 @@ diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/
    // Loading states
    'loading': '加载中…',
    'authorizing': '认证中…',
-@@ -604,6 +613,8 @@
+@@ -604,6 +613,8 @@ export default {
    'tool.requestUserInput.otherLabel': '以上都不是',
    'tool.requestUserInput.otherDescription': '可在备注中补充说明（可选）。',
    'tool.requestUserInput.popupBlocked': '无法打开登录页面。请允许弹出窗口后重试。',
@@ -10556,7 +11418,7 @@ diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/
    'toolGroup.title': '工具活动',
    'toolGroup.friendly.inspectTarget': '检查 {target}',
    'toolGroup.friendly.searchTarget': '搜索“{target}”',
-@@ -670,6 +681,7 @@
+@@ -670,6 +681,7 @@ export default {
    'queuedMessages.steer': '立即插入当前回合',
    'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
    'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',

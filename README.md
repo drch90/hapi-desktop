@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.16**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版记住新建会话的选择，并修复首屏自动补载导致切回后离开最新消息的问题；更新内容与打包记录见 [1.0.16 版本说明](docs/release-notes/v1.0.16.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.17**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版对齐 Antigravity 原生会话的 Auto／Plan 权限、运行中追加与流式回复；更新内容与打包记录见 [1.0.17 版本说明](docs/release-notes/v1.0.17.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -131,7 +131,7 @@ Codex 问答提交时显示“提交中…”。Hub 接收后，当前卡片显�
 
 ### 排队消息与暂存消息
 
-排队消息显示内容、时间、数量及附件名称，操作图标按 **优先插入 → 编辑 → 取消** 排列，并提供悬停提示和无障碍标签。定时消息和不支持插入的会话不显示插入按钮；投递结果不明时提供显式重试。插入能力遵循 Web：Claude、Codex、Cursor ACP、Pi、Hermes、OpenCode 需有可插入的活动轮且受远程控制。
+排队消息显示内容、时间、数量及附件名称，操作图标按 **优先插入 → 编辑 → 取消** 排列，并提供悬停提示和无障碍标签。空间不足时队列收缩并保留滚动，确保发送／中断按钮完整可见。定时消息和不支持插入的会话不显示插入按钮；投递结果不明时提供显式重试。插入能力遵循 Web：Antigravity、Claude、Codex、Cursor ACP、Pi、Hermes、OpenCode 需有可插入的活动轮且受远程控制。
 
 编辑排队消息时，先确认取消原消息，再恢复文字、真实附件和未来的发送时间到输入框，由用户修改后发送。已被 Agent 接收的消息不会再次回填。取消期间切换标签或修改草稿会保留待恢复内容；附件写入本地草稿后才结束恢复并允许发送，避免立即重载丢失附件。恢复失败可重试，也可取消恢复。
 
@@ -205,7 +205,7 @@ HAPI 的 `display_image`、`display_video`、`display_media` 消息可显示图�
 | Claude Code | Web 同源模型、effort、原生权限模式及活动轮优先插入（需远端配套补丁）    |
 | OpenCode    | 按机器和目录发现模型、模型变体及原生权限；活动轮优先插入需远端支持        |
 | Hermes      | 供应商分组模型目录、默认配置和创建时手动模型 ID；原生默认/允许编辑权限  |
-| Antigravity | 机器模型目录、模型支持的思考档位；请求确认/始终执行权限 |
+| Antigravity | 机器模型目录、模型支持的思考档位；请求确认/Auto/Plan/始终执行权限；原生审批及活动轮优先插入 |
 | Cursor      | 合并远端模型与变体目录，每个选项保留完整变体标识；原生权限模式 |
 | Grok Build  | 项目模型目录、动态思考档位及原生权限；按远端能力限制 Auto |
 | Copilot     | 项目模型目录、原生权限，以及交互/计划/自主执行模式 |
@@ -218,6 +218,10 @@ Pi 创建时使用供应商限定的模型 ID，运行时按供应商和模型�
 OpenCode 会话设置使用当前会话的模型目录；模型没有思考档位、档位查询尚未完成或暂不可用时，模型选择仍可使用。思考档位只在远端提供有效选项时显示，切换模型后重新读取；模型列表本身查询失败时可点击“刷新”重试。此项自 1.0.13 起提供。
 
 自 1.0.14 起支持 OpenCode 的运行中追加：远端使用支持该能力的 HAPI Hub/runner 与 OpenCode 2.x（至少 2.2.5），并报告当前轮已就绪后，输入框和排队消息显示“优先插入”。普通发送继续排队；追加确认只表示 OpenCode 已接收，当前工具可能执行完才使用补充内容。确认期间禁用重复操作，送达不明时保留原消息供显式重试或取消。升级桌面与远端后生效，1.0.13 及更早的桌面安装包不提供 OpenCode 追加入口。
+
+自 1.0.17 起对齐 Antigravity 原生会话，远端需更新到包含该适配的 HAPI Hub/runner，并安装 **agy 1.5.2 或更新版本**。新建与会话设置提供请求确认、Auto、Plan 和始终执行；默认仍为请求确认。Auto 受原生账户资格限制，Plan 用于研究、生成计划与请求审阅；模式切换失败时保留已确认值。新建成功后的选择按 Hub、账户、机器和 CLI 记忆。
+
+Antigravity 的工具审批可选“允许”“本会话允许”或“拒绝”；本会话允许只记住当前进程中的同一项操作。原生回复按同一流持续更新，思考与工具记录分别呈现；旧会话中的任务日志继续按原方式显示。运行中追加仅在远端报告就绪后出现，普通发送继续排队；追加使用当前轮设置，在原生工具边界生效，并可能等待正在执行的工具。未确认接收时保持等待，送达不明时保留原消息供显式重试或取消。原生终端斜杠命令及未支持的终端对话框需回到 agy 处理；本次桌面安装包不包含远端部署。
 
 Hermes 需要远端 Hub/runner 和 CLI 支持。创建时目录发现失败或为空仍可使用默认配置或手动模型 ID；运行时可刷新模型目录，当前轮结束后修改设置。支持原生命令、活动轮优先插入、中断、审批和同一会话 ID 的恢复，不提供 YOLO、计划模式、思考强度或快速模式。
 
@@ -278,7 +282,7 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-打包后的暂存路径为 `build/HAPI-Desktop-1.0.16-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.16/HAPI-Desktop-1.0.16-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+打包后的暂存路径为 `build/HAPI-Desktop-1.0.17-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.17/HAPI-Desktop-1.0.17-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 需要归档并验证安装包时，安装 7-Zip 并保证 `7z` 在 PATH 中；使用 [安装包校验脚本](scripts/verify-package.mjs) 按以下顺序执行。版本取自 `package.json`，记录摘要时若文件已存在会停止，避免覆盖旧证据。
 
@@ -296,7 +300,7 @@ node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify
 
 安装包只保存在被 Git 忽略的 `build/` 下。[清理脚本](scripts/cleanup-builds.mjs) 在安装包校验、归档成功后自动执行：保留本次与上一份已验证安装包，删除更早版本的安装包及对应 blockmap、已归档的暂存副本、与校验记录一致的历史 `verification/` 解包目录和本次 `win-unpacked/`。清理前重新核对保留安装包的 SHA-256；本次归档不完整或存在更新的已归档版本时停止清理。
 
-所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.16 安装包记录](docs/release-notes/v1.0.16.md#本机安装包)。
+所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.17 安装包记录](docs/release-notes/v1.0.17.md#本机安装包)。
 
 补做清理可以先预览，再执行：
 
@@ -311,7 +315,7 @@ bun run cleanup:build --apply
 
 [Desktop Build and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 仅在手动运行或推送 `v*` 标签时执行版本信息检查与 Windows x64 打包。普通分支推送和 PR 不触发 Actions；工作流已移除自动测试步骤，本地仍须按改动范围完成类型、单元和 Electron 验证。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前源码使用 1.0.16 版本号，支持新建选择记忆，首屏自动补载继续跟随最新消息；继续包含 OpenCode 运行中追加、草稿保存、模型选择、Codex 问答反馈及此前的桌面改进。本次本机安装包的位置、校验与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
+当前源码使用 1.0.17 版本号，包含 Antigravity 原生权限、运行中追加与流式回复适配，并保留新建选择记忆、首屏滚动跟随、草稿恢复及此前的桌面改进。本次本机安装包的位置、校验与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
 
 本地 Electron 界面测试失败时，`test-results/` 保留 Playwright trace 和失败页面上下文。旧自动测试工作流的失败原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
@@ -322,11 +326,11 @@ bun run cleanup:build --apply
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.16 -m "HAPI Desktop 1.0.16"
-git push origin v1.0.16
+git tag -a v1.0.17 -m "HAPI Desktop 1.0.17"
+git push origin v1.0.17
 ```
 
-推送 `v*` 标签会检查版本信息并构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.16-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会检查版本信息并构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.17-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明或打包失败时不会公开发布；测试需在发布前本地完成。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 

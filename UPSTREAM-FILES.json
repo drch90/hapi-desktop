@@ -17,11 +17,35 @@
   },
   "shared/fixtures/catalogs/modes.json": {
     "upstream": "0ec61163b4b839cbe4efb5cd8bf247aeca14dd7cf1ab2fdeb46c6d4cce2ae3cc",
-    "vendored": "aad5cdbdbd5019593712cb5b1c03006f96fc225c189f21b31e7cc8c2bd7637ea"
+    "vendored": "4f87ef8a69f0615166e959898f339857f4914449af8ddb39828a24e1c22557ed"
+  },
+  "shared/fixtures/chat/agy-acp-permission-approved.json": {
+    "upstream": null,
+    "vendored": "af3eb9215aba9e953e2f58aa6bb62c7750ee4feb955d387d53b75bad5066b27a"
+  },
+  "shared/fixtures/chat/agy-acp-permission-denied.json": {
+    "upstream": null,
+    "vendored": "701fed28585d8f5692d970cbe0fb10208bcf226655a6471baec30624c66cd0fe"
+  },
+  "shared/fixtures/chat/agy-acp-permission-pending.json": {
+    "upstream": null,
+    "vendored": "c11e72bf20153ebceb4618c21aaa0f4b0754c65ea6e44a0ac40bb4508cf7934b"
+  },
+  "shared/fixtures/chat/agy-acp-tools-and-prose.json": {
+    "upstream": null,
+    "vendored": "81db001b511bdb62bc72b1ff90ff1ecaf074ab91b5d8c653347b0bf4d7d13793"
   },
   "shared/fixtures/chat/agy-message.json": {
     "upstream": "ee125cb902b0b19eec30ad9375eb029fca2a2254649f43f070a914041030184d",
     "vendored": "ee125cb902b0b19eec30ad9375eb029fca2a2254649f43f070a914041030184d"
+  },
+  "shared/fixtures/chat/agy-native-permission-reply-id.json": {
+    "upstream": null,
+    "vendored": "0af7a31e12d328ede294ea78e1b8b8cbea9243b327f29dea9fd33159c14ff591"
+  },
+  "shared/fixtures/chat/agy-native-streamed-prose.json": {
+    "upstream": null,
+    "vendored": "2052b748dd427f96f143b901c817cd861ec537fad1313d7299014636364dd6c8"
   },
   "shared/fixtures/chat/agy-tool-action-run-command.json": {
     "upstream": "b923852f3a53089031b0dcc82eed157011cbeaf1a6acc8b44abd2f467e8583d3",
@@ -565,11 +589,11 @@
   },
   "shared/src/modes.test.ts": {
     "upstream": "e7fdaccc0a642140d6461d4d0a274ac9d7a94fb73398cc9034997dec97dcae76",
-    "vendored": "d95dfe87b1ffdfc0d548414ebac60f74c070b9d1fcd9ab8d8ff9c67716560182"
+    "vendored": "c5efa0ba26db2350e1f876649203e77ec1fbfe54d49a387871cc220cc408720a"
   },
   "shared/src/modes.ts": {
     "upstream": "4b80317fd0754aa52270b7d0f793f14278de34079a9a61fdd646531c9ae9c4c7",
-    "vendored": "efc5ac7dc82fcc8b7ab0ffd0895c841983eaa62a3c8850b8d36f51d481ff3d77"
+    "vendored": "5d8057e23c7b28a5f0ab90d3729786f6f9f3e0d473789c92fd60d2bded29f1c7"
   },
   "shared/src/piThinkingLevel.ts": {
     "upstream": "96651d0ede2c46e27835aadbbf4d014e22b629c6701e6ecf742f2b8a34b00d5c",
@@ -789,7 +813,7 @@
   },
   "web/scripts/fixtures/cases/agy.ts": {
     "upstream": "bdb6b5ebcf8d608c4ff059b9c7f4584ba5a48e291c58c58001c221785fef81a9",
-    "vendored": "bdb6b5ebcf8d608c4ff059b9c7f4584ba5a48e291c58c58001c221785fef81a9"
+    "vendored": "af9465776cb9bc0a7a3621fc4b673a0cdbb1fdddc4cab7f39b318bdc7ff7f47f"
   },
   "web/scripts/fixtures/cases/claudeOutput.ts": {
     "upstream": "6cb9c668d3f3924ea34f08685bf86361a0baa93e6036d97bca3e4cd87b9e229e",
@@ -977,7 +1001,7 @@
   },
   "web/src/chat/normalizeAgent.ts": {
     "upstream": "3d597beaa43677030be4b1cd70f137b8e1102b705acb69802530236fd4069707",
-    "vendored": "c939d0b5e67bc8ebfa7b891cccb50aa0df3ba781fd8a1c0115020ef8ef95d4e8"
+    "vendored": "ea1fdd9835b7b94faa375ebc430096164c000a05329c623ad41c31189763960e"
   },
   "web/src/chat/normalizeUser.ts": {
     "upstream": "62ab641f97e5721841823038b2c3bef1720fb0815f098fd9a71211853d0befff",
@@ -2147,13 +2171,13 @@
     "upstream": "c998ca50684cee0e187811abe4fbba2e7aa7c054313e10da1c00d5444422155a",
     "vendored": "c998ca50684cee0e187811abe4fbba2e7aa7c054313e10da1c00d5444422155a"
   },
-  "web/src/components/icons/CopilotIcon.tsx": {
-    "upstream": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a",
-    "vendored": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a"
-  },
   "web/src/components/icons.tsx": {
     "upstream": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614",
     "vendored": "f6ffdfa1ff3b90d4a49fbe0fb1581ef4b332acf4146dbd697043bf03ff0c8614"
+  },
+  "web/src/components/icons/CopilotIcon.tsx": {
+    "upstream": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a",
+    "vendored": "8f7af20e3dbab9cd897771715cca562eef82e4eaaf6fa158284b6d90727f7d0a"
   },
   "web/src/components/settings/CompanionPairing.tsx": {
     "upstream": "8c4530796b11a912fdcc869aa7587ba50c928c86bd015e3f1d57d4d7d439fdcb",

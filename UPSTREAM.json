@@ -32,7 +32,8 @@
     "Optional article presentation for tool groups with shared history loading and detail dialogs",
     "Align HAPI v0.33.5 protocol, chat pipeline, model catalogs, compaction receipts, command timing and provisional titles while retaining desktop adapters",
     "Keep request_user_input submissions locked after REST acceptance until native confirmation, with stale-request guards and localized waiting feedback",
-    "Enable OpenCode steering for a live remote runtime through the existing message delivery and receipt contracts"
+    "Enable OpenCode steering for a live remote runtime through the existing message delivery and receipt contracts",
+    "Align native Antigravity Auto/Plan permissions, runtime-gated steering and streamed prose while preserving native approval reply IDs and historical messages"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -238,6 +239,24 @@
       "files": {
         "shared/src/modes.test.ts": "d95dfe87b1ffdfc0d548414ebac60f74c070b9d1fcd9ab8d8ff9c67716560182",
         "shared/src/modes.ts": "48125bd405ec5435be6d3caebb924fb9d3309acb2aa2c759232db9d39382b4f6"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "8bc5b1d8dfe988e0cd35691da6a511b6b2460223",
+      "state": "Selected Antigravity native-terminal compatibility sources from an uncommitted local HAPI v0.34.0 working tree. File hashes identify the exact reviewed snapshot, including new chat fixtures. Desktop launch/settings controls and approval/queue transports are reused; the companion Hub and runner are deployed separately.",
+      "files": {
+        "shared/fixtures/catalogs/modes.json": "4f87ef8a69f0615166e959898f339857f4914449af8ddb39828a24e1c22557ed",
+        "shared/fixtures/chat/agy-acp-permission-approved.json": "af3eb9215aba9e953e2f58aa6bb62c7750ee4feb955d387d53b75bad5066b27a",
+        "shared/fixtures/chat/agy-acp-permission-denied.json": "701fed28585d8f5692d970cbe0fb10208bcf226655a6471baec30624c66cd0fe",
+        "shared/fixtures/chat/agy-acp-permission-pending.json": "c11e72bf20153ebceb4618c21aaa0f4b0754c65ea6e44a0ac40bb4508cf7934b",
+        "shared/fixtures/chat/agy-acp-tools-and-prose.json": "81db001b511bdb62bc72b1ff90ff1ecaf074ab91b5d8c653347b0bf4d7d13793",
+        "shared/fixtures/chat/agy-native-permission-reply-id.json": "0af7a31e12d328ede294ea78e1b8b8cbea9243b327f29dea9fd33159c14ff591",
+        "shared/fixtures/chat/agy-native-streamed-prose.json": "2052b748dd427f96f143b901c817cd861ec537fad1313d7299014636364dd6c8",
+        "shared/src/modes.test.ts": "c5efa0ba26db2350e1f876649203e77ec1fbfe54d49a387871cc220cc408720a",
+        "shared/src/modes.ts": "5d8057e23c7b28a5f0ab90d3729786f6f9f3e0d473789c92fd60d2bded29f1c7",
+        "web/scripts/fixtures/cases/agy.ts": "af9465776cb9bc0a7a3621fc4b673a0cdbb1fdddc4cab7f39b318bdc7ff7f47f",
+        "web/src/chat/normalizeAgent.ts": "ea1fdd9835b7b94faa375ebc430096164c000a05329c623ad41c31189763960e"
       }
     }
   ]

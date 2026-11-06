@@ -11,6 +11,7 @@ export function PermissionModeField(props: {
 }) {
   const { t } = useTranslation()
   const options = getPermissionModeOptionsForFlavor(props.agent)
+  const autoUnavailable = props.agent === 'grok' && props.autoSupported === false
   return (
     <div className="flex flex-col gap-1.5 px-3 py-3">
       <label className="text-xs font-medium text-[var(--app-hint)]">{t('Permission mode')}</label>
@@ -22,21 +23,20 @@ export function PermissionModeField(props: {
             className="py-2 pl-3 text-sm rounded-lg border border-[var(--app-divider)] bg-[var(--app-bg)]"
             onChange={(event) => {
               const option = options.find((option) => option.mode === event.target.value)
-              if (option && !(option.mode === 'auto' && props.autoSupported === false))
-                props.onChange(option.mode)
+              if (option && !(option.mode === 'auto' && autoUnavailable)) props.onChange(option.mode)
             }}
           >
             {options.map((option) => (
               <option
                 key={option.mode}
                 value={option.mode}
-                disabled={option.mode === 'auto' && props.autoSupported === false}
+                disabled={option.mode === 'auto' && autoUnavailable}
               >
                 {t(option.label)}
               </option>
             ))}
           </SelectControl>
-          {props.autoSupported === false && (
+          {autoUnavailable && (
             <p className="small muted">{t('This Grok CLI does not support Auto permission mode.')}</p>
           )}
         </>

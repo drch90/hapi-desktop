@@ -33,9 +33,9 @@ Hub → runner / CLI
 | 执行记录折叠与文章分组 | [article-transcript.ts](../src/renderer/lib/article-transcript.ts)、[Chat.tsx](../src/renderer/components/Chat.tsx) | `article-transcript.test.ts`、工具组 Electron 用例 |
 | 原文、Markdown、代码、长文 | [Markdown.tsx](../src/renderer/components/Markdown.tsx)、[remark-user-text.ts](../src/renderer/lib/remark-user-text.ts)、[LongMarkdown.tsx](../src/renderer/components/LongMarkdown.tsx)、[VirtualTextContent.tsx](../src/renderer/components/VirtualTextContent.tsx) | `markdown*.test.tsx`、`large-content.test.tsx`、相关 Electron 用例 |
 | CLI 安装检测、新建配置、会话设置 | [NewSessionDialog.tsx](../src/renderer/components/NewSessionDialog.tsx)、[新建选择记忆](../src/renderer/lib/newSessionPreferences.ts)、[agent-settings](../src/renderer/components/agent-settings/)、[SessionConfiguration.tsx](../src/renderer/components/SessionConfiguration.tsx)、[额外模型 API 适配](../src/renderer/lib/agentCatalogApi.ts) | `agent-settings.test.tsx`、`new-session-preferences.test.ts`、`new-session-preferences.e2e.ts`、`new-session-agents.e2e.ts`、原有新建/设置 Electron 用例 |
-| 模型共享规则、权限、问答与追加能力 | `vendor/hapi/shared/src/`、共享模型/问答组件、[边界白名单](../src/shared/policy.ts) | `state.test.ts`、`session-models.e2e.ts`、`question-submission.e2e.ts`、`opencode-steering.e2e.ts`、共享模型/权限测试 |
+| 模型共享规则、权限、问答与追加能力 | `vendor/hapi/shared/src/`、共享模型/问答组件、[边界白名单](../src/shared/policy.ts) | `state.test.ts`、`session-models.e2e.ts`、`question-submission.e2e.ts`、`native-steering.e2e.ts`、`antigravity.e2e.ts`、共享模型/权限测试 |
 | 文件、图片与导出 | [FilePreview.tsx](../src/renderer/components/FilePreview.tsx)、[SaveFileButton.tsx](../src/renderer/components/SaveFileButton.tsx)、[image-export.ts](../src/main/image-export.ts) | `file-preview.test.tsx`、`media.test.tsx`、`markdown-share.test.tsx` |
-| 上游升级、接口不兼容 | [vendor 规范](../vendor/AGENTS.md)、[对齐记录](upstream-alignment.md) | 来源重放、共享契约、受影响 Electron 用例 |
+| 上游升级、接口不兼容 | [vendor 规范](../vendor/AGENTS.md)、[对齐记录](upstream-alignment.md)、[补丁刷新](../scripts/refresh-upstream-patch.mjs) | 来源重放、共享契约、受影响 Electron 用例 |
 | 打包或 CI 失败 | [package.json](../package.json)、[package-win.mjs](../scripts/package-win.mjs)、[verify-package.mjs](../scripts/verify-package.mjs)、[CI 排查](ci-troubleshooting.md) | 构建、版本与包校验；系统行为另做 Windows 验证 |
 | 本机产物占用、版本交付后清理 | [cleanup-builds.mjs](../scripts/cleanup-builds.mjs)、[产物保留规则](../README.md#本地产物保留与清理) | `scripts/cleanup-builds.test.mjs`、`scripts/release.test.mjs`；保留安装包的摘要与清理记录 |
 
@@ -71,4 +71,4 @@ Hub → runner / CLI
 - 根文件保留共同约束，目录文件只记录该模块的特有规则，避免复制出互相矛盾的版本。
 - 调整目录、公共 API、构建或验证方式时，同一次交付同步维护文档；命令以受版本控制的配置为准。
 - 不同模型都按同样的模块边界、数据契约和验证要求执行。能力或环境不足时明确具体缺口，不能通过扩大改动范围或降低检查要求补偿。
-- 本仓库已有 [CI 验证流程](../.github/workflows/desktop.yml)，会检查类型、来源、本地化、单元/协议、构建和 Electron。`AGENTS.md` 是工作规范，不会自行开启分支保护或替代 CI、人工审阅与目标平台验证。
+- 本仓库的 [Actions 流程](../.github/workflows/desktop.yml) 仅由手动运行或版本标签触发版本检查、打包及发布；普通分支推送与 PR 不触发，也不再自动执行测试。本地仍按根规范检查类型、来源、受影响的单元/协议及 Electron 行为，`AGENTS.md` 不会自行开启分支保护或替代人工审阅与目标平台验证。

@@ -1900,10 +1900,11 @@ input[type='checkbox'] {
 .queue-area {
   width: 100%;
   min-width: 0;
+  min-height: 0;
   max-width: calc(var(--desk-chat-width) + 2 * var(--desk-chat-gutter));
   margin-inline: auto;
   max-height: min(230px, 30vh);
-  flex-shrink: 0;
+  flex-shrink: 1;
   overflow: auto;
   padding: 0 var(--desk-chat-gutter);
 }
