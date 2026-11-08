@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { AgentStateSchema, DecryptedMessageSchema, type DecryptedMessage } from '@hapi/protocol/schemas'
 import approvalFixture from '../vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json'
 import streamFixture from '../vendor/hapi/shared/fixtures/chat/agy-native-streamed-prose.json'
+import contextFixture from '../vendor/hapi/shared/fixtures/chat/agy-native-context-cleared.json'
 import { fixtureSession } from './fake-server'
 import { test, expect, type DesktopFixture } from './fixtures/desktop'
 
@@ -164,3 +165,113 @@ for (const decision of [
     expect(errors).toEqual([])
   })
 }
+
+test('Antigravity commands and aliases stay queued while native command discovery is unavailable', async ({
+  desktop,
+}) => {
+  const { page, server, electron, errors } = desktop
+  const discovery = Promise.withResolvers<void>()
+  server.slashCommandsGate = discovery.promise
+  server.slashCommands = []
+  server.holdMessages = true
+  try {
+    const { session, publish, chat } = await openAntigravity(desktop, [])
+    session.agentState = { controlledByUser: false, steeringActive: true }
+    publish()
+    await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+    await page.evaluate(() => window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'light' }))
+    const composer = chat.locator('.composer')
+    const input = composer.getByRole('textbox')
+    const menu = chat.getByRole('region', { name: '原生命令', exact: true })
+    const insert = composer.getByRole('button', { name: '优先插入', exact: true })
+    await input.fill('/')
+    await expect(menu.getByRole('button')).toHaveCount(12)
+    await expect(menu.getByRole('button', { name: /^\/doctor / })).toHaveCount(0)
+    await expect(menu.getByRole('button', { name: /^\/cost / })).toHaveCount(0)
+    const usage = menu.getByRole('button', { name: /^\/usage / })
+    await expect(usage).toBeInViewport({ ratio: 1 })
+    await mkdir('build/antigravity-commands', { recursive: true })
+    await page.screenshot({ path: 'build/antigravity-commands/menu-light.png', animations: 'disabled' })
+    await usage.click()
+    await expect(input).toHaveValue('/usage ')
+    await expect(input).toBeFocused()
+    await expect(insert).toHaveCount(0)
+    const sends = () =>
+      server.requests.filter(
+        (request) => request.method === 'POST' && request.path === '/api/sessions/agy/messages',
+      )
+    expect(sends()).toHaveLength(0)
+    discovery.resolve()
+    await expect(composer.getByRole('button', { name: '发送', exact: true })).toBeEnabled()
+    await input.press('Control+Enter')
+    await expect(input).toHaveValue('')
+    for (const command of ['/quota', '/new', '/permission auto', '/model default', '/effort high']) {
+      await input.fill(command)
+      await expect(insert).toHaveCount(0)
+      await composer.getByRole('button', { name: '发送', exact: true }).click()
+      await expect(input).toHaveValue('')
+    }
+    expect(sends().map((request) => request.body.text)).toEqual([
+      '/usage ',
+      '/quota',
+      '/new',
+      '/permission auto',
+      '/model default',
+      '/effort high',
+    ])
+    for (const send of sends()) expect(send.body.deliveryMode).toBe('queue')
+    const queue = chat.getByRole('region', { name: '排队消息', exact: true })
+    await expect(queue.locator('.queue-item')).toHaveCount(6)
+    await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(0)
+    expect(server.requests.filter((request) => request.path.endsWith('/clear'))).toHaveLength(0)
+    await input.fill('请先检查日志')
+    await expect(insert).toBeEnabled()
+    await composer.getByRole('button', { name: '发送', exact: true }).click()
+    await expect(queue.getByRole('button', { name: '优先插入', exact: true })).toHaveCount(1)
+    expect(errors).toEqual([])
+  } finally {
+    discovery.resolve()
+  }
+})
+
+test('Antigravity context snapshots decrease and clear without adding transcript rows or losing history', async ({
+  desktop,
+}) => {
+  const { page, server, electron, errors } = desktop
+  const messages = DecryptedMessageSchema.array().parse(contextFixture.input.messages)
+  const { session, chat } = await openAntigravity(desktop, messages.slice(0, 2))
+  const meter = chat.locator('.context-usage')
+  await expect(meter).toHaveText('上下文: 1% · 10k / 1.0M')
+  const reply = chat.locator('.transcript .agent-message')
+  await expect(reply).toHaveCount(1)
+  await expect(reply).toContainText('The answer is ready.')
+  for (const [index, message] of messages.slice(2).entries()) {
+    server.messages.get(session.id)?.push(message)
+    server.emit({ type: 'message-received', sessionId: session.id, message })
+    await expect(meter).toHaveText(index === 0 ? '上下文: 0% · 1k / 1.0M' : '上下文: 0% · 0 / 1.0M')
+    await expect(reply).toHaveCount(1)
+    await expect(chat.locator('.transcript .event-message')).toHaveCount(0)
+  }
+  await page.reload()
+  await expect(meter).toHaveText('上下文: 0% · 0 / 1.0M')
+  await expect(reply).toContainText('The answer is ready.')
+  await page.getByRole('button', { name: '双栏分屏', exact: true }).click()
+  await page.locator('.chat-pane').nth(1).click()
+  await page.getByTestId('session-review').click()
+  await electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(920, 640))
+  await page.evaluate(() =>
+    window.desktop.updateSettings({ fontSize: 'extra-large', theme: 'dark', locale: 'fr' }),
+  )
+  await expect(meter).toBeInViewport({ ratio: 1 })
+  await meter.click()
+  const detail = page.locator('.context-popover')
+  await expect(detail).toBeVisible()
+  await expect(detail).toContainText('0%')
+  await expect(detail).toBeInViewport({ ratio: 1 })
+  await mkdir('build/antigravity-commands', { recursive: true })
+  await page.screenshot({ path: 'build/antigravity-commands/context-dark.png', animations: 'disabled' })
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+  await expect(meter).toBeFocused()
+  expect(errors).toEqual([])
+})

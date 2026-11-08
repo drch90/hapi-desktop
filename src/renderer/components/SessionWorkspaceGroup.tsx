@@ -1,14 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Check, ChevronDown, Copy, Folder, Plus, Server } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useAnchoredMenu } from '@/hooks/useAnchoredMenu'
 import { basename } from '@/utils/path'
 
 export function SessionWorkspaceGroup(props: {
-  machine: string
   path: string
   count: number
   collapsed: boolean
@@ -47,26 +46,19 @@ export function SessionWorkspaceGroup(props: {
     align: 'start',
   })
   const openMenu = (point: { x: number; y: number }) => {
-    if (!props.collapsible) return
+    if (!props.collapsible && !props.hasDirectory) return
     if (document.activeElement instanceof HTMLElement) previousFocus.current = document.activeElement
     setMenu(point)
   }
   useEffect(() => {
-    if (!menu || !props.filtering) return
+    if (!menu || !props.filtering || props.hasDirectory) return
     const frame = requestAnimationFrame(() => menuRef.current?.focus())
     return () => cancelAnimationFrame(frame)
-  }, [Boolean(menu), props.filtering])
+  }, [Boolean(menu), props.filtering, props.hasDirectory])
   const heading = (
     <span className="workspace-group-label">
-      <span className="workspace-group-title">
-        <span className="group-name" title={props.path}>
-          <Folder size={13} />
-          <span>{basename(props.path)}</span>
-        </span>
-        <span className="group-machine" title={props.machine}>
-          <Server size={12} />
-          <span>{props.machine}</span>
-        </span>
+      <span className="group-name" title={props.path}>
+        {basename(props.path)}
       </span>
       <span className="group-path" title={props.path}>
         {props.path}
@@ -79,6 +71,10 @@ export function SessionWorkspaceGroup(props: {
         <div
           className="workspace-group-heading"
           ref={headingRef}
+          role="group"
+          tabIndex={props.filtering || !props.collapsible ? 0 : undefined}
+          aria-label={`${t('Workspace groups')}: ${props.path}`}
+          aria-haspopup="menu"
           onPointerDown={(event) => {
             if (event.button !== 0) event.preventDefault()
           }}
@@ -99,7 +95,7 @@ export function SessionWorkspaceGroup(props: {
             <Button
               variant="secondary"
               className="workspace-group-toggle"
-              aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.machine} ${props.path}`}
+              aria-label={`${t(props.collapsed ? 'Expand workspace' : 'Collapse workspace')}: ${props.path}`}
               aria-expanded={!props.collapsed}
               aria-controls={id}
               disabled={props.filtering}
@@ -113,16 +109,6 @@ export function SessionWorkspaceGroup(props: {
           )}
           {props.hasDirectory && (
             <div className="workspace-group-actions">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                aria-label={`${t(copied && !copyFailed ? 'Copied' : 'Copy path')}: ${props.path}`}
-                title={`${t(copyFailed ? 'Copy failed' : copied ? 'Copied' : 'Copy path')}: ${props.path}`}
-                onClick={async () => setCopyFailed(!(await copy(props.path)))}
-              >
-                {copied && !copyFailed ? <Check size={13} /> : <Copy size={13} />}
-              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -142,11 +128,6 @@ export function SessionWorkspaceGroup(props: {
           )}
           <span className="workspace-group-count">{props.count}</span>
         </div>
-      )}
-      {copyFailed && (
-        <p role="alert" className="error small">
-          {t('Copy failed')}
-        </p>
       )}
       <div id={id} hidden={props.collapsed}>
         {props.children}
@@ -181,6 +162,20 @@ export function SessionWorkspaceGroup(props: {
               buttons[next]?.focus()
             }}
           >
+            {props.hasDirectory && (
+              <button
+                role="menuitem"
+                title={props.path}
+                onClick={async () => setCopyFailed(!(await copy(props.path)))}
+              >
+                {t(copied && !copyFailed ? 'Copied' : 'Copy path')}
+              </button>
+            )}
+            {copyFailed && (
+              <p role="alert" className="error workspace-group-menu-error">
+                {t('Copy failed')}
+              </p>
+            )}
             {[
               { label: 'Expand all groups', collapsed: false },
               { label: 'Collapse all groups', collapsed: true },

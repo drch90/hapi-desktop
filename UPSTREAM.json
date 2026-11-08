@@ -33,7 +33,8 @@
     "Align HAPI v0.33.5 protocol, chat pipeline, model catalogs, compaction receipts, command timing and provisional titles while retaining desktop adapters",
     "Keep request_user_input submissions locked after REST acceptance until native confirmation, with stale-request guards and localized waiting feedback",
     "Enable OpenCode steering for a live remote runtime through the existing message delivery and receipt contracts",
-    "Align native Antigravity Auto/Plan permissions, runtime-gated steering and streamed prose while preserving native approval reply IDs and historical messages"
+    "Align native Antigravity Auto/Plan permissions, runtime-gated steering and streamed prose while preserving native approval reply IDs and historical messages",
+    "Align Antigravity builtin commands and native context fixtures; keep recognized commands and native aliases queued in desktop composer and queue controls"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -257,6 +258,18 @@
         "shared/src/modes.ts": "5d8057e23c7b28a5f0ab90d3729786f6f9f3e0d473789c92fd60d2bded29f1c7",
         "web/scripts/fixtures/cases/agy.ts": "af9465776cb9bc0a7a3621fc4b673a0cdbb1fdddc4cab7f39b318bdc7ff7f47f",
         "web/src/chat/normalizeAgent.ts": "ea1fdd9835b7b94faa375ebc430096164c000a05329c623ad41c31189763960e"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "136c815cdfc32893edd17ebce2f01f7bd138da2a",
+      "state": "Selected committed Antigravity builtin command catalog and native context fixtures from local HAPI v0.34.0. Desktop reuses the shared context pipeline and adds command delivery guards; native command execution and receipt normalization remain in the separately deployed Hub/runner.",
+      "files": {
+        "shared/fixtures/chat/agy-native-context-cleared.json": "3e5bcfcd0b2ac60233d23d78f4a622ed1f3218d526135668eca2fd0852b83499",
+        "shared/fixtures/chat/agy-native-context-compacted.json": "1742899bcde897b353ac2d71fa3db0a6ab8af5841e7bc4ac3f82b124c4d7c199",
+        "shared/fixtures/chat/agy-native-context-positive.json": "a56528ccff0b19306d35d748e66d2725e8259d84bcf7f4deff030f2a40618c64",
+        "shared/src/slashCommands.ts": "7c755041929477f39d329e4365a289f2dc9ccafdc344131bc671f005c1eef88b",
+        "web/scripts/fixtures/cases/agy.ts": "3c41b1178c9c3bc2a27213ef16a659e71b4afe6a5df176cb572db3ab1adf3b7c"
       }
     }
   ]

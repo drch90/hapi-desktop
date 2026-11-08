@@ -1,8 +1,34 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.17，Antigravity 原生会话适配的功能及打包记录见 [1.0.17 版本说明](v1.0.17.md)。此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.19，左侧会话列表精简的功能及打包记录见 [1.0.19 版本说明](v1.0.19.md)。Antigravity 命令与上下文适配见 [1.0.18 版本说明](v1.0.18.md)，此前版本的功能与验证记录另行标注。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 左侧会话列表精简（1.0.19）
+
+- 按确认后的预览收紧顶部品牌与版本区域；会话状态行复用 Web 的 CLI 小图标，保留悬停名称和辅助技术可读名称。
+- 历史工作区移除项目、机器装饰图标和机器名，保留目录名、完整路径、数量和新建加号；机器仍由顶部筛选框选择。
+- 将复制路径移入工作区右键菜单，支持 Shift+F10、方向键、Enter 和 Escape；成功显示“已复制”，失败在菜单内提示并保留重试入口。搜索期间和机器离线时仍可复制，缺少路径时隐藏复制入口。
+
+操作说明见 [会话工作台](../../README.md#会话工作台)。本次按打包请求纳入 1.0.19；新包验证及校验记录见 [版本说明](v1.0.19.md#本机安装包)，1.0.18 安装包保留原有内容。
+
+验证：`bun run typecheck`、`bun run build` 和本次 TS/TSX/CSS 文件的 Prettier 检查通过；以下定向检查分别通过 38 项单元／组件测试和 10 项 Electron 回归：
+
+```sh
+bun run test --project desktop tests/navigation.test.ts tests/session-search.test.tsx
+xvfb-run -a bun run test:e2e tests/sidebar.e2e.ts tests/desktop.e2e.ts --grep 'compact sidebar|workspace copy stays|workspace menus copy|workspace actions handle|workspace group menus|status sections separate|workspace group ordering|live sessions move individually|tab context operations|session search supports'
+```
+
+检查覆盖完整路径复制、失败重试、搜索／离线／缺少路径时的菜单、键盘焦点恢复、工作区创建与折叠、机器筛选及状态分区。实际界面检查覆盖 920×640、单栏／双栏、220px 侧栏、最大字号、深浅主题与法语长文案。构建及测试串行执行，进程树最多使用 2 个逻辑 CPU；Electron 使用 Linux / Xvfb 与模拟 Hub，未进行 Windows 实机验证。首轮测试被沙箱禁止监听本地端口，调整测试执行权限后 10 项均通过；日志及界面截图位于本机 `build/sidebar-preview/`。
+
+## Antigravity 聊天命令与上下文（1.0.18）
+
+- 同步本地 HAPI `136c815c` 的 Antigravity 专用命令目录，修复命令发现不可用时回退成 Claude、缺少 `/usage` 等命令的问题。
+- 命令与 `/quota`、`/new`、`/permission` 别名按普通通道发送；输入框与排队区共用判断，隐藏不适用的“优先插入”。补全选择仅修改输入，成功提交前保留原草稿。
+- 导入三份原生上下文回归样例，验证用量从正值下降与归零，SSE 更新和重载保留聊天历史；沿用共享计算和现有上下文指示器。
+- 远端原生命令执行与回执空白兼容修复需配套 HAPI Hub/runner，桌面包不包含远端部署。来源与范围见[对齐记录](../upstream-alignment.md#antigravity-聊天命令与上下文1018)。
+
+验证与安装包记录见 [1.0.18 版本说明](v1.0.18.md)。
 
 ## Antigravity 原生会话适配（1.0.17）
 

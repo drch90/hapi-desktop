@@ -63,3 +63,48 @@ describe('native conversation reset', () => {
     expect(isNativeClearCommand(text)).toBe(false)
   })
 })
+
+describe('Antigravity command delivery', () => {
+  const agy = { agent: 'agy', commands: getBuiltinSlashCommands('agy'), supportsNativeClear: false }
+
+  it('offers native commands without inheriting Claude diagnostics', () => {
+    const names = agy.commands.map((command) => command.name)
+    expect(names).toEqual([
+      'help',
+      'usage',
+      'context',
+      'compact',
+      'clear',
+      'status',
+      'model',
+      'effort',
+      'plan',
+      'auto',
+      'default',
+      'permissions',
+    ])
+    expect(names).not.toContain('doctor')
+    expect(names).not.toContain('cost')
+  })
+
+  it.each([
+    '/usage',
+    '/model default',
+    '/effort high',
+    '/auto',
+    '/permissions plan',
+    '/quota',
+    '/new',
+    '/PERMISSION auto',
+  ])('keeps %s out of priority insertion', (text) => {
+    expect(isComposerCommand(text, agy)).toBe(true)
+  })
+
+  it('keeps aliases scoped to Antigravity and preserves literal paths', () => {
+    expect(isComposerCommand('/quota', context)).toBe(false)
+    expect(isComposerCommand('/new', context)).toBe(false)
+    for (const text of ['/usage/report.txt', '/new/task', '/quota.json', 'please run /usage']) {
+      expect(isComposerCommand(text, agy)).toBe(false)
+    }
+  })
+})

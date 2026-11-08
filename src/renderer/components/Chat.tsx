@@ -193,6 +193,7 @@ export function Chat({
   const mentionQuery = mention && mentionKey !== dismissedMention ? mention.activeWord : null
   const slashCommands = useSlashCommands(api, id, session?.metadata?.flavor ?? 'codex')
   const commandContext = {
+    agent: session?.metadata?.flavor,
     commands: slashCommands.commands,
     supportsNativeClear: session?.metadata?.capabilities?.concurrentClients === true,
   }
@@ -1249,6 +1250,7 @@ export function Chat({
           sessionId={id}
           messages={messages.messages}
           canSteer={canSteer}
+          commandContext={commandContext}
           compactionPendingMessageIds={session?.agentState?.codexCompactionPendingMessageIds ?? undefined}
           disabled={!connected || busy || editWorking || Boolean(attempt)}
         />

@@ -16,6 +16,7 @@ import { isQueuedForInvocation } from '@/lib/messages'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
 import { createApi, errorKey } from '../lib/api'
 import { beginQueueEdit, saveQueueEdit, queueEditEpoch } from '../lib/queueEdit'
+import { isComposerCommand, type CommandContext } from '../lib/composerCommands'
 
 // Reuse HAPI's previews, ordering and mutation contracts without binding the
 // desktop composer to assistant-ui's draft/schedule runtime.
@@ -23,6 +24,7 @@ export function QueuedMessages({
   sessionId,
   messages,
   canSteer,
+  commandContext,
   compactionPendingMessageIds,
   disabled,
   scope,
@@ -33,6 +35,7 @@ export function QueuedMessages({
   sessionId: string
   messages: DecryptedMessage[]
   canSteer: boolean
+  commandContext: CommandContext
   compactionPendingMessageIds?: readonly string[]
   disabled: boolean
   scope: string
@@ -96,6 +99,7 @@ export function QueuedMessages({
               const waitingForCompaction =
                 uncertain && compactionPendingMessageIds?.includes(message.localId ?? message.id) === true
               const dispatching = message.deliveryState === 'dispatching'
+              const canInsert = canSteer && !isComposerCommand(preview.text, commandContext)
               return (
                 <li className="queue-item" key={message.localId ?? message.id}>
                   <div className="queue-preview">
@@ -134,7 +138,7 @@ export function QueuedMessages({
                     )}
                   </div>
                   <div className="queue-actions">
-                    {(canSteer || dispatching) && !uncertain && message.scheduledAt == null && (
+                    {(canInsert || dispatching) && !uncertain && message.scheduledAt == null && (
                       <Button
                         type="button"
                         size="sm"

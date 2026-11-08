@@ -27,7 +27,8 @@ import {
   Radio,
   CheckCircle2,
 } from 'lucide-react'
-import type { SessionSummary } from '@hapi/protocol'
+import { getFlavorLabel, type SessionSummary } from '@hapi/protocol'
+import { AgentFlavorIcon } from '@/components/AgentFlavorIcon'
 import { I18nContext } from '@/lib/i18n-context'
 import { en, zhCN } from '@/lib/locales'
 import { Button } from '@/components/ui/button'
@@ -826,9 +827,9 @@ function Workbench({
         </div>
         <div className="brand">
           <div className="brand-mark small-mark">
-            <Radio size={20} />
+            <Radio size={16} />
           </div>
-          <b>
+          <b title="HAPI Desktop">
             HAPI <span>Desktop</span>
           </b>
           <span className="version">{bootstrap.version}</span>
@@ -918,7 +919,6 @@ function Workbench({
                 return (
                   <SessionWorkspaceGroup
                     key={key}
-                    machine={group.machine}
                     path={group.path}
                     hasDirectory={group.hasDirectory}
                     canCreate={
@@ -968,14 +968,7 @@ function Workbench({
                           data-testid={`session-${row.id}`}
                           data-session-id={row.id}
                           data-status={status}
-                          title={[
-                            row.metadata?.machineId
-                              ? machineNames.get(row.metadata.machineId) || row.metadata.machineId
-                              : undefined,
-                            row.metadata?.path,
-                          ]
-                            .filter(Boolean)
-                            .join('\n')}
+                          title={row.metadata?.path}
                           className={`session-row ${activeId === row.id ? 'selected' : ''} ${unread ? 'unread' : ''}`}
                           onClick={() => openListedSession(row.id)}
                           onDoubleClick={() => dispatch({ type: 'open', id: row.id, preview: false })}
@@ -1016,8 +1009,18 @@ function Workbench({
                               />
                               {row.active && <SessionActivityTime updatedAt={row.updatedAt} />}
                             </span>
-                            <small>
-                              {row.metadata?.flavor || 'Agent'} <span>·</span>{' '}
+                            <small className="session-summary">
+                              <span
+                                className="session-agent"
+                                role="img"
+                                aria-label={getFlavorLabel(row.metadata?.flavor)}
+                                title={getFlavorLabel(row.metadata?.flavor)}
+                              >
+                                <AgentFlavorIcon
+                                  flavor={row.metadata?.flavor}
+                                  className="session-agent-icon"
+                                />
+                              </span>
                               <strong className="session-status">
                                 {t(
                                   status === 'pending'

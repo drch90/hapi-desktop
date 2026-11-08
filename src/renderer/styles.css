@@ -186,9 +186,10 @@ select {
   color: var(--desk-accent);
 }
 .small-mark {
-  width: 33px;
-  height: 33px;
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
 }
 .form-stack {
   display: flex;
@@ -279,13 +280,18 @@ input[type='checkbox'] {
   flex-direction: column;
 }
 .brand {
-  padding: 22px 20px 23px;
+  padding: 10px 44px 10px 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .brand b {
-  font-size: calc(16px * var(--desk-font-scale));
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(13px * var(--desk-font-scale));
   letter-spacing: -0.03em;
 }
 .brand b span {
@@ -293,6 +299,7 @@ input[type='checkbox'] {
   color: var(--desk-muted);
 }
 .version {
+  flex-shrink: 0;
   margin-left: auto;
   font-size: calc(10px * var(--desk-font-scale));
   border: 1px solid var(--desk-border);
@@ -436,31 +443,21 @@ input[type='checkbox'] {
   padding-top: 12px;
 }
 .group-name,
-.group-machine,
 .group-path {
-  display: flex;
-  gap: 4px;
+  display: block;
   min-width: 0;
   font-size: calc(10px * var(--desk-font-scale));
-  align-items: center;
   color: var(--desk-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .group-name {
-  flex: 0 1 auto;
   font-size: calc(12px * var(--desk-font-scale));
   font-weight: 600;
   color: var(--app-fg);
 }
-.group-machine {
-  flex: 1;
-  min-width: 16px;
-  max-width: 40%;
-}
 .group-path {
-  display: block;
   font-family: 'Cascadia Code', Consolas, monospace;
 }
 .session-row {
@@ -529,8 +526,19 @@ input[type='checkbox'] {
   font-size: calc(10px * var(--desk-font-scale));
   color: var(--desk-muted);
 }
-.session-copy small span {
-  margin: 0 4px;
+.session-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.session-agent {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--app-fg);
+}
+.session-agent-icon {
+  width: calc(14px * var(--desk-font-scale));
+  height: calc(14px * var(--desk-font-scale));
 }
 .session-row {
   --session-status-color: var(--desk-status-history);
@@ -1049,21 +1057,6 @@ input[type='checkbox'] {
   line-height: 1.4;
   min-width: 0;
   flex: 1;
-}
-.workspace-group-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.workspace-group-title svg {
-  flex-shrink: 0;
-}
-.workspace-group-title span > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .workspace-group-toggle > svg {
   flex-shrink: 0;
@@ -2928,11 +2921,8 @@ input[type='checkbox'] {
 .sidebar-rail {
   position: absolute;
   right: 7px;
-  top: 4px;
+  top: 7px;
   z-index: 2;
-}
-.sidebar .brand {
-  padding-top: 32px;
 }
 .sidebar.collapsed > :not(.sidebar-rail) {
   display: none;
@@ -3182,10 +3172,13 @@ input[type='checkbox'] {
 [aria-checked='true'] > .tab-switcher-check {
   visibility: visible;
 }
-.workspace-group-menu-hint {
+.workspace-group-menu-hint,
+.workspace-group-menu-error {
   max-width: 240px;
   margin: 5px 12px;
   font-size: calc(11px * var(--desk-font-scale));
+}
+.workspace-group-menu-hint {
   color: var(--desk-muted);
 }
 .tab.drop-before:after {

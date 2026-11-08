@@ -520,6 +520,354 @@ index 0000000000000000000000000000000000000000..13595c817c48288c521afc70a8fffd78
 +    },
 +    "name": "agy-acp-tools-and-prose"
 +}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-context-cleared.json b/vendor/hapi/shared/fixtures/chat/agy-native-context-cleared.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d451e34f857560ba2b6a8183d192118c7e07db9
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-native-context-cleared.json
+@@ -0,0 +1,136 @@
++{
++    "description": "Native Antigravity explicitly reports an empty context; zero clears the previous occupancy while preserving the native window.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": {
++            "contextSize": 0,
++            "contextWindow": 1048576,
++            "inputTokens": 0,
++            "outputTokens": 0
++        },
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": null,
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "The answer is ready.",
++                            "id": "agy-context-answer",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-context-prose",
++                "localId": null,
++                "seq": 1
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 10034,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000001,
++                "id": "agy-context-0",
++                "localId": null,
++                "seq": 2
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 1000,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000002,
++                "id": "agy-context-1",
++                "localId": null,
++                "seq": 3
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 0,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000003,
++                "id": "agy-context-2",
++                "localId": null,
++                "seq": 4
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-native-context-cleared"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-context-compacted.json b/vendor/hapi/shared/fixtures/chat/agy-native-context-compacted.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..0872c3584d2909284646b9d3de5c43ed4ca244d2
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-native-context-compacted.json
+@@ -0,0 +1,110 @@
++{
++    "description": "Native Antigravity context occupancy decreases after compaction; the latest snapshot replaces the previous size.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": {
++            "contextSize": 1000,
++            "contextWindow": 1048576,
++            "inputTokens": 0,
++            "outputTokens": 0
++        },
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": null,
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "The answer is ready.",
++                            "id": "agy-context-answer",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-context-prose",
++                "localId": null,
++                "seq": 1
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 10034,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000001,
++                "id": "agy-context-0",
++                "localId": null,
++                "seq": 2
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 1000,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000002,
++                "id": "agy-context-1",
++                "localId": null,
++                "seq": 3
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-native-context-compacted"
++}
+diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-context-positive.json b/vendor/hapi/shared/fixtures/chat/agy-native-context-positive.json
+new file mode 100644
+index 0000000000000000000000000000000000000000..a444c3f99159f2afd47dd2128a0f2f592ef1e9e4
+--- /dev/null
++++ b/vendor/hapi/shared/fixtures/chat/agy-native-context-positive.json
+@@ -0,0 +1,84 @@
++{
++    "description": "Native Antigravity context snapshots carry positive occupancy and the native window with zero billable tokens, without adding chat rows.",
++    "expected": {
++        "blocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ],
++        "hasReadyEvent": false,
++        "latestUsage": {
++            "contextSize": 10034,
++            "contextWindow": 1048576,
++            "inputTokens": 0,
++            "outputTokens": 0
++        },
++        "visibleBlocks": [
++            {
++                "createdAt": 1755000000000,
++                "id": "agy-context-answer",
++                "kind": "agent-text",
++                "localId": null,
++                "text": "The answer is ready."
++            }
++        ]
++    },
++    "fixtureVersion": 1,
++    "input": {
++        "agentState": null,
++        "messages": [
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "content": "The answer is ready.",
++                            "id": "agy-context-answer",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "agy_message"
++                        },
++                        "type": "output"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000000,
++                "id": "agy-context-prose",
++                "localId": null,
++                "seq": 1
++            },
++            {
++                "content": {
++                    "content": {
++                        "data": {
++                            "info": {
++                                "contextTokens": 10034,
++                                "modelContextWindow": 1048576,
++                                "total": {
++                                    "inputTokens": 0,
++                                    "outputTokens": 0
++                                }
++                            },
++                            "inputTokenSemantics": "includes-cache",
++                            "model": "Gemini 3.8 Flash (High)",
++                            "type": "token_count",
++                            "usageSchema": "hapi.usage.v1"
++                        },
++                        "type": "codex"
++                    },
++                    "role": "agent"
++                },
++                "createdAt": 1755000000001,
++                "id": "agy-context-0",
++                "localId": null,
++                "seq": 2
++            }
++        ],
++        "options": {
++            "hasMoreMessages": false
++        }
++    },
++    "name": "agy-native-context-positive"
++}
 diff --git a/vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json b/vendor/hapi/shared/fixtures/chat/agy-native-permission-reply-id.json
 new file mode 100644
 index 0000000000000000000000000000000000000000..91d09bc6d3b4596afcd1f184e204b8e3cb9ee6f4
@@ -5525,13 +5873,27 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..e932d7d8265ad69dc77226433effe7af
          globalPinned: session.globalPinned ?? false,
          metadata: toSessionSummaryMetadata(session.metadata),
 diff --git a/vendor/hapi/shared/src/slashCommands.ts b/vendor/hapi/shared/src/slashCommands.ts
-index 79fc46b5db35769e500d59c2dc49e119bcd88313..6dbec184d86c728dc771b3aa7a967c4ff3e4ec79 100644
+index 79fc46b5db35769e500d59c2dc49e119bcd88313..56a1d0a77335078cd569423ba33433ec3c2b5f58 100644
 --- a/vendor/hapi/shared/src/slashCommands.ts
 +++ b/vendor/hapi/shared/src/slashCommands.ts
-@@ -1,6 +1,16 @@
+@@ -1,6 +1,30 @@
  import type { SlashCommand } from './apiTypes'
  
  export const BUILTIN_SLASH_COMMANDS = {
++    agy: [
++        { name: 'help', description: 'Show supported Antigravity commands', source: 'builtin' },
++        { name: 'usage', description: 'Show model quota and reset times', source: 'builtin' },
++        { name: 'context', description: 'Show current context usage and window size', source: 'builtin' },
++        { name: 'compact', description: 'Summarize the native conversation to compact context', source: 'builtin' },
++        { name: 'clear', description: 'Start fresh Antigravity context; keep HAPI chat history', source: 'builtin' },
++        { name: 'status', description: 'Show Antigravity session, model, and permission settings', source: 'builtin' },
++        { name: 'model', description: 'List or change models: /model <model ID|default>', source: 'builtin' },
++        { name: 'effort', description: 'Show or change reasoning effort: /effort <level|default>', source: 'builtin' },
++        { name: 'plan', description: 'Enable Plan: /plan [task]; /plan off to return to review mode', source: 'builtin' },
++        { name: 'auto', description: 'Enable native intelligent Auto mode', source: 'builtin' },
++        { name: 'default', description: 'Return to request-review mode', source: 'builtin' },
++        { name: 'permissions', description: 'Show or change permission mode for this session', source: 'builtin' },
++    ],
 +    hermes: [
 +        { name: 'help', description: 'Show supported Hermes commands', source: 'builtin' },
 +        { name: 'model', description: 'Show or change model and provider: /model <model ID>', source: 'builtin' },
@@ -5673,10 +6035,10 @@ index 9a81d0bb498bbb390c3654586995859ff9fc70d3..2509eb738021b654d51fc4c520fce400
                  voice_id: 'cgSgspJ2msm6clMCkdW9', // Jessica
                  model_id: 'eleven_flash_v2',
 diff --git a/vendor/hapi/web/scripts/fixtures/cases/agy.ts b/vendor/hapi/web/scripts/fixtures/cases/agy.ts
-index 317cb2bdf54912af45e9047808b1d4dfbe8677ea..823efa94cf16d1e43424eee0ee83f3eae1b6022f 100644
+index 317cb2bdf54912af45e9047808b1d4dfbe8677ea..d85d34b66340b9688b59e0c9d98f2eaea3435d5f 100644
 --- a/vendor/hapi/web/scripts/fixtures/cases/agy.ts
 +++ b/vendor/hapi/web/scripts/fixtures/cases/agy.ts
-@@ -2,13 +2,77 @@ import type { FixtureCase } from '../fixtureTypes'
+@@ -2,13 +2,95 @@ import type { FixtureCase } from '../fixtureTypes'
  import { T0, wireMessage } from './support'
  
  /**
@@ -5690,6 +6052,24 @@ index 317cb2bdf54912af45e9047808b1d4dfbe8677ea..823efa94cf16d1e43424eee0ee83f3ea
 + * sessions combine that prose with common codex-family tool lifecycle records.
   */
  export const agyCases: FixtureCase[] = [
++    ...([
++        { name: 'positive', contexts: [10_034], description: 'Native Antigravity context snapshots carry positive occupancy and the native window with zero billable tokens, without adding chat rows.' },
++        { name: 'compacted', contexts: [10_034, 1_000], description: 'Native Antigravity context occupancy decreases after compaction; the latest snapshot replaces the previous size.' },
++        { name: 'cleared', contexts: [10_034, 1_000, 0], description: 'Native Antigravity explicitly reports an empty context; zero clears the previous occupancy while preserving the native window.' },
++    ] as const).map(({ name, contexts, description }): FixtureCase => ({
++        name: `agy-native-context-${name}`,
++        description,
++        messages: [
++            wireMessage({ id: 'agy-context-prose', seq: 1, createdAt: T0, content: { role: 'agent',
++                content: { type: 'output', data: { type: 'agy_message', id: 'agy-context-answer', content: 'The answer is ready.', model: 'Gemini 3.8 Flash (High)' } } } }),
++            ...contexts.map((contextTokens, index) => wireMessage({ id: `agy-context-${index}`, seq: index + 2, createdAt: T0 + index + 1,
++                content: { role: 'agent', content: { type: 'codex', data: {
++                    type: 'token_count', model: 'Gemini 3.8 Flash (High)',
++                    usageSchema: 'hapi.usage.v1', inputTokenSemantics: 'includes-cache',
++                    info: { total: { inputTokens: 0, outputTokens: 0 }, contextTokens, modelContextWindow: 1_048_576 },
++                } } } })),
++        ],
++    })),
 +    {
 +        name: 'agy-native-permission-reply-id',
 +        description: 'Native Antigravity uses a one-time approval reply ID linked to the real tool call, including after a previous reply was canceled.',

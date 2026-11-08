@@ -39,6 +39,18 @@
     "upstream": "ee125cb902b0b19eec30ad9375eb029fca2a2254649f43f070a914041030184d",
     "vendored": "ee125cb902b0b19eec30ad9375eb029fca2a2254649f43f070a914041030184d"
   },
+  "shared/fixtures/chat/agy-native-context-cleared.json": {
+    "upstream": null,
+    "vendored": "3e5bcfcd0b2ac60233d23d78f4a622ed1f3218d526135668eca2fd0852b83499"
+  },
+  "shared/fixtures/chat/agy-native-context-compacted.json": {
+    "upstream": null,
+    "vendored": "1742899bcde897b353ac2d71fa3db0a6ab8af5841e7bc4ac3f82b124c4d7c199"
+  },
+  "shared/fixtures/chat/agy-native-context-positive.json": {
+    "upstream": null,
+    "vendored": "a56528ccff0b19306d35d748e66d2725e8259d84bcf7f4deff030f2a40618c64"
+  },
   "shared/fixtures/chat/agy-native-permission-reply-id.json": {
     "upstream": null,
     "vendored": "0af7a31e12d328ede294ea78e1b8b8cbea9243b327f29dea9fd33159c14ff591"
@@ -705,7 +717,7 @@
   },
   "shared/src/slashCommands.ts": {
     "upstream": "09de9754c2873fa0a30d3ea235dcdcc96da324e58c0ba9d3f4490972290cffd3",
-    "vendored": "57c56e5a96928b83a4c1f79a3c5a7bb309333ca14619a8091c5835f7bf6a6432"
+    "vendored": "7c755041929477f39d329e4365a289f2dc9ccafdc344131bc671f005c1eef88b"
   },
   "shared/src/socket.ts": {
     "upstream": "1e759b93711f5f9a493054602abdb621b6fb9af5abd5e8a11c7ddef3812d330b",
@@ -813,7 +825,7 @@
   },
   "web/scripts/fixtures/cases/agy.ts": {
     "upstream": "bdb6b5ebcf8d608c4ff059b9c7f4584ba5a48e291c58c58001c221785fef81a9",
-    "vendored": "af9465776cb9bc0a7a3621fc4b673a0cdbb1fdddc4cab7f39b318bdc7ff7f47f"
+    "vendored": "3c41b1178c9c3bc2a27213ef16a659e71b4afe6a5df176cb572db3ab1adf3b7c"
   },
   "web/scripts/fixtures/cases/claudeOutput.ts": {
     "upstream": "6cb9c668d3f3924ea34f08685bf86361a0baa93e6036d97bca3e4cd87b9e229e",

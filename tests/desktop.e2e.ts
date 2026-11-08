@@ -5478,7 +5478,7 @@ test('live sessions move individually while historical workspace groups keep the
   expect(errors).toEqual([])
 })
 
-test('workspace headers copy full paths and create on the matching machine without toggling the group', async () => {
+test('workspace menus copy full paths and create on the matching machine without toggling the group', async () => {
   const path = '/home/dev/项目 A/目录[测试]/a-very-long-workspace-name/desktop'
   server.machines.push({
     ...server.machines[0],
@@ -5499,13 +5499,16 @@ test('workspace headers copy full paths and create on the matching machine witho
   await page.reload()
   const group = page.locator('.session-group').filter({ has: page.getByTestId('session-workspace-two') })
   await expect(group.locator('.group-name')).toHaveText('desktop')
-  await expect(group.locator('.group-machine')).toHaveText('linux-dev-02')
+  await expect(group.locator('.group-machine')).toHaveCount(0)
   const toggle = group.getByRole('button', { name: /^展开工作区/ })
   const plus = group.getByRole('button', { name: `在此目录新建会话: ${path}`, exact: true })
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await group.getByRole('button', { name: `复制路径: ${path}`, exact: true }).click()
+  await group.locator('.workspace-group-heading').click({ button: 'right' })
+  const menu = page.getByRole('menu', { name: '工作区分组', exact: true })
+  await menu.getByRole('menuitem', { name: '复制路径', exact: true }).click()
   await expect.poll(() => electron.evaluate(({ clipboard }) => clipboard.readText())).toBe(path)
-  await expect(group.getByRole('button', { name: `已复制: ${path}`, exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '已复制', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await plus.focus()
   await page.keyboard.press('Enter')
@@ -5557,8 +5560,10 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
   await page.reload()
   const group = page.locator('.session-group').filter({ has: page.getByTestId('session-offline-workspace') })
   const plus = group.getByRole('button', { name: /在此目录新建会话/ })
-  const copy = group.getByRole('button', { name: /复制路径/ })
+  const menu = page.getByRole('menu', { name: '工作区分组', exact: true })
+  const copy = menu.getByRole('menuitem', { name: '复制路径', exact: true })
   await expect(plus).toBeDisabled()
+  await group.locator('.workspace-group-heading').click({ button: 'right' })
   await expect(copy).toBeEnabled()
   await expect(
     page
@@ -5585,14 +5590,16 @@ test('workspace actions handle copy failures, missing metadata and a runner goin
     document.execCommand = () => false
   })
   await copy.click()
-  await expect(group.getByRole('alert')).toHaveText('复制失败')
-  await expect(group.getByRole('button', { name: /已复制/ })).toHaveCount(0)
+  await expect(menu.getByRole('alert')).toHaveText('复制失败')
+  await expect(menu.getByRole('alert')).toBeInViewport({ ratio: 1 })
+  await expect(menu.getByRole('menuitem', { name: '已复制', exact: true })).toHaveCount(0)
   await page.evaluate(() => (window as unknown as { restoreClipboard: () => void }).restoreClipboard())
   await copy.click()
   await expect
     .poll(() => electron.evaluate(({ clipboard }) => clipboard.readText()))
     .toBe('/home/dev/offline')
-  await expect(group.getByRole('alert')).toHaveCount(0)
+  await expect(menu.getByRole('alert')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   offline.active = true
   server.emit({ type: 'machine-updated', machineId: offline.id, data: offline })
   await expect(plus).toBeEnabled()
@@ -5654,6 +5661,8 @@ test('workspace group menus expand and collapse historical directories without h
   await expect(otherGroup.locator('.workspace-group-toggle')).toHaveAttribute('aria-expanded', 'false')
   await toggle.focus()
   await page.keyboard.press('Shift+F10')
+  await expect(menu.getByRole('menuitem', { name: '复制路径', exact: true })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem', { name: '全部展开', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(toggle).toBeFocused()
