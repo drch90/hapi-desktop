@@ -1017,22 +1017,23 @@ input[type='checkbox'] {
   font-size: calc(12px * var(--desk-font-scale));
 }
 .workspace-group-heading {
-  display: flex;
-  align-items: center;
+  --workspace-title-height: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--workspace-title-height);
+  align-items: start;
   gap: 4px;
   min-width: 0;
+  padding-block: 2px;
 }
 .workspace-group-actions {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
-  gap: 1px;
 }
 .workspace-group-actions button {
   background: transparent;
   border: 0;
-  width: 24px;
-  height: 24px;
+  width: var(--workspace-title-height);
+  height: var(--workspace-title-height);
   padding: 3px;
   color: var(--desk-muted);
 }
@@ -1040,36 +1041,54 @@ input[type='checkbox'] {
   color: var(--app-fg);
 }
 .workspace-group-toggle {
-  flex: 1;
   min-width: 0;
   height: auto;
   justify-content: flex-start;
-  padding: 5px 4px;
-  gap: 5px;
+  padding: 0 4px;
   white-space: normal;
   text-align: left;
   background: transparent;
 }
 .workspace-group-label {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  grid-template-rows: var(--workspace-title-height) auto;
+  align-items: center;
+  gap: 3px 5px;
   line-height: 1.4;
   min-width: 0;
   flex: 1;
 }
-.workspace-group-toggle > svg {
-  flex-shrink: 0;
+.workspace-group-heading > .workspace-group-label {
+  grid-template-columns: minmax(0, 1fr);
+  padding-inline: 4px;
+}
+.workspace-group-label > .group-name,
+.workspace-group-label > .group-path {
+  grid-column: -2 / -1;
+}
+.workspace-group-label > .group-name {
+  grid-row: 1;
+}
+.workspace-group-label > .group-path {
+  grid-row: 2;
+}
+.workspace-group-label > svg {
+  grid-area: 1 / 1;
   color: var(--desk-muted);
   transition: transform 0.15s;
 }
-.workspace-group-toggle > svg.collapsed {
+.workspace-group-label > svg.collapsed {
   transform: rotate(-90deg);
 }
 .workspace-group-count {
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: var(--workspace-title-height);
+  white-space: nowrap;
   color: var(--desk-muted);
   font-size: calc(10px * var(--desk-font-scale));
+  font-variant-numeric: tabular-nums;
 }
 .transcript {
   flex: 1;

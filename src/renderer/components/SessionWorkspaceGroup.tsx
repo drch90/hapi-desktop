@@ -57,6 +57,7 @@ export function SessionWorkspaceGroup(props: {
   }, [Boolean(menu), props.filtering, props.hasDirectory])
   const heading = (
     <span className="workspace-group-label">
+      {props.collapsible && <ChevronDown size={13} className={props.collapsed ? 'collapsed' : ''} />}
       <span className="group-name" title={props.path}>
         {basename(props.path)}
       </span>
@@ -101,12 +102,12 @@ export function SessionWorkspaceGroup(props: {
               disabled={props.filtering}
               onClick={props.onToggle}
             >
-              <ChevronDown size={13} className={props.collapsed ? 'collapsed' : ''} />
               {heading}
             </Button>
           ) : (
             heading
           )}
+          <span className="workspace-group-count">{props.count}</span>
           {props.hasDirectory && (
             <div className="workspace-group-actions">
               <Button
@@ -126,7 +127,6 @@ export function SessionWorkspaceGroup(props: {
               </Button>
             </div>
           )}
-          <span className="workspace-group-count">{props.count}</span>
         </div>
       )}
       <div id={id} hidden={props.collapsed}>
