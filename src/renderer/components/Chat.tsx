@@ -92,7 +92,7 @@ import { ContextUsage } from './Usage'
 import { ComposerStatus } from './ComposerStatus'
 import { QueuedMessages } from './QueuedMessages'
 import { SendRecoveryNotice } from './SendRecoveryNotice'
-import { formatTokenDelta } from '@/components/AssistantChat/messages/SystemMessage'
+import { CompactSummary } from './CompactSummary'
 import { SessionConfiguration } from './SessionConfiguration'
 import { GeneratedMediaCard } from './GeneratedMediaCard'
 import { ConversationOutlinePanel } from '@/components/AssistantChat/HappyThread'
@@ -1891,10 +1891,10 @@ const MessageBlock = memo(function MessageBlock({
     )
   if (block.kind === 'agent-event') {
     const event = block.event
+    if (event.type === 'compact-summary') return <CompactSummary event={event} />
     const commandFeedback = [
       'compact',
       'microcompact',
-      'compact-summary',
       'thread-goal-updated',
       'thread-goal-cleared',
       'permission-mode-changed',
@@ -1909,10 +1909,6 @@ const MessageBlock = memo(function MessageBlock({
     return (
       <div className={`event-message ${block.event.type === 'error' ? 'error' : ''}`}>
         <MarkdownRenderer content={text} />
-        {formatTokenDelta(event) && <p className="small muted">{formatTokenDelta(event)}</p>}
-        {event.type === 'compact-summary' && typeof event.summary === 'string' && (
-          <MarkdownRenderer content={event.summary} />
-        )}
       </div>
     )
   }

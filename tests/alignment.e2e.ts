@@ -191,6 +191,8 @@ test('compaction receipts wait without retry and compaction facts merge without 
   await expect(queue.getByRole('button', { name: '重试发送', exact: true })).toHaveCount(0)
   await expect(chat.locator('.event-message')).toHaveCount(1)
   await expect(chat.locator('.event-message')).toContainText('8,000 → 1,200 tokens')
+  await expect(chat.getByText('保留原来的任务要求', { exact: true })).toHaveCount(0)
+  await chat.getByRole('button', { name: 'Context compacted', expanded: false }).click()
   await expect(chat.locator('.event-message')).toContainText('保留原来的任务要求')
   session.agentState!.codexCompactionPendingMessageIds = []
   session.agentStateVersion++

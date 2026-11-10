@@ -1,8 +1,28 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.20，工作区新建加号对齐修复与打包记录见 [1.0.20 版本说明](v1.0.20.md)。此前侧栏精简见 [1.0.19](v1.0.19.md)，Antigravity 命令与上下文适配见 [1.0.18](v1.0.18.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.21，压缩报告默认折叠与打包记录见 [1.0.21 版本说明](v1.0.21.md)。此前工作区新建加号对齐见 [1.0.20](v1.0.20.md)，侧栏精简见 [1.0.19](v1.0.19.md)，Antigravity 命令与上下文适配见 [1.0.18](v1.0.18.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 压缩报告默认折叠（1.0.21）
+
+- Codex 等会话的上下文压缩报告对齐 Web：摘要默认折叠，标题与可用的 token 数始终显示；点击标题或使用键盘可展开完整 Markdown，再次进入会话或重载后恢复折叠。
+- 空摘要不显示展开按钮；晚到的摘要默认折叠，后续 token 信息更新保留当前展开选择。沿用既有压缩记录合并与排队消息确认规则。
+
+操作说明见 [README：上下文与会话设置](../../README.md#通知上下文与会话设置)。本次按打包请求纳入 1.0.21，安装包校验与交付记录见 [版本说明](v1.0.21.md#本机安装包)。
+
+核对来源为同级 HAPI `136c815c` 的 `CompactSummaryCard`，桌面入口为 [CompactSummary.tsx](../../src/renderer/components/CompactSummary.tsx)。`bun run typecheck`、`bun run build`、本次 TS/TSX 的 Prettier 检查及 `bun run test --project desktop tests/compact-summary.test.tsx` 的 5 项组件回归通过；另复用本轮已通过的 5 项文章分组测试结果。
+
+Electron 共通过 3 项回归，覆盖压缩记录合并与排队确认、实时摘要与 token 更新、切回及重载、历史补载、回到最新消息、鼠标与键盘操作，以及 920×640、最大字号、单栏／双栏、深浅主题下的展开和滚动阅读。实际执行命令：
+
+```sh
+xvfb-run -a bun run test:e2e tests/compaction-summary.e2e.ts tests/alignment.e2e.ts --grep 'compaction' --max-failures=1
+xvfb-run -a bun run test:e2e tests/compaction-summary.e2e.ts --grep 'historical compaction' --max-failures=1
+```
+
+首次启动受沙箱本地端口限制，调整测试执行权限后完成验证。历史用例补齐模拟分页配置，并补查窄栏滚动到报告末尾后定向复验通过，其余 2 项复用已通过结果。所有构建与测试均限制为 2 个逻辑 CPU、按组串行执行；Electron 使用 Linux / Xvfb 和模拟 Hub，未进行 Windows 实机验证。界面截图位于本机 `build/compaction-summary/`，展开截图使用 920×960 展示完整报告。
+
+1.0.21 安装包已完成解包校验及归档，并在同一构建上通过 4 项 Electron 回归，包含压缩交互与界面版本号；大小、SHA-256、输入／输出比对及清理记录见 [1.0.21 版本说明](v1.0.21.md#本机安装包)。
 
 ## 工作区新建加号对齐（1.0.20）
 
