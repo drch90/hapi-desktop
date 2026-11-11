@@ -28,11 +28,12 @@ const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ la
 function renderFooter(input: unknown = { questions: [choice] }) {
     const api = new ApiClient('fixture-token')
     const approvePermission = vi.spyOn(api, 'approvePermission').mockResolvedValue(undefined)
+    const denyPermission = vi.spyOn(api, 'denyPermission').mockResolvedValue(undefined)
     const props = {
         api,
         sessionId: 'session-1', tool: makeTool(input), disabled: false, onDone: vi.fn()
     }
-    return { ...render(<RequestUserInputFooter {...props} />), props, approvePermission }
+    return { ...render(<RequestUserInputFooter {...props} />), props, approvePermission, denyPermission }
 }
 
 function makeTool(input: unknown): ChatToolCall {
@@ -55,6 +56,50 @@ function makeTool(input: unknown): ChatToolCall {
 }
 
 describe('RequestUserInputFooter', () => {
+    it('only offers dismissal for a nonblocking question', () => {
+        const { props, rerender } = renderFooter()
+        expect(screen.queryByRole('button', { name: 'button.dismiss' })).toBeNull()
+        rerender(<RequestUserInputFooter {...props} tool={makeTool({ isBlocking: false, questions: [choice] })} />)
+        expect(screen.getByRole('button', { name: 'button.dismiss' })).toBeEnabled()
+    })
+
+    it('keeps a dismissed question locked until native cancellation arrives', async () => {
+        const { props, denyPermission, approvePermission, rerender } = renderFooter({ isBlocking: false, questions: [choice] })
+        const response = Promise.withResolvers<void>()
+        denyPermission.mockReturnValueOnce(response.promise)
+        fireEvent.click(screen.getByRole('button', { name: 'button.dismiss' }))
+        fireEvent.click(screen.getByRole('button', { name: 'button.dismiss' }))
+        expect(denyPermission).toHaveBeenCalledTimes(1)
+        await act(async () => response.resolve())
+        expect(screen.getByRole('status')).toHaveTextContent('tool.requestUserInput.waitingForCancellation')
+        expect(screen.getByRole('button', { name: 'tool.requestUserInput.cancellationRequested' })).toBeDisabled()
+        expect(screen.getByRole('button', { name: 'tool.submit' })).toBeDisabled()
+        expect(approvePermission).not.toHaveBeenCalled()
+        rerender(<RequestUserInputFooter {...props} tool={{ ...props.tool, permission: { id: 'permission-1', status: 'canceled' } }} />)
+        expect(screen.queryByRole('button')).toBeNull()
+    })
+
+    it('preserves notes on dismissal failure and ignores a late receipt for an old question', async () => {
+        const { props, denyPermission, rerender } = renderFooter({ isBlocking: false, questions: [choice] })
+        denyPermission.mockRejectedValueOnce(new Error('Retry dismissal'))
+        fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Keep my answer' } })
+        fireEvent.click(screen.getByRole('button', { name: 'button.dismiss' }))
+        await screen.findByText('Retry dismissal')
+        expect(screen.getByRole('textbox')).toHaveValue('Keep my answer')
+        expect(screen.getByRole('button', { name: /Alpha/ })).toHaveAttribute('aria-pressed', 'true')
+        const response = Promise.withResolvers<void>()
+        denyPermission.mockReturnValueOnce(response.promise)
+        fireEvent.click(screen.getByRole('button', { name: 'button.dismiss' }))
+        rerender(<RequestUserInputFooter {...props} sessionId="session-2" tool={{ ...props.tool, id: 'request-2', permission: { id: 'permission-2', status: 'pending' } }} />)
+        fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
+        await act(async () => response.resolve())
+        expect(props.onDone).not.toHaveBeenCalled()
+        expect(screen.queryByRole('status')).toBeNull()
+        expect(screen.getByRole('button', { name: 'tool.submit' })).toBeEnabled()
+        expect(screen.getByRole('button', { name: /Beta/ })).toHaveAttribute('aria-pressed', 'true')
+    })
+
     it('keeps a submitted answer locked while native confirmation is delayed', async () => {
         const response = Promise.withResolvers<void>()
         const { props, approvePermission, rerender } = renderFooter()

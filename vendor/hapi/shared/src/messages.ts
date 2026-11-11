@@ -405,3 +405,11 @@ export function stripNotifySummaryFooter(text: string): string {
 }
 
 export type { RoleWrappedRecord }
+
+export function stripAgyEchoedTaskResult(text: string): string {
+    return text.replace(/\n*\[Message\]\s+timestamp=[\s\S]*$/, '').trim()
+}
+
+export function getAgyTaskLogId(text: string): string | null {
+    return text.match(/^Inside the task-(\d+) log\b/)?.[1] ?? null
+}

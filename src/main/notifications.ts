@@ -1,9 +1,6 @@
 import { SessionSchema, SessionPatchSchema, type SyncEvent } from '@hapi/protocol/schemas'
 import { z } from 'zod'
-import {
-  extractMessageEventType,
-  extractTaskNotification,
-} from '../../vendor/hapi/hub/src/notifications/eventParsing'
+import { extractMessageEventType } from '../../vendor/hapi/hub/src/notifications/eventParsing'
 
 export type Notice = {
   sessionId: string
@@ -202,13 +199,6 @@ export class NotificationTracker {
       if (!this.seen.has(key) && !replay) {
         if (extractMessageEventType(event) === 'ready')
           notices.push({ sessionId, title: session.title, kind: 'Agent ready' })
-        const task = extractTaskNotification(event)
-        if (task?.status === 'failed' || task?.status === 'completed')
-          notices.push({
-            sessionId,
-            title: session.title,
-            kind: task.status === 'failed' ? 'Task failed' : 'Task completed',
-          })
       }
       this.seen.add(key)
     }

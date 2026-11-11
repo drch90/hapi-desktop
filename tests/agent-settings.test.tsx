@@ -57,6 +57,9 @@ describe('CLI settings contracts', () => {
         (agent) => `/api/sessions/session/${agent}-models`,
       ),
       '/api/sessions/session/grok-reasoning-effort-options',
+      '/api/sessions/session/copilot-reasoning-effort-options',
+      '/api/sessions/session/kimi-reasoning-effort-options',
+      '/api/sessions/session/messages/message-1/context',
     ]
     for (const path of readPaths) {
       expect(hubRequestSchema.safeParse({ method: 'GET', path }).success, path).toBe(true)
@@ -74,6 +77,8 @@ describe('CLI settings contracts', () => {
       '/api/machines/a/execute',
       '/api/sessions/a/pi-execute',
       '/api/machines/a/unknown-models',
+      '/api/sessions/a/messages/b/context/execute',
+      '/api/sessions/a/messages/b/unknown',
     ]) {
       expect(hubRequestSchema.safeParse({ method: 'GET', path }).success).toBe(false)
     }
@@ -330,6 +335,72 @@ describe('launch configuration changes', () => {
     rerender({ ...args, pathExists: false })
     expect(result.current.pending).toBe(false)
     expect(result.current.parameters).toMatchObject({ model: undefined, modelReasoningEffort: undefined })
+  })
+})
+
+describe.each(['copilot', 'kimi'] as const)('%s discovered session effort', (flavor) => {
+  it('hides stale levels during a model change and only sends a discovered effort', async () => {
+    const { api, request, responses, wrapper } = harness()
+    const session = { ...fixtureSession('session', flavor, flavor), model: 'first' }
+    const endpoint = `/api/sessions/session/${flavor}-reasoning-effort-options`
+    responses.set(`/api/sessions/session/${flavor}-models`, {
+      success: true,
+      availableModels: [{ modelId: 'first' }, { modelId: 'second' }],
+    })
+    responses.set(endpoint, { success: true, options: [{ value: 'high', name: 'High' }] })
+    const { result, rerender } = renderHook((current) => useSessionSettings(api, current, true), {
+      initialProps: session,
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.effortDisabled).toBe(false))
+    await act(async () => expect(await result.current.apply('effort', 'high')).toBe(true))
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/sessions/session/effort',
+      method: 'POST',
+      scope,
+      body: { effort: 'high' },
+    })
+    const gate = Promise.withResolvers<unknown>()
+    responses.set(endpoint, gate.promise)
+    rerender({ ...session, model: 'second' })
+    try {
+      expect(result.current.effortOptions).toEqual([])
+      expect(result.current.effortDisabled).toBe(true)
+      expect(result.current.modelsDisabled).toBe(false)
+      await act(async () => expect(await result.current.apply('effort', 'high')).toBe(false))
+      await act(async () => gate.resolve({ success: true, options: [{ value: 'low', name: 'Low' }] }))
+      await waitFor(() => expect(result.current.effortOptions).toEqual([{ value: 'low', label: 'Low' }]))
+      await act(async () => expect(await result.current.apply('effort', 'high')).toBe(false))
+      await act(async () => expect(await result.current.apply('effort', 'low')).toBe(true))
+      expect(request).toHaveBeenLastCalledWith({
+        path: '/api/sessions/session/effort',
+        method: 'POST',
+        scope,
+        body: { effort: 'low' },
+      })
+    } finally {
+      gate.resolve({ success: false })
+    }
+    expect(
+      launchParameters(flavor, { ...defaultLaunchSettings(flavor), effort: 'high' }, false).effort,
+    ).toBeUndefined()
+  })
+
+  it('keeps model selection available when the runner cannot discover effort levels', async () => {
+    const { api, responses, wrapper } = harness()
+    const session = { ...fixtureSession('session', flavor, flavor), model: 'first' }
+    responses.set(`/api/sessions/session/${flavor}-models`, {
+      success: true,
+      availableModels: [{ modelId: 'first' }, { modelId: 'second' }],
+    })
+    responses.set(`/api/sessions/session/${flavor}-reasoning-effort-options`, {
+      success: false,
+      error: 'Unsupported by this runner',
+    })
+    const { result } = renderHook(() => useSessionSettings(api, session, true), { wrapper })
+    await waitFor(() => expect(result.current.modelsDisabled).toBe(false))
+    expect(result.current.effortDisabled).toBe(true)
+    await act(async () => expect(await result.current.apply('model', 'second')).toBe(true))
   })
 })
 

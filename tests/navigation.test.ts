@@ -122,7 +122,7 @@ describe('historical tab previews', () => {
   it('applies a confirmed archive before a delayed list response can reopen it as active', async () => {
     const session = fixtureSession('archiving', 'Archive now', 'codex')
     const other = fixtureSession('other', 'Keep open', 'claude')
-    const rows = [session, other].map(toSessionSummary)
+    const rows = [session, other].map((session) => toSessionSummary(session))
     queries.setQueryData(sessionsKey, rows)
     queries.setQueryData(sessionKey(session.id), session)
     saveDraft('alice', session.id, { text: 'keep this draft', scrollTop: 10, expanded: [] })

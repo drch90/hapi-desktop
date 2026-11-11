@@ -153,6 +153,12 @@ export function useSessionSettings(api: DesktopApi, session: Session, connected:
         })),
       ]
       break
+    case 'copilot':
+    case 'kimi': {
+      const options = flavor === 'copilot' ? catalogs.copilotEffort : catalogs.kimiEffort
+      effortOptions = options.map((option) => ({ value: option.value, label: option.name ?? option.value }))
+      break
+    }
     case 'agy': {
       const options = agyEffortOptions(catalogs.agy.availableModels, modelValue)
       if (options.length) effortOptions = [{ value: null, label: 'Default' }, ...options]

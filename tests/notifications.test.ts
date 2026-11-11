@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NotificationTracker } from '../src/main/notifications'
 import type { SyncEvent } from '@hapi/protocol/schemas'
+import { fixtureMessage } from './fake-server'
 
 const summary = (id: string, count = 1) => ({
   id,
@@ -13,6 +14,36 @@ const summary = (id: string, count = 1) => ({
 })
 
 describe('notification state', () => {
+  it('silences internal task notifications while preserving real ready and session-ended notices', () => {
+    const tracker = new NotificationTracker()
+    tracker.prime({ sessions: [summary('s', 0)] })
+    for (const status of ['completed', 'failed']) {
+      const text = `<task-notification><task-id>internal-task</task-id><status>${status}</status><summary>Internal work</summary></task-notification>`
+      for (const data of [
+        { type: 'user', message: { content: text } },
+        { type: 'system', subtype: 'task_notification', status, summary: 'Internal work' },
+      ]) {
+        const message = {
+          ...fixtureMessage(`internal-${data.type}-${status}`, 1, ''),
+          content: { role: 'agent', content: { type: 'output', data } },
+        }
+        expect(tracker.handle({ type: 'message-received', sessionId: 's', message }, false)).toEqual([])
+      }
+    }
+    const ready: SyncEvent = {
+      type: 'message-received',
+      sessionId: 's',
+      message: {
+        ...fixtureMessage('ready', 2, ''),
+        content: { role: 'agent', content: { type: 'event', data: { type: 'ready' } } },
+      },
+    }
+    expect(tracker.handle(ready, false)).toEqual([{ sessionId: 's', title: 's', kind: 'Agent ready' }])
+    expect(tracker.handle(ready, false)).toEqual([])
+    expect(tracker.handle({ type: 'session-ended', sessionId: 's', reason: 'completed' }, false)).toEqual([
+      { sessionId: 's', title: 's', kind: 'Task completed' },
+    ])
+  })
   it('removes sessions missing from a complete resync snapshot without notifying', () => {
     const tracker = new NotificationTracker()
     tracker.prime({ sessions: [summary('removed'), summary('kept', 2)] })

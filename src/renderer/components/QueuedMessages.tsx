@@ -91,14 +91,14 @@ export function QueuedMessages({
           <ul className="queue-list">
             {queued.map((message) => {
               const preview = getQueuedMessagePreview(message)
+              const dispatching = message.deliveryState === 'dispatching' || message.deliveryPending === true
               const canOperate =
                 !disabled &&
-                message.deliveryState !== 'dispatching' &&
+                !dispatching &&
                 computeCanCancel({ id: message.id, localId: message.localId, isPending: working })
-              const uncertain = message.deliveryState === 'indeterminate'
+              const uncertain = message.deliveryState === 'indeterminate' && !dispatching
               const waitingForCompaction =
                 uncertain && compactionPendingMessageIds?.includes(message.localId ?? message.id) === true
-              const dispatching = message.deliveryState === 'dispatching'
               const canInsert = canSteer && !isComposerCommand(preview.text, commandContext)
               return (
                 <li className="queue-item" key={message.localId ?? message.id}>

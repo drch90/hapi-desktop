@@ -44,7 +44,10 @@ import type {
     GitCommandResponse,
     GrokModelsResponse,
     CopilotModelsResponse,
+    CopilotReasoningEffortResponse,
+    KimiReasoningEffortResponse,
     GrokReasoningEffortResponse,
+    MessageContextResponse,
     ListDirectoryResponse,
     MachineListDirectoryResponse,
     MachinePathsExistsResponse,
@@ -413,6 +416,12 @@ export class ApiClient {
         const qs = params.toString()
         const url = `/api/sessions/${encodeURIComponent(sessionId)}/messages${qs ? `?${qs}` : ''}`
         return await this.request<MessagesResponse>(url)
+    }
+
+    async getMessageContext(sessionId: string, messageId: string): Promise<MessageContextResponse | null> {
+        return await this.request<MessageContextResponse | null>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}/context`
+        )
     }
 
     async getGitStatus(sessionId: string): Promise<GitCommandResponse> {
@@ -994,6 +1003,18 @@ export class ApiClient {
             method: 'POST',
             body: JSON.stringify({ mode })
         })
+    }
+
+    async getSessionCopilotReasoningEffortOptions(sessionId: string): Promise<CopilotReasoningEffortResponse> {
+        return await this.request<CopilotReasoningEffortResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/copilot-reasoning-effort-options`
+        )
+    }
+
+    async getSessionKimiReasoningEffortOptions(sessionId: string): Promise<KimiReasoningEffortResponse> {
+        return await this.request<KimiReasoningEffortResponse>(
+            `/api/sessions/${encodeURIComponent(sessionId)}/kimi-reasoning-effort-options`
+        )
     }
 
     async getSessionGrokReasoningEffortOptions(sessionId: string): Promise<GrokReasoningEffortResponse> {

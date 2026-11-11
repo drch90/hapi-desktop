@@ -82,7 +82,7 @@ function computeAnswersForQuestion(
     }
 
     const other = otherText.trim()
-    if (otherSelected && other.length > 0) {
+    if (question.allowFreeText && otherSelected && other.length > 0) {
         answers.push(other)
     }
 
@@ -117,6 +117,10 @@ export function AskUserQuestionFooter(props: {
     const [fallbackText, setFallbackText] = useState('')
 
     const [loading, setLoading] = useState(false)
+    const [acceptedAction, setAcceptedAction] = useState<'answer' | 'dismiss' | null>(null)
+    const operationLocked = useRef(false)
+    const requestGeneration = useRef(0)
+    const disabled = props.disabled || loading || acceptedAction !== null
     const [error, setError] = useState<string | null>(null)
 
     // Mirrors the answer-in-progress fields above so the cleanup below can
@@ -130,6 +134,9 @@ export function AskUserQuestionFooter(props: {
     const submittedRef = useRef(false)
 
     useEffect(() => {
+        requestGeneration.current += 1
+        operationLocked.current = false
+        setAcceptedAction(null)
         // Restores a session-switch remount's own in-progress answer (SessionChat
         // keys the whole subtree by session.id — see its own comment), and, since
         // draftKey also changes for a genuinely new question, still resets to
@@ -160,27 +167,37 @@ export function AskUserQuestionFooter(props: {
         setError(null)
 
         return () => {
+            requestGeneration.current += 1
             if (!submittedRef.current) {
                 saveAskUserQuestionDraft(draftKey, draftStateRef.current)
             }
         }
-    }, [draftKey])
+    }, [draftKey, permission?.id])
 
     if (!permission || permission.status !== 'pending') return null
     if (!isAskUserQuestionToolName(props.tool.name)) return null
 
-    const run = async (action: () => Promise<void>, hapticType: 'success' | 'error') => {
-        if (props.disabled) return
+    const run = async (kind: 'answer' | 'dismiss', action: () => Promise<void>) => {
+        if (props.disabled || operationLocked.current) return
+        operationLocked.current = true
+        const generation = requestGeneration.current
+        setLoading(true)
         setError(null)
         try {
             await action()
+            if (generation !== requestGeneration.current) return
             submittedRef.current = true
             clearAskUserQuestionDraft(draftKey)
-            haptic.notification(hapticType)
+            setAcceptedAction(kind)
+            haptic.notification('success')
             props.onDone()
         } catch (e) {
+            if (generation !== requestGeneration.current) return
+            operationLocked.current = false
             haptic.notification('error')
             setError(e instanceof Error ? e.message : t('dialog.error.default'))
+        } finally {
+            if (generation === requestGeneration.current) setLoading(false)
         }
     }
 
@@ -240,9 +257,11 @@ export function AskUserQuestionFooter(props: {
             }
         }
 
-        setLoading(true)
-        await run(() => props.api.approvePermission(props.sessionId, permission.id, { answers }), 'success')
-        setLoading(false)
+        await run('answer', () => props.api.approvePermission(props.sessionId, permission.id, { answers }))
+    }
+
+    const skip = async () => {
+        await run('dismiss', () => props.api.denyPermission(props.sessionId, permission.id))
     }
 
     const next = () => {
@@ -331,7 +350,19 @@ export function AskUserQuestionFooter(props: {
     }
 
     return (
-        <div className={cn('rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable && 'flex h-full min-h-0 flex-col')}>
+        <div
+            className={cn('rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable && 'flex h-full min-h-0 flex-col')}
+            onKeyDown={(event) => {
+                if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                const target = event.target
+                if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+                    target.blur()
+                    return
+                }
+                void skip()
+            }}
+        >
             <div className="flex shrink-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -346,8 +377,14 @@ export function AskUserQuestionFooter(props: {
             </div>
 
             {error ? (
-                <div className="mt-2 shrink-0 text-xs text-red-600">
+                <div role="alert" className="mt-2 shrink-0 text-xs text-red-600">
                     {error}
+                </div>
+            ) : null}
+
+            {acceptedAction ? (
+                <div role="status" className="mt-2 shrink-0 text-sm text-[var(--app-hint)]">
+                    {t(acceptedAction === 'dismiss' ? 'tool.requestUserInput.waitingForCancellation' : 'tool.requestUserInput.waitingForConfirmation')}
                 </div>
             ) : null}
 
@@ -359,7 +396,7 @@ export function AskUserQuestionFooter(props: {
                     <textarea
                         value={fallbackText}
                         onChange={(e) => setFallbackText(e.target.value)}
-                        disabled={props.disabled || loading}
+                        disabled={disabled}
                         placeholder={t('tool.askUserQuestion.placeholder')}
                         className="mt-2 min-h-[88px] w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] disabled:opacity-50"
                     />
@@ -394,7 +431,7 @@ export function AskUserQuestionFooter(props: {
                                     key={optIdx}
                                     checked={selected}
                                     mode={mode}
-                                    disabled={props.disabled || loading}
+                                    disabled={disabled}
                                     title={opt.label}
                                     description={opt.description}
                                     onClick={() => toggleOption(clampedStep, optIdx)}
@@ -402,20 +439,20 @@ export function AskUserQuestionFooter(props: {
                             )
                         })}
 
-                        <OptionRow
+                        {questions[clampedStep].allowFreeText ? <OptionRow
                             checked={otherSelectedByQuestion[clampedStep] ?? false}
                             mode={mode}
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             title={t('tool.other')}
                             description={t('tool.otherDescription')}
                             onClick={() => toggleOther(clampedStep)}
-                        />
+                        /> : null}
 
-                        {(otherSelectedByQuestion[clampedStep] ?? false) ? (
+                        {questions[clampedStep].allowFreeText && (otherSelectedByQuestion[clampedStep] ?? false) ? (
                             <textarea
                                 value={otherTextByQuestion[clampedStep] ?? ''}
                                 onChange={(e) => updateOtherText(clampedStep, e.target.value)}
-                                disabled={props.disabled || loading}
+                                disabled={disabled}
                                 placeholder={t('tool.askUserQuestion.otherPlaceholder')}
                                 className="mt-2 min-h-[88px] w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] disabled:opacity-50"
                             />
@@ -431,7 +468,7 @@ export function AskUserQuestionFooter(props: {
                             type="button"
                             variant="outline"
                             size="sm"
-                            disabled={props.disabled || loading || clampedStep === 0}
+                            disabled={disabled || clampedStep === 0}
                             onClick={prev}
                             className={questionNavButtonClassName}
                         >
@@ -440,13 +477,23 @@ export function AskUserQuestionFooter(props: {
                     ) : null}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={skip}
+                        className={questionNavButtonClassName}
+                    >
+                        {t(acceptedAction === 'dismiss' ? 'tool.requestUserInput.cancellationRequested' : 'tool.skip')}
+                    </Button>
                     {questions.length > 1 && clampedStep < questions.length - 1 ? (
                         <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             onClick={next}
                             className={questionNavButtonClassName}
                         >
@@ -457,7 +504,7 @@ export function AskUserQuestionFooter(props: {
                             type="button"
                             variant="outline"
                             size="sm"
-                            disabled={props.disabled || loading}
+                            disabled={disabled}
                             onClick={submit}
                             aria-busy={loading}
                             className={cn(questionNavButtonClassName, 'gap-2')}
@@ -468,7 +515,7 @@ export function AskUserQuestionFooter(props: {
                                     {t('tool.submitting')}
                                 </>
                             ) : (
-                                t('tool.submit')
+                                t(acceptedAction === 'answer' ? 'tool.requestUserInput.submitted' : 'tool.submit')
                             )}
                         </Button>
                     )}

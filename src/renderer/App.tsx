@@ -88,6 +88,11 @@ import { NewSessionDialog } from './components/NewSessionDialog'
 
 // Adapt shared component copy to the desktop's controls and seven-language catalog.
 const desktopWebLabels: Record<string, string> = {
+  'button.dismiss': 'Dismiss',
+  'tool.skip': 'Skip question',
+  'tool.requestUserInput.dismissHint': 'Dismiss this question without answering or stopping the agent.',
+  'tool.requestUserInput.cancellationRequested': 'Dismissal requested',
+  'tool.requestUserInput.waitingForCancellation': 'Dismissal requested. Waiting for the agent to confirm…',
   'tool.requestUserInput.submitted': 'Submitted',
   'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
   'newSession.model': 'Model',

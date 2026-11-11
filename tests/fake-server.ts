@@ -714,10 +714,10 @@ export class FixtureHub {
       const candidates = (this.messages.get(id) ?? []).filter((m) => m.localId && ids.includes(m.localId))
       reply({
         queuedLocalIds: candidates
-          .filter((m) => m.invokedAt === null && !m.deliveryState)
+          .filter((m) => m.invokedAt === null && !m.deliveryState && !m.deliveryPending)
           .map((m) => m.localId),
         dispatchingLocalIds: candidates
-          .filter((m) => m.invokedAt === null && m.deliveryState === 'dispatching')
+          .filter((m) => m.invokedAt === null && (m.deliveryState === 'dispatching' || m.deliveryPending))
           .map((m) => m.localId),
         indeterminateLocalIds: candidates
           .filter((m) => m.invokedAt === null && m.deliveryState === 'indeterminate')
@@ -932,6 +932,28 @@ export class FixtureHub {
           hasMore: eligible.length > messages.length,
         },
       })
+      return
+    }
+    const contextMatch = /^\/messages\/([^/]+)\/context$/.exec(action)
+    if (contextMatch && request.method === 'GET') {
+      const allMessages = this.messages.get(id) ?? []
+      const message = allMessages.find((row) => row.id === decodeURIComponent(contextMatch[1]))
+      reply(
+        message
+          ? {
+              messages: [message],
+              targetMessageId: message.id,
+              page: {
+                epoch: 1,
+                hasMore: true,
+                nextBeforeSeq: message.seq,
+                nextBeforeAt: message.createdAt,
+                snapshotHeadSeq: allMessages.at(-1)?.seq ?? null,
+                snapshotHeadAt: allMessages.at(-1)?.createdAt ?? null,
+              },
+            }
+          : null,
+      )
       return
     }
     if (action.startsWith('/permissions/')) {

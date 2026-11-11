@@ -5,6 +5,8 @@ import { useAgyModels } from '@/hooks/queries/useAgyModels'
 import { useClaudeModels } from '@/hooks/queries/useClaudeModels'
 import { useCodexModels } from '@/hooks/queries/useCodexModels'
 import { useCopilotModels } from '@/hooks/queries/useCopilotModels'
+import { useCopilotReasoningEffortOptions } from '@/hooks/queries/useCopilotReasoningEffortOptions'
+import { useKimiReasoningEffortOptions } from '@/hooks/queries/useKimiReasoningEffortOptions'
 import { useCursorModels } from '@/hooks/queries/useCursorModels'
 import { useCursorModelsForMachine } from '@/hooks/queries/useCursorModelsForMachine'
 import { useGrokModels } from '@/hooks/queries/useGrokModels'
@@ -39,6 +41,8 @@ export function useSessionCatalogs(api: DesktopApi, session: Session, enabled: b
   const grok = useGrokModels(target('grok'))
   const grokEffort = useGrokReasoningEffortOptions(target('grok'))
   const copilot = useCopilotModels(target('copilot'))
+  const copilotEffort = useCopilotReasoningEffortOptions({ ...target('copilot'), model: session.model })
+  const kimiEffort = useKimiReasoningEffortOptions({ ...target('kimi'), model: session.model })
   const hermes = useHermesModels({ ...target('hermes'), model: session.model })
   const opencode = useOpencodeModels(target('opencode'))
   const opencodeEffort = useOpencodeReasoningEffortOptions({
@@ -90,6 +94,12 @@ export function useSessionCatalogs(api: DesktopApi, session: Session, enabled: b
     }
     if (agent === 'kimi' || agent === 'dsh') {
       additional.refetch()
+      if (agent === 'kimi') {
+        void queries.resetQueries({
+          queryKey: queryKeys.sessionKimiReasoningEffortOptions(session.id, session.model),
+          exact: true,
+        })
+      }
       return
     }
     const keys: Record<string, QueryKey[]> = {
@@ -104,7 +114,10 @@ export function useSessionCatalogs(api: DesktopApi, session: Session, enabled: b
         queryKeys.sessionGrokModels(session.id),
         queryKeys.sessionGrokReasoningEffortOptions(session.id),
       ],
-      copilot: [queryKeys.sessionCopilotModels(session.id)],
+      copilot: [
+        queryKeys.sessionCopilotModels(session.id),
+        queryKeys.sessionCopilotReasoningEffortOptions(session.id, session.model),
+      ],
       opencode: [
         queryKeys.sessionOpencodeModels(session.id),
         queryKeys.sessionOpencodeReasoningEffortOptions(session.id),
@@ -119,6 +132,8 @@ export function useSessionCatalogs(api: DesktopApi, session: Session, enabled: b
     claude,
     machineCursor,
     grokEffort,
+    copilotEffort,
+    kimiEffort,
     opencodeEffort,
     isLoading,
     error,

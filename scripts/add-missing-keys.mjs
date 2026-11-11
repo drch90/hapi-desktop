@@ -4,6 +4,43 @@ import path from 'node:path'
 // English source strings are shared by desktop components and native menus.
 // Columns: zh, zh-TW, fr, ja, ru, vi. Every locale is written together.
 const rows = [
+  ['Dismiss', '忽略', '忽略', 'Ignorer', '閉じる', 'Закрыть', 'Bỏ qua'],
+  [
+    'Skip question',
+    '跳过问题',
+    '略過問題',
+    'Ignorer la question',
+    '質問をスキップ',
+    'Пропустить вопрос',
+    'Bỏ qua câu hỏi',
+  ],
+  [
+    'Dismiss this question without answering or stopping the agent.',
+    '忽略此问题，不发送答案，也不停止 Agent。',
+    '略過此問題，不傳送答案，也不停止 Agent。',
+    'Ignorer cette question sans répondre ni arrêter l’agent.',
+    '回答を送信せず、エージェントを停止せずに、この質問を閉じます。',
+    'Закрыть вопрос без ответа и без остановки агента.',
+    'Bỏ qua câu hỏi mà không gửi câu trả lời hoặc dừng tác nhân.',
+  ],
+  [
+    'Dismissal requested',
+    '已请求忽略',
+    '已要求略過',
+    'Annulation demandée',
+    '終了をリクエスト済み',
+    'Запрошено закрытие',
+    'Đã yêu cầu bỏ qua',
+  ],
+  [
+    'Dismissal requested. Waiting for the agent to confirm…',
+    '已请求忽略，正在等待 Agent 确认…',
+    '已要求略過，正在等待 Agent 確認…',
+    'Annulation demandée. En attente de confirmation de l’agent…',
+    '終了をリクエストしました。エージェントの確認を待っています…',
+    'Закрытие запрошено. Ожидание подтверждения от агента…',
+    'Đã yêu cầu bỏ qua. Đang chờ tác nhân xác nhận…',
+  ],
   [
     'Cancel sending',
     '取消发送',

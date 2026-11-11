@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import {
     isRequestUserInputToolName,
+    isAsyncRequestUserInput,
     parseRequestUserInputInput,
     formatRequestUserInputAnswers,
     isRequestUserInputQuestionAnswered,
@@ -81,13 +82,15 @@ export function RequestUserInputFooter(props: {
     const permission = props.tool.permission
     const parsed = useMemo(() => parseRequestUserInputInput(props.tool.input), [props.tool.input])
     const questions = parsed.questions
+    const isAsync = isAsyncRequestUserInput(props.tool.name, props.tool.input)
 
     const [step, setStep] = useState(0)
     const [stateByQuestion, setStateByQuestion] = useState<Record<string, QuestionState>>({})
 
-    const [submission, setSubmission] = useState<'idle' | 'submitting' | 'submitted'>('idle')
+    const [submission, setSubmission] = useState<'idle' | 'submitting' | 'submitted' | 'dismissing' | 'dismissed'>('idle')
     const loading = submission === 'submitting'
     const submitted = submission === 'submitted'
+    const dismissed = submission === 'dismissed'
     const disabled = props.disabled || submission !== 'idle'
     const [error, setError] = useState<string | null>(null)
     const noteRef = useRef<HTMLTextAreaElement>(null)
@@ -119,6 +122,35 @@ export function RequestUserInputFooter(props: {
         return isRequestUserInputQuestionAnswered(question, stateByQuestion[question.id])
     }
 
+    const respond = async (kind: 'answer' | 'dismiss', action: () => Promise<void>) => {
+        if (props.disabled || submissionLocked.current) return
+        submissionLocked.current = true
+        const generation = requestGeneration.current
+        setSubmission(kind === 'answer' ? 'submitting' : 'dismissing')
+        setError(null)
+        try {
+            await action()
+        } catch (e) {
+            if (generation !== requestGeneration.current) return
+            submissionLocked.current = false
+            setSubmission('idle')
+            haptic.notification('error')
+            setError(e instanceof Error ? e.message : t('dialog.error.default'))
+            return
+        }
+        if (generation !== requestGeneration.current) return
+        // REST acceptance can precede native consumption and its SSE update.
+        // Keep both answers and dismissals locked until the request resolves.
+        setSubmission(kind === 'answer' ? 'submitted' : 'dismissed')
+        haptic.notification('success')
+        props.onDone()
+    }
+
+    const dismiss = async () => {
+        if (!isAsync) return
+        await respond('dismiss', () => props.api.denyPermission(props.sessionId, permission.id))
+    }
+
     const submit = async () => {
         if (props.disabled || submissionLocked.current) return
 
@@ -147,26 +179,7 @@ export function RequestUserInputFooter(props: {
             }
         }
 
-        submissionLocked.current = true
-        const generation = requestGeneration.current
-        setSubmission('submitting')
-        setError(null)
-        try {
-            await props.api.approvePermission(props.sessionId, permission.id, formattedAnswers)
-        } catch (e) {
-            if (generation !== requestGeneration.current) return
-            submissionLocked.current = false
-            setSubmission('idle')
-            haptic.notification('error')
-            setError(e instanceof Error ? e.message : t('dialog.error.default'))
-            return
-        }
-        if (generation !== requestGeneration.current) return
-        // REST acceptance can precede native consumption and its SSE update.
-        // Keep the answer locked until that update resolves the question.
-        setSubmission('submitted')
-        haptic.notification('success')
-        props.onDone()
+        await respond('answer', () => props.api.approvePermission(props.sessionId, permission.id, formattedAnswers))
     }
 
     const next = () => {
@@ -231,9 +244,9 @@ export function RequestUserInputFooter(props: {
                 </div>
             ) : null}
 
-            {submitted ? (
+            {submitted || dismissed ? (
                 <div role="status" className="mt-2 shrink-0 text-sm text-[var(--app-hint)]">
-                    {t('tool.requestUserInput.waitingForConfirmation')}
+                    {t(dismissed ? 'tool.requestUserInput.waitingForCancellation' : 'tool.requestUserInput.waitingForConfirmation')}
                 </div>
             ) : null}
 
@@ -295,6 +308,19 @@ export function RequestUserInputFooter(props: {
 
             <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                    {isAsync ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={disabled}
+                            aria-busy={submission === 'dismissing'}
+                            onClick={dismiss}
+                            title={t('tool.requestUserInput.dismissHint')}
+                        >
+                            {t(dismissed ? 'tool.requestUserInput.cancellationRequested' : 'button.dismiss')}
+                        </Button>
+                    ) : null}
                     {questions.length > 1 ? (
                         <Button
                             type="button"

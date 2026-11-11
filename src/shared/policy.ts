@@ -108,8 +108,9 @@ const allowed: Record<string, RegExp[]> = {
     new RegExp(`^${session}$`),
     new RegExp(`^${session}/scratchlist$`),
     new RegExp(
-      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options|cursor-models|grok-models|grok-reasoning-effort-options|copilot-models|pi-models|kimi-models|dsh-models)$`,
+      `^${session}/(messages|files|file|directory|git-status|git-diff-numstat|git-diff-file|slash-commands|hermes-models|codex-models|opencode-models|opencode-reasoning-effort-options|cursor-models|grok-models|grok-reasoning-effort-options|copilot-models|copilot-reasoning-effort-options|pi-models|kimi-models|kimi-reasoning-effort-options|dsh-models)$`,
     ),
+    new RegExp(`^${session}/messages/[^/?#]+/context$`),
     new RegExp(
       `^${machine}/(agent-availability|claude-models|hermes-models|codex-models|opencode-models|opencode-model-variants|agy-models|cursor-models|grok-models|copilot-models|pi-models|kimi-models|dsh-models)$`,
     ),

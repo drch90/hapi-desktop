@@ -24,6 +24,7 @@ export const EMPTY_STATE: MessageWindowState = {
     isSyncingTail: false,
     isLoadingMore: false,
     warning: null,
+    pendingGapRecovery: false,
     viewMode: 'tail',
     messagesVersion: 0,
     historyVersion: 0,

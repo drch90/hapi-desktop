@@ -1,8 +1,43 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.22，数学公式与轻量覆盖升级的交付记录见 [1.0.22 版本说明](v1.0.22.md)。此前压缩报告默认折叠见 [1.0.21](v1.0.21.md)，工作区新建加号对齐见 [1.0.20](v1.0.20.md)，侧栏精简见 [1.0.19](v1.0.19.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.23，HAPI v0.34.6 兼容对齐与覆盖升级的交付记录见 [1.0.23 版本说明](v1.0.23.md)。此前数学公式见 [1.0.22](v1.0.22.md)，压缩报告默认折叠见 [1.0.21](v1.0.21.md)，工作区新建加号对齐见 [1.0.20](v1.0.20.md)，侧栏精简见 [1.0.19](v1.0.19.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## HAPI v0.34.6 兼容对齐
+
+- 对齐新版发送中回执与队列读回，确认前保持编辑、取消和重试锁定；断线恢复同时补齐遗漏消息和原地更新的工具调用，保留历史分页，并防止旧请求覆盖新结果。
+- 兼容附属任务的版本化会话事件，支持选项问答禁止自填、跳过问题、忽略非阻塞问答和历史取消状态；等待远端确认时锁定重复操作，失败保留答案。修复最大字号、窄双栏下较长取消文案挤出提交按钮的问题，操作区按栏宽换行。
+- 修正 OpenCode 小写工具名、命令输入、终端输出和文件读取展示；同步新轮次摘要解析及空思考内容的工具分组修复。
+- Copilot/Kimi 会话设置从远端发现当前模型的思考档位，切换模型后重新发现；未发现的档位不发送，不影响模型选择。
+- 取消 Agent 内部子任务消息引起的重复通知，保留真实会话结束、就绪、审批和问答提醒。新桌面文案覆盖七种语言。
+
+来源为同级 HAPI `58565b47`（包含上游 v0.34.6），完整范围、保留行为与未接入功能见 [对齐记录](../upstream-alignment.md#hapi-v0346-兼容对齐)。原始 vendor 基线保持 `0239edf3`；未新增依赖或部署 Hub/runner。按交付请求纳入桌面 1.0.23，包级验证与覆盖升级见 [版本说明](v1.0.23.md)。
+
+验证结果：
+
+- `bun run typecheck`、`bun run build` 均通过；Electron 使用本次生产源码的构建。
+- `bun run test --project hapi-contract`：38 个文件、947 项通过。其后新增的独立 `deliveryPending` 重新排队回归及涉及的共享改动，连同桌面测试按下方定向命令验证，11 个文件、210 项通过；自查移除新导入测试的多余类型断言后，`bun run test --project hapi-contract src/chat/reducer.test.ts` 的 25 项也通过。各组包含重复用例，不累加为独立测试总数。
+- `node scripts/limit-cpu.mjs bun run --cwd vendor/hapi/shared test`：29 个文件、387 项通过。
+- Electron 通过 `xvfb-run -a bun run test:e2e` 分批执行：`tests/upstream-compatibility.e2e.ts` 新增 6 项，`tests/native-steering.e2e.ts`、`tests/question-submission.e2e.ts`、`tests/session-models.e2e.ts` 共 11 项，合计 17 个不同用例通过。核对了窄单双栏、深浅主题、最大字号、法语长文案，以及 OpenCode 命令输出的实际界面和原文复制。
+- `bun run i18n:sync`：七种语言各 382 个键，无缺失；本次桌面代码及来源 JSON 的 Prettier 检查通过。
+- `node scripts/limit-cpu.mjs node scripts/refresh-upstream-patch.mjs ../hapi` 与 `node scripts/limit-cpu.mjs node scripts/verify-upstream.mjs`：992 个 vendor 文件摘要一致，209 个补丁文件精确还原、重放；本次 56 个参考文件的提交摘要和源工作树一致。普通文件 `git diff --check` 及文档链接检查通过。
+
+最终定向单元/组件验证命令：
+
+```sh
+bun run test --project desktop \
+  tests/state.test.ts tests/hub.test.ts tests/navigation.test.ts \
+  tests/message-gap-recovery.test.ts tests/message-batching.test.ts \
+  tests/agent-settings.test.tsx tests/notifications.test.ts \
+  --project hapi-contract \
+  src/components/ToolCard/AskUserQuestionFooter.test.tsx \
+  src/components/ToolCard/ToolCard.test.ts \
+  src/lib/message-window-delivery.test.ts \
+  src/lib/queued-state-reconciliation.test.ts
+```
+
+测试、构建和类型检查的进程树均限制为 2 CPU，重型任务串行执行。Electron 在 Linux/Xvfb 下连接模拟 Hub，需要允许本机监听；这不是 Windows 实机或真实 Hub/runner 验证。检查过程中修复了取消文案导致的按钮溢出，并按桌面内联代码视图修正了工具详情测试的定位和换行断言，相关用例随后定向通过。
 
 ## 轻量覆盖升级与历史包清理（1.0.22）
 

@@ -16,10 +16,21 @@ import {
   watchSession,
 } from '../src/renderer/lib/sync'
 import { fixtureMessage, fixtureSession } from './fake-server'
-import { toSessionSummary } from '@hapi/protocol'
+import { toSessionSummary, type AttachedJob } from '@hapi/protocol'
+import { SyncEventSchema } from '@hapi/protocol/schemas'
 import type { DecryptedMessage } from '@/types/api'
 
 const sessionId = 'batching-test'
+const job: AttachedJob = {
+  key: 'import',
+  label: 'Import',
+  status: 'running',
+  done: 1,
+  total: 10,
+  startedAt: 1,
+  heartbeatAt: 2,
+  updatedAt: 2,
+}
 let unwatch: () => void
 const receive = (message: DecryptedMessage) =>
   applyDesktopEvent({ type: 'sync', replay: false, event: { type: 'message-received', sessionId, message } })
@@ -37,12 +48,14 @@ afterEach(() => {
 })
 
 describe('streaming message batches', () => {
-  it('keeps scheduled summary fields while a full detail event refreshes the session', () => {
+  it('keeps scheduled and job summary fields while a full detail event refreshes the session', () => {
     const session = fixtureSession(sessionId, 'Scheduled session', 'codex')
     const summary = {
       ...toSessionSummary(session),
       futureScheduledMessageCount: 2,
       nextScheduledAt: Date.now() + 60_000,
+      attachedJob: job,
+      attachedJobUpdatedAt: 2,
     }
     queries.setQueryData(sessionsKey, [summary])
     applyDesktopEvent({
@@ -54,8 +67,30 @@ describe('streaming message batches', () => {
       {
         futureScheduledMessageCount: 2,
         nextScheduledAt: summary.nextScheduledAt,
+        attachedJob: job,
+        attachedJobUpdatedAt: 2,
       },
     ])
+  })
+  it('applies job patches without dropping other session fields and rejects heartbeats older than a clear', () => {
+    queries.setQueryData(sessionsKey, [toSessionSummary(fixtureSession(sessionId, 'Import', 'codex'))])
+    const update = (version: number, value: AttachedJob | null) =>
+      applyDesktopEvent({
+        type: 'sync',
+        replay: false,
+        event: SyncEventSchema.parse({
+          type: 'session-updated',
+          sessionId,
+          data: { thinking: true, attachedJob: { version, value } },
+        }),
+      })
+    update(2, job)
+    expect(queries.getQueryData(sessionsKey)).toMatchObject([
+      { thinking: true, attachedJob: job, attachedJobUpdatedAt: 2 },
+    ])
+    update(3, null)
+    update(2, job)
+    expect(queries.getQueryData(sessionsKey)).toMatchObject([{ attachedJob: null, attachedJobUpdatedAt: 3 }])
   })
   it('coalesces a burst into the latest snapshot while preserving other messages', () => {
     const before = getMessageWindowState(sessionId).messagesVersion
@@ -97,25 +132,33 @@ describe('streaming message batches', () => {
     expect(getMessageWindowState(sessionId).messages.map((message) => message.id)).toEqual(['queued'])
   })
 
-  it('shows dispatching separately and never replaces a confirmed receipt with a late pending event', () => {
-    receive({ ...fixtureMessage('stored', 1, 'guidance', true), localId: 'guidance', invokedAt: null })
-    const dispatching = { type: 'messages-dispatching' as const, sessionId, localIds: ['guidance'] }
-    applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
-    expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBe('dispatching')
-    applyDesktopEvent({
-      type: 'sync',
-      replay: false,
-      event: { type: 'messages-consumed', sessionId, localIds: ['guidance'], invokedAt: 42, steered: true },
-    })
-    applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
-    applyDesktopEvent({
-      type: 'sync',
-      replay: false,
-      event: { type: 'messages-indeterminate', sessionId, localIds: ['guidance'] },
-    })
-    expect(getMessageWindowState(sessionId).messages[0]).toMatchObject({ invokedAt: 42, steered: true })
-    expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBeUndefined()
-  })
+  it.each(['messages-dispatching', 'messages-indeterminate'] as const)(
+    'handles %s dispatching receipts without regressing an already confirmed message',
+    (type) => {
+      receive({ ...fixtureMessage('stored', 1, 'guidance', true), localId: 'guidance', invokedAt: null })
+      const dispatching = SyncEventSchema.parse({
+        type,
+        sessionId,
+        localIds: ['guidance'],
+        ...(type === 'messages-indeterminate' ? { dispatching: true } : {}),
+      })
+      applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
+      expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBe('dispatching')
+      applyDesktopEvent({
+        type: 'sync',
+        replay: false,
+        event: { type: 'messages-consumed', sessionId, localIds: ['guidance'], invokedAt: 42, steered: true },
+      })
+      applyDesktopEvent({ type: 'sync', replay: false, event: dispatching })
+      applyDesktopEvent({
+        type: 'sync',
+        replay: false,
+        event: { type: 'messages-indeterminate', sessionId, localIds: ['guidance'] },
+      })
+      expect(getMessageWindowState(sessionId).messages[0]).toMatchObject({ invokedAt: 42, steered: true })
+      expect(getMessageWindowState(sessionId).messages[0].deliveryState).toBeUndefined()
+    },
+  )
 
   it.each(['indeterminate', 'requeued', 'cancelled'] as const)(
     'keeps REST %s reconciliation newer than an earlier user-message snapshot',

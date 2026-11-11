@@ -17,6 +17,7 @@ import {
   markMessagesDispatching,
   markMessagesIndeterminate,
   markMessagesRequeued,
+  recoverWindowAfterGapResume,
   removeOptimisticMessage,
 } from '@/lib/message-window-store'
 import { reconcileQueuedStateAfterConnect } from '@/lib/queued-state-reconciliation'
@@ -140,6 +141,7 @@ export function applyDesktopEvent(event: DesktopEvent) {
     void queries.invalidateQueries({ queryKey: machinesKey })
     for (const id of opened.keys()) {
       void queries.invalidateQueries({ queryKey: sessionKey(id) })
+      if (event.type === 'resync') void recoverWindowAfterGapResume(api, id)
       void reconcileQueuedStateAfterConnect(api, id).catch(() => {})
     }
     return
@@ -171,7 +173,8 @@ export function applyDesktopEvent(event: DesktopEvent) {
       break
     case 'messages-indeterminate':
       flushIncoming(id)
-      markMessagesIndeterminate(id, data.localIds)
+      if (data.dispatching) markMessagesDispatching(id, data.localIds)
+      else markMessagesIndeterminate(id, data.localIds)
       break
     case 'messages-dispatching':
       flushIncoming(id)
@@ -228,6 +231,8 @@ export function applyDesktopEvent(event: DesktopEvent) {
                   // Detail events do not carry these Hub-computed summary fields.
                   futureScheduledMessageCount: row.futureScheduledMessageCount,
                   nextScheduledAt: row.nextScheduledAt,
+                  attachedJob: row.attachedJob ?? null,
+                  attachedJobUpdatedAt: row.attachedJobUpdatedAt ?? 0,
                 }
               : row,
           ),
@@ -246,6 +251,10 @@ export function applyDesktopEvent(event: DesktopEvent) {
             if (p.thinking !== undefined) next.thinking = p.thinking
             if (p.backgroundTaskCount !== undefined) next.backgroundTaskCount = p.backgroundTaskCount
             if (p.model !== undefined) next.model = p.model
+            if (p.attachedJob && p.attachedJob.version > (row.attachedJobUpdatedAt ?? 0)) {
+              next.attachedJob = p.attachedJob.value
+              next.attachedJobUpdatedAt = p.attachedJob.version
+            }
             if (p.updatedAt !== undefined) next.updatedAt = Math.max(row.updatedAt, p.updatedAt)
             if (p.metadata && p.metadata.version > row.metadataVersion) {
               next.metadataVersion = p.metadata.version

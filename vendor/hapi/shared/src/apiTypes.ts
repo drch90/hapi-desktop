@@ -141,6 +141,19 @@ export type MessagesResponse = {
     }
 }
 
+export type MessageContextResponse = {
+    messages: DecryptedMessage[]
+    targetMessageId: string
+    page: {
+        epoch: number
+        nextBeforeSeq: number | null
+        nextBeforeAt: number | null
+        snapshotHeadSeq: number | null
+        snapshotHeadAt: number | null
+        hasMore: boolean
+    }
+}
+
 export type MachinesResponse = { machines: Machine[] }
 
 export type SpawnResponse =
@@ -182,7 +195,7 @@ export type ReopenSessionMissingMetadataResponse = z.infer<typeof ReopenSessionM
 
 export const CursorChatStoreStatusSchema = z.object({
     onDisk: z.boolean(),
-    store: z.enum(['legacy', 'acp']).nullable()
+    store: z.enum(['legacy', 'acp', 'empty']).nullable()
 })
 
 export type CursorChatStoreStatus = z.infer<typeof CursorChatStoreStatusSchema>
@@ -1015,6 +1028,10 @@ export type GrokReasoningEffortResponse = {
     currentValue?: string | null
     error?: string
 }
+
+// Native ACP thinking options for the current model.
+export type CopilotReasoningEffortResponse = GrokReasoningEffortResponse
+export type KimiReasoningEffortResponse = GrokReasoningEffortResponse
 
 export type OpencodeReasoningEffortOption = {
     value: string

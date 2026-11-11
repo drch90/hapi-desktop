@@ -5,7 +5,7 @@
   },
   "hub/src/notifications/eventParsing.ts": {
     "upstream": "d6c8f8d9f0409f708c8dcef0da42558cc79c8c6a3e2f53623767e9d25de021bb",
-    "vendored": "8e10c69e5d3b00b0f1d6719403fc07121ed70e8213644fad74fed7d664a32394"
+    "vendored": "a2a71cdb361dce4118c78fc9cca8b41be065f167d79622195d340fe6ba8e6026"
   },
   "shared/fixtures/README.md": {
     "upstream": "fc559b9ff2c2cd8611c87ebf8fde5726532e276cc889328ed92773a69ef0b35c",
@@ -533,7 +533,7 @@
   },
   "shared/src/apiTypes.ts": {
     "upstream": "0a1bf18ddbd69697a9a817b053b72c0a0288e8ad7342098743f1868c7d0991b1",
-    "vendored": "21d12c2e99157d8963c7dbccedcf8f4d9dd6670bcbaf1b123c30a5fd209c0a0b"
+    "vendored": "2240fc41c256d838a41fcd26a252de48d97b6483e78162c51314980b3e0de910"
   },
   "shared/src/buildInfo.ts": {
     "upstream": "cd60d840a872faa3c2b7cd30d71ef5983bd83577a898ac7a254359667de8829a",
@@ -545,7 +545,7 @@
   },
   "shared/src/conversationHistory.ts": {
     "upstream": "27ea09127dbbb3a482d62a2859c9e51e4edad4481a540c4da48fc5e7de813a2b",
-    "vendored": "27ea09127dbbb3a482d62a2859c9e51e4edad4481a540c4da48fc5e7de813a2b"
+    "vendored": "bad36d988f2363f02fe4deaf5232851cb8279ade8a1a27af318af597f92bd509"
   },
   "shared/src/copilotModes.ts": {
     "upstream": "eff1ee553cec49f791ad144ae7729cf4c660ddf7d8016cc0f238127df639f222",
@@ -569,11 +569,11 @@
   },
   "shared/src/flavors.test.ts": {
     "upstream": "f59356168c02f69019d5738bdeae1569057504e01d3883dbce8d875c232ac343",
-    "vendored": "ae25cc4088bad6f130782618b23e99aa2d92ab21d3c1281c51a6d11691e7bc21"
+    "vendored": "c2885a5fe5c21b3e34a9241a06fa11ba59edef9275f98ca3c75e00f0ed2d9f8b"
   },
   "shared/src/flavors.ts": {
     "upstream": "1a2442c9366485f34a9b32c42669ccf9b218854598ada45c08c48b3ccbdef6e4",
-    "vendored": "399333014bccac34da82ffe4a669e88a8c7830cf028b0e0c03fc0b1f356dec8d"
+    "vendored": "5bb8372a4cfb7c9b707a047c271d970049c51984e877ec3b16a2791bf4b9805a"
   },
   "shared/src/hermes.test.ts": {
     "upstream": null,
@@ -589,7 +589,7 @@
   },
   "shared/src/messages.ts": {
     "upstream": "2972e61efcfe0c88d5bbee7ef575b14e1ca31553f635abc99e3e5d4da674268a",
-    "vendored": "28a97b0fd9a14a119e813906c67edcc0097631f0517903b0682136788ff4ab65"
+    "vendored": "d073f20e402a7421ad36691971388ae308890307d7150d4413535cc376ad84c7"
   },
   "shared/src/models.test.ts": {
     "upstream": "e3f73417cfbe0ce9d28faabe3aef58ba4ad49a180e565662d260e90a621832a3",
@@ -601,11 +601,11 @@
   },
   "shared/src/modes.test.ts": {
     "upstream": "e7fdaccc0a642140d6461d4d0a274ac9d7a94fb73398cc9034997dec97dcae76",
-    "vendored": "c5efa0ba26db2350e1f876649203e77ec1fbfe54d49a387871cc220cc408720a"
+    "vendored": "615846cb4a828af682e5541c0c44097de19f3759574fe6afa738a97ab768b525"
   },
   "shared/src/modes.ts": {
     "upstream": "4b80317fd0754aa52270b7d0f793f14278de34079a9a61fdd646531c9ae9c4c7",
-    "vendored": "5d8057e23c7b28a5f0ab90d3729786f6f9f3e0d473789c92fd60d2bded29f1c7"
+    "vendored": "09a7a8de757850f86988239a433b5335ab0eff46af8b18a80e6a8b669655f607"
   },
   "shared/src/piThinkingLevel.ts": {
     "upstream": "96651d0ede2c46e27835aadbbf4d014e22b629c6701e6ecf742f2b8a34b00d5c",
@@ -633,7 +633,7 @@
   },
   "shared/src/schemas.clear.test.ts": {
     "upstream": "cae476badde74ca2815b4bbeb77e3540e1f4e8b0931d296d0f65244da90e24b0",
-    "vendored": "cae476badde74ca2815b4bbeb77e3540e1f4e8b0931d296d0f65244da90e24b0"
+    "vendored": "e3457e2c03d355fe5559ac14ec151e59257ba41cb672c203652c10790b345340"
   },
   "shared/src/schemas.goal.test.ts": {
     "upstream": "487740f7476b58d60f3a640708775f43b0f44ffcb9ac0a0ef89bf40215ac8e39",
@@ -649,11 +649,11 @@
   },
   "shared/src/schemas.sessionPatch.test.ts": {
     "upstream": "9f6c7b82fea4c88f65c829703f306526ab9aac7bf6f16d046d8d7cfc328fba3b",
-    "vendored": "9f6c7b82fea4c88f65c829703f306526ab9aac7bf6f16d046d8d7cfc328fba3b"
+    "vendored": "491ea6974e89a507baff10d4c4cf4bff197d777b3a1ac11b6b0b8789a0734201"
   },
   "shared/src/schemas.ts": {
     "upstream": "c80ba6f753616ca27123d58f21cc5bcc15d4d71cd6d1ce794ceabb37052fadc5",
-    "vendored": "0f9ee9fc7a9c9b2f87f0934bb7351dfbe9fc71cc1c931a3785569c4c31f9e7ed"
+    "vendored": "9e4cdc1c682af57969074f654b14aa3977056ebdb13696bfa8dc0fbcbe4ae5d9"
   },
   "shared/src/scratchlistAttachments.ts": {
     "upstream": "05e5dd361a3eccf01aa575e10801da261975fd42d7c45e0a870a539c861463cf",
@@ -701,11 +701,11 @@
   },
   "shared/src/sessionSummary.test.ts": {
     "upstream": "13a07dbc863111c17416675f7bbd5d22243ec2289c9cfbdb3b594939017b3d03",
-    "vendored": "e842be826a6d6f0e1b767b3579b190ac541d5fb1f25e4e39831368fadb9b6815"
+    "vendored": "f05c1ea4ad96751d46bcf4f872ca42969b5d2485541450389b23a016236765b1"
   },
   "shared/src/sessionSummary.ts": {
     "upstream": "e91071fc7e6a9eb01b03205a0caf0eda50d39db8bc7bd6b57e78aa96749c6e8b",
-    "vendored": "2238ca972479b31011b9551985f6c06cc2d69e137b133b98cd4ba7ab7dbd15ce"
+    "vendored": "c0366eccc59b739a2922a8bcf4bf7fa0d6ab4d84e847526a2003e2430af303da"
   },
   "shared/src/settingsFileLock.test.ts": {
     "upstream": "0d07b65ba1c9df66a70387acaa954036fe49466bdafed8bbeaa9668a8fb0ab9b",
@@ -725,7 +725,7 @@
   },
   "shared/src/types.ts": {
     "upstream": "5953b564402c21e03798c80919746043a83a492d6ce6ada090632706329c0518",
-    "vendored": "820dbd6d83289db8d53d10f06a061ca02d7f1caeb2592a670a6c059212bc6bc7"
+    "vendored": "186239476e3618e95953284cdb27549aad54b6d7ffd8e1375b707b159b19b46d"
   },
   "shared/src/usage.ts": {
     "upstream": "fa72ff6d55627658c1b2b952e876b9e2959518844aad23028b7e5601da352dca",
@@ -949,7 +949,7 @@
   },
   "web/src/api/client.ts": {
     "upstream": "299d3161ed1e9e9d90b9a2b074c9381ab00c8e0b6654f184dfb9f8f13e85a54f",
-    "vendored": "254166e1fbde505887261ecece0a4704b22d8aede9b0028adcc2787d7a3e1f3e"
+    "vendored": "99799070dcb12319a221202a17b94d13af71fe99745b2105b34b24e76efe758f"
   },
   "web/src/api/voice.ts": {
     "upstream": "a5d5c9f5faad1a2875c733fd4f4e963ada3572d348064fd4f3e9d832135dd25e",
@@ -1007,13 +1007,17 @@
     "upstream": "61c4795455b0b5b320e49b5d492ff059507dc2fb72fa14d75181c5fb92646fe9",
     "vendored": "fc992d6ae724dab0277e35a8743b7f4dfe62bf607d158b92a5ff7e518a1772fb"
   },
+  "web/src/chat/normalizeAgent.roundSummary.test.ts": {
+    "upstream": null,
+    "vendored": "70b806845350bf89abab2f0fbb42ff2a49bc4ba380268c7c90c6a198ff698fed"
+  },
   "web/src/chat/normalizeAgent.test.ts": {
     "upstream": "c2ca42541f85cbafecd4bd5cacd37c7e53033e801372d6fd27dbd5886daf6aba",
     "vendored": "5fcdc62c105bee2c34683d3e01c370ecfbcefa4e7744f8146fc2e78a5f7e4311"
   },
   "web/src/chat/normalizeAgent.ts": {
     "upstream": "3d597beaa43677030be4b1cd70f137b8e1102b705acb69802530236fd4069707",
-    "vendored": "ea1fdd9835b7b94faa375ebc430096164c000a05329c623ad41c31189763960e"
+    "vendored": "e85186f73ff7d69dcd619e12e6c7c695810bc224d0250d24d8a95e2db2cee8ec"
   },
   "web/src/chat/normalizeUser.ts": {
     "upstream": "62ab641f97e5721841823038b2c3bef1720fb0815f098fd9a71211853d0befff",
@@ -1035,13 +1039,17 @@
     "upstream": "2cae6c13909a9b125e1c72981a392796e85926c95b06b5b761fd4d88a81a06e4",
     "vendored": "a5d8fa5d2ae72f0bd5326d6f8902f3c6858b90f437029cc41eebda22daee58d2"
   },
+  "web/src/chat/reconcile.roundSummary.test.ts": {
+    "upstream": null,
+    "vendored": "7835b78d81fc99e73446070e43bd003f22941eb54ea999524062a911070cc6a0"
+  },
   "web/src/chat/reconcile.ts": {
     "upstream": "20d75fcdd63ff9716787a77c13e8270249fc21b70f757df4a6755b7d6e3626c0",
-    "vendored": "04a3599f1bda0d0efe08227917f6d3c5a9acfa988146bfca5c3c7383cbdf4256"
+    "vendored": "1bcf126974c1cb410c0fddd30910d593dd467ba4c3ebbfea57860ca96eba839d"
   },
   "web/src/chat/reducer.test.ts": {
     "upstream": "d5f2d276a5df832e9e27a582fc485ed92108079a42f0f1ff12faea3c5f691a20",
-    "vendored": "463b314796ef862f13a4020d7e4f10648e56c9be868902394ad67e01d2a75c0f"
+    "vendored": "8a6634299d0bf2aef1cf41668d849e5b765b5d49cbf82edb41c61682183ed95e"
   },
   "web/src/chat/reducer.ts": {
     "upstream": "b7e29e76e11e8dce28dda4523680252e286a775a55cf4ddf33ff1dddcddb1a10",
@@ -1065,11 +1073,11 @@
   },
   "web/src/chat/reducerTimeline.test.ts": {
     "upstream": "9093be887ad289258b58367f9e649053413aa6018e53e0ba22627072e2f57a64",
-    "vendored": "5c6d528635464b694d3eea335b4ac0c2e61acdaef876496e878e578a5cd989cd"
+    "vendored": "2b0b9f65709cdf30b767e9e2bdb961984fe8e1a7e82ba934e4f13feee220081d"
   },
   "web/src/chat/reducerTimeline.ts": {
     "upstream": "5e9d7a035c0937540619eb5e770d54eb6f6394ec536b8d5c0530bd1cef08f179",
-    "vendored": "aff55b0ee7c2f92266bc0d018162f357baafb66165663f3d59e70b7aac746b87"
+    "vendored": "eb4f9d28fe3150c764e4be6cec5c3d67f86c0e8e18fafc8e3934c0356cee06fb"
   },
   "web/src/chat/reducerTools.test.ts": {
     "upstream": "74f6a12162c83956b5ec3be1c275e5ce3e99f1c46f9def2708b609a1272e58e4",
@@ -1101,7 +1109,7 @@
   },
   "web/src/chat/toolGroups.ts": {
     "upstream": "d1633a3cac2efe19e70bb9ed61544545a177e05d40671fd1890bfec2300392de",
-    "vendored": "52f578970d5e244ecb1bb7305f559c4c70b8969956b81a4cd2921802a91c1294"
+    "vendored": "968d8f1c4fb2f480830c5282756f8fd27281342762563eeb2e7e7e34e9366e50"
   },
   "web/src/chat/tracer.test.ts": {
     "upstream": "ecf0edd05e3ae2d7e8e0e3da81ffffa488cbe085b6e8c3bdd2be83ae79600aa5",
@@ -1113,7 +1121,7 @@
   },
   "web/src/chat/types.ts": {
     "upstream": "e5f96644022f145a8e726f482fbca9c09ba952369af9794e674403991f604c66",
-    "vendored": "9cad65fa3573ababe009399d93419bfc6805e50560de61569a32453a90a9a00d"
+    "vendored": "ac630624c0bc7aff5499eb13e3a8adc79faa5bf43e2c3d9b7b52de821865ba42"
   },
   "web/src/chat/unseenBlocks.test.ts": {
     "upstream": "788e5be1897351324c05a2c526a24cee557da4f030d89b5164db2a42f201f1ce",
@@ -1901,11 +1909,11 @@
   },
   "web/src/components/ToolCard/AskUserQuestionFooter.test.tsx": {
     "upstream": "c5261d869735dcd791e23fd38190784e1b116701205feaf62db15e97d50c2823",
-    "vendored": "c5261d869735dcd791e23fd38190784e1b116701205feaf62db15e97d50c2823"
+    "vendored": "8e58e78d1f64b8ea501c86ec82708f05773eef0b60d610593bc3c23a16f44005"
   },
   "web/src/components/ToolCard/AskUserQuestionFooter.tsx": {
     "upstream": "97b23bd947c5c59016455eef6b076001ce906d15a3197eaffdd5272f4698916e",
-    "vendored": "cac0f491794d4174074d7aaea7eb8ba817eb43449c72b4dbb1d3da1f47a9c912"
+    "vendored": "48554e818b1210e3c2115809302f7a9633ea05a5577428dcc4090c120253f419"
   },
   "web/src/components/ToolCard/CodexPlanFooter.test.tsx": {
     "upstream": "2f85ae40c4ab1b866119580b38cd9a9cedeb17b3c722f51120290b6a15213c88",
@@ -1917,23 +1925,23 @@
   },
   "web/src/components/ToolCard/PermissionFooter.tsx": {
     "upstream": "1243af0e86d98cc8fe79178e1c724c5ba3262fdaf3d50f3939c706838206e806",
-    "vendored": "997a097a1f0f222ec49aed12fc3990739b4aa8394a3b202230c652852cbb33ea"
+    "vendored": "feffe51cd2a33ecb1f76178864cab5739d255220474bbc789b2915ba1f1b446f"
   },
   "web/src/components/ToolCard/RequestUserInputFooter.test.tsx": {
     "upstream": "855134e7971824aac3cdc04f9cf9dfcfaf1d8ef43baffb4a213b938664966659",
-    "vendored": "5e1d729dbd736252d01ec9c24f8c416b0070cf8fd2796836948133adf16e961a"
+    "vendored": "227848baf55fa6002cb7859a0c4edfe5a97a003a327848d058e724c2deff051f"
   },
   "web/src/components/ToolCard/RequestUserInputFooter.tsx": {
     "upstream": "1c7ec3355459eed6ddf534c041baf0eda7c641f7351eb72bd4df873005f28e48",
-    "vendored": "c8eff29a404d506d739bed583992707c554e773f02cc49ac9c830878c49db49f"
+    "vendored": "9fd3ce1779d9ee3c625f1260aed31fa8dca69d577972375ae07259765d0164d0"
   },
   "web/src/components/ToolCard/ToolCard.test.ts": {
     "upstream": "4e661b16b24b3738ea392bdbb258c1b52c603e70990183f31d37abf2ea12ed0f",
-    "vendored": "4e661b16b24b3738ea392bdbb258c1b52c603e70990183f31d37abf2ea12ed0f"
+    "vendored": "c6f301cc2563bbf9d50d47a3101225329f6a4ab0da83eb0f3fe6d35a62729ab4"
   },
   "web/src/components/ToolCard/ToolCard.tsx": {
     "upstream": "a587d2f4c5528a46fd2fdc4917738540424fb438283085cbebf62b139e29b0e4",
-    "vendored": "25e30d3eeeaf834a2f4d92ce03592c61712b853e9aabf698ca15211db58016ab"
+    "vendored": "058f009a619e6483f54d5ae17434ecfaf0b6d24fb793173a8c3b1ac729499a57"
   },
   "web/src/components/ToolCard/ToolGroupCard.test.tsx": {
     "upstream": "5cff03f02a628f592fa04ecfc0b4423b55ce0f1aa8ea9c17ab9fb85be212ed3a",
@@ -1945,11 +1953,15 @@
   },
   "web/src/components/ToolCard/askUserQuestion.ts": {
     "upstream": "9f9bb499103880b8d0a47d85ccefb1f2146e1a766c491ef0226894da44aab44a",
-    "vendored": "9f9bb499103880b8d0a47d85ccefb1f2146e1a766c491ef0226894da44aab44a"
+    "vendored": "12388a8d44912a2d8ae31e6df14c1cab4f21da2cf13126df193e8bc469562c60"
   },
   "web/src/components/ToolCard/askUserQuestionOptionCard.tsx": {
     "upstream": "94dec764308898de06a4d0379752c3f694b4d37d308068a39d59204df32844b1",
     "vendored": "94dec764308898de06a4d0379752c3f694b4d37d308068a39d59204df32844b1"
+  },
+  "web/src/components/ToolCard/asyncQuestionStatus.test.tsx": {
+    "upstream": null,
+    "vendored": "baa6de61d4d99548320ba8831573685a41c1607d7a02a2901a3ed26f0d286050"
   },
   "web/src/components/ToolCard/checklist.test.tsx": {
     "upstream": "f7afb98814b4b6be3f2e0cd91e09b4f15e3b864901a10451e17a87729551fbfc",
@@ -1973,7 +1985,7 @@
   },
   "web/src/components/ToolCard/cursorAskQuestion.ts": {
     "upstream": "cad17e5ecc97a4171fa91508f569009984b1f1eef96d33b2c5435cd291ac5cc1",
-    "vendored": "cad17e5ecc97a4171fa91508f569009984b1f1eef96d33b2c5435cd291ac5cc1"
+    "vendored": "bef8bf056f8458988a35c6d0d69d86a487c7ed730f6005d59d77be1f20d31031"
   },
   "web/src/components/ToolCard/groupedPresentation.test.ts": {
     "upstream": "1e1cd5148bec862f196ed95ffcef89eb6cfa4ce78150a06d6b3b893bfa0920f3",
@@ -1997,11 +2009,11 @@
   },
   "web/src/components/ToolCard/knownTools.test.tsx": {
     "upstream": "a53d5f585ab5896a90849bbff11e37764e1507d512a91660b5004b892b127231",
-    "vendored": "a53d5f585ab5896a90849bbff11e37764e1507d512a91660b5004b892b127231"
+    "vendored": "7ceb63315a3c58301ee4129e836a70c9f8f5953cc2b83b8271121083497994cd"
   },
   "web/src/components/ToolCard/knownTools.tsx": {
     "upstream": "1b84e1d5265e5bb4f301638ed0d9cd3b67790c6cc3e0de09e39ce71227d30043",
-    "vendored": "1b84e1d5265e5bb4f301638ed0d9cd3b67790c6cc3e0de09e39ce71227d30043"
+    "vendored": "ce740dd4ae55f118add4daf64e94f62fe3a6763973a23a7b7a4660616bc00ccc"
   },
   "web/src/components/ToolCard/requestUserInput.test.ts": {
     "upstream": "89c771a5177eacff18f2db6f71583f6f4fb910618bf50804567f035e3115037f",
@@ -2009,7 +2021,11 @@
   },
   "web/src/components/ToolCard/requestUserInput.ts": {
     "upstream": "1f4ad545bfaea3b4dd97fb097985f35ddb6f802215d232c67639366dd477ea98",
-    "vendored": "193381081d0365b343a52fe0b5bacafb4d923508f657f8694ed22e1faa2b3b7e"
+    "vendored": "b861bb220f95b1cbe5b7d5500cdb97db524d9e4ab8fa0ba2b5bad430b7dd3aa0"
+  },
+  "web/src/components/ToolCard/toolCardDialogInput.test.tsx": {
+    "upstream": null,
+    "vendored": "7d571e8713950de2acae9f0225ddcd7bc370d933e3aca98f169b611b2c75feb5"
   },
   "web/src/components/ToolCard/toolCardSpacing.test.tsx": {
     "upstream": "c636384d7ff714dd1f5c8a90bd8541459ca6fcd8cd7d6bae33df49e56ff87c90",
@@ -2027,6 +2043,14 @@
     "upstream": "716f421a9c64f8750f5189a5152e468906223c85a0e390389feab15ff8bcff69",
     "vendored": "92724e9f50473f3a623ef2a8962e2421f3f5b6b06e59ec78dfa9159c6a4a7b31"
   },
+  "web/src/components/ToolCard/toolNameAliases.test.ts": {
+    "upstream": null,
+    "vendored": "686ca489440c9255aae693c7749151d28f825289aea9d2b57e9d9980fedfd13f"
+  },
+  "web/src/components/ToolCard/toolNameAliases.ts": {
+    "upstream": null,
+    "vendored": "33ba3987f57ca259f659690a2cf65cc0a7460ecf7e676fd56c36b289ed4b67d4"
+  },
   "web/src/components/ToolCard/toolTimingSummary.test.tsx": {
     "upstream": "ea98b3c4dbff18779d3d3df52d2a91f901ab7c26bb29644e1c95f5d37582df03",
     "vendored": "ea98b3c4dbff18779d3d3df52d2a91f901ab7c26bb29644e1c95f5d37582df03"
@@ -2037,7 +2061,7 @@
   },
   "web/src/components/ToolCard/trace.tsx": {
     "upstream": "f77491c1379523307631f31d701ee2340df013ad9b49a211df7561faf1d913a9",
-    "vendored": "8ae4ac728146ca6dbc517a4c25aa073b4bb9447dccec17ecc9ce731c03118f3a"
+    "vendored": "8545875e6997af031034460e2b6ed77801c848b649d582e7019ca5c398716bea"
   },
   "web/src/components/ToolCard/views/AskUserQuestionView.tsx": {
     "upstream": "b4172e94ebbcf48a42c0a8256ad20d3587b964820a1086d8afc29d774f033aea",
@@ -2093,11 +2117,11 @@
   },
   "web/src/components/ToolCard/views/_results.test.tsx": {
     "upstream": "f626d9a9136addc89b76becf6f0ebb38795b9900d6ee6d5d0063a6905b4abc92",
-    "vendored": "f626d9a9136addc89b76becf6f0ebb38795b9900d6ee6d5d0063a6905b4abc92"
+    "vendored": "a91bba5602c7dbe28bfa564b5e8d82e6c9cff2471e3977dcf782acca6099d943"
   },
   "web/src/components/ToolCard/views/_results.tsx": {
     "upstream": "5477e8d11d65f5e4061a2774c569fad057a65a3b17283f216d8132d10820cbd2",
-    "vendored": "5477e8d11d65f5e4061a2774c569fad057a65a3b17283f216d8132d10820cbd2"
+    "vendored": "d71cf8cd621e4584c45559f4e201b79d8d4fc4cb0614601d984d9ce12596dde1"
   },
   "web/src/components/ToolCard/views/cursorViews.test.ts": {
     "upstream": "575d0defac1ade44f41c0141b36510684c99724bc8adfb1ce005cbb343c07a0c",
@@ -2327,9 +2351,13 @@
     "upstream": "33f29a3ddf881916c6cb7c45192bf1e6ab913c296e5e98c25bbb06990cf110f0",
     "vendored": "33f29a3ddf881916c6cb7c45192bf1e6ab913c296e5e98c25bbb06990cf110f0"
   },
+  "web/src/hooks/mutations/useSteerQueuedMessage.test.tsx": {
+    "upstream": null,
+    "vendored": "11edd72328e694bde338217788d3b881508ba78b36cce7e4bbbfb71d51ba7608"
+  },
   "web/src/hooks/mutations/useSteerQueuedMessage.ts": {
     "upstream": "5cb3f1e405a2796fb41c44be14dcfe727c4f4ef75359446d754ab5aac29a053a",
-    "vendored": "5cb3f1e405a2796fb41c44be14dcfe727c4f4ef75359446d754ab5aac29a053a"
+    "vendored": "29d3a9f643512bdd2e4ea6b46457a9f79f0b77646b6e1dfb5a74e4f12c35ff9b"
   },
   "web/src/hooks/queries/useAgentAvailability.ts": {
     "upstream": "0d0f34c5478362b1b4020ddb9dc323de898a3ef0bfb922dcb37294df40db3865",
@@ -2367,6 +2395,10 @@
     "upstream": "862f4c6fbf40bec342ad77d3720bc17473cee118f625845c18a877f27fa0fef9",
     "vendored": "862f4c6fbf40bec342ad77d3720bc17473cee118f625845c18a877f27fa0fef9"
   },
+  "web/src/hooks/queries/useCopilotReasoningEffortOptions.ts": {
+    "upstream": null,
+    "vendored": "da10bb64b9277aa6cb12e9944ac8d51c293374173773df9903c79daa6c04a451"
+  },
   "web/src/hooks/queries/useCursorChatStoreStatus.ts": {
     "upstream": "4a4c30ae9e89b0b272487a6e61ab34b372ddb1b975e208b97cc9ccadc0728559",
     "vendored": "4a4c30ae9e89b0b272487a6e61ab34b372ddb1b975e208b97cc9ccadc0728559"
@@ -2399,13 +2431,17 @@
     "upstream": null,
     "vendored": "149557df36cc56dfb01689f22c0f02766a2e7b030ca5026a1ce601b3c6cd763b"
   },
+  "web/src/hooks/queries/useKimiReasoningEffortOptions.ts": {
+    "upstream": null,
+    "vendored": "fb260b746750045c084a2575ff9bb5cf8b8d2b313a440334a0e7c11d4daacee1"
+  },
   "web/src/hooks/queries/useMachines.ts": {
     "upstream": "727b01492b8335fdf2268f65076643ebbe6852e47c36342ff5c581896106d659",
     "vendored": "727b01492b8335fdf2268f65076643ebbe6852e47c36342ff5c581896106d659"
   },
   "web/src/hooks/queries/useMessages.ts": {
     "upstream": "0cdc94bfa3d1c4bc5979bb3b02fbc2f8305802b7404f9de89de8fe3c7be34a51",
-    "vendored": "9d80caa0641a84b0bf89bcbc12469a86a2f987dec244411a5ed176f69a679d83"
+    "vendored": "6fbc23a2e22e5cc0d6355ce331becbbfc6c471fc136836355df2a8eff2fd1a57"
   },
   "web/src/hooks/queries/useOpencodeModelVariants.ts": {
     "upstream": "7142c772523b99ad20896217a62be3141d2a7ff4dc6524bcdb613d2ad639ed63",
@@ -3153,7 +3189,7 @@
   },
   "web/src/lib/locales/en.ts": {
     "upstream": "6f16ceb3add59f0d5788a24fb1b6aeedbce71f3398e6aca380c925a8218ba976",
-    "vendored": "43ea8e349044463138b0a92d89069d8a17852b2dba00cc78dfe8a4c31571d271"
+    "vendored": "79bd635aa6479f40d24dcc5c626be5c4163156ad9aafcd3d4371f11220695bf1"
   },
   "web/src/lib/locales/index.ts": {
     "upstream": "c8a0a9adbf620ea05878853e954492659c14d70056ae2592548e357c0218a4ff",
@@ -3161,7 +3197,7 @@
   },
   "web/src/lib/locales/zh-CN.ts": {
     "upstream": "79e605c5d2d8f4eff2154dca31d944b676975b9520e8a7abe7380162fab9ba8b",
-    "vendored": "1162b7b2ee0879c6ea1263163ef7f320c65ac87eb0e5b0ba99a88dd74861c720"
+    "vendored": "67b8674fab2b676cbf978f5182b97e90a5ea97451717b4bafb7ecbd0820cc2f5"
   },
   "web/src/lib/machineHealth.test.ts": {
     "upstream": "47a77d59607a45c9554dfee9e332b0b4c0155264a5474837cc539d2d263230fe",
@@ -3179,6 +3215,10 @@
     "upstream": "b82ac9a799aee4d8a637e461a1f45d7f683d856d3992c6a3e772ff2fa5d3b23d",
     "vendored": "b82ac9a799aee4d8a637e461a1f45d7f683d856d3992c6a3e772ff2fa5d3b23d"
   },
+  "web/src/lib/message-window-delivery.test.ts": {
+    "upstream": null,
+    "vendored": "4083f676c1d05e2bf5414996be770c55f969b192a8e32d7b16f1b28a9c98c147"
+  },
   "web/src/lib/message-window-store.fixtures.test.ts": {
     "upstream": "630b31ffda46f9332635573bfd07f88304a03831603fde516f22c1a39e47afd1",
     "vendored": "630b31ffda46f9332635573bfd07f88304a03831603fde516f22c1a39e47afd1"
@@ -3189,7 +3229,7 @@
   },
   "web/src/lib/message-window-store.ts": {
     "upstream": "e650acaf3add70d8e1e2da3ba3292e20675c27d4fdc5d51eeed9ddafacb40133",
-    "vendored": "e97a2633fcdc49709f64b3ac92b4e67c79913cd9f7e4f0f91249afe417a08412"
+    "vendored": "6cfc6d1ab6eb22031f9b6b9bbfbec903680e5d9202f8abc70e4380f239778f30"
   },
   "web/src/lib/messageDelivery.test.ts": {
     "upstream": "bc2a0b75ff4e4e66a3a7327989b5b23348d6f623db3a163186a988bcb61b6107",
@@ -3201,7 +3241,7 @@
   },
   "web/src/lib/messages.test.ts": {
     "upstream": "161bafb5ca9467ebe23d1c67d5c262bf7c42cade3a37beb8f7b1900e51d2f5f1",
-    "vendored": "161bafb5ca9467ebe23d1c67d5c262bf7c42cade3a37beb8f7b1900e51d2f5f1"
+    "vendored": "5545e5402cebe7f541567afb5bd93a3eb6bb9cb28c6a666957059f881d30c201"
   },
   "web/src/lib/messages.ts": {
     "upstream": "c16429bfc6c68fbdea1f04d43490313ca55e71cc694b8cc8a88fda2408f16793",
@@ -3217,7 +3257,7 @@
   },
   "web/src/lib/query-keys.ts": {
     "upstream": "f3f65b2576a08bf67482481fee40d43a0b5c9fd5226a41fb85382756a63475e4",
-    "vendored": "61e650f595c84c66f97dd7f9827c92107fc2f21dab77c51e6053324118fe6c27"
+    "vendored": "14e0a91d2b29be73426c57b1555705d1e3e7c358e5d633291dedf7c65833adaf"
   },
   "web/src/lib/queued-edit-recovery.test.ts": {
     "upstream": "94accb55c549ae97ff0850917407aad6aa2a33b7acfc323714925eda3e1acece",
@@ -3229,11 +3269,11 @@
   },
   "web/src/lib/queued-state-reconciliation.test.ts": {
     "upstream": "47b6165d32043d3ec3caac92be83ad5ec80d1c6b43ca473b609b9152c8ca8277",
-    "vendored": "a409d083561a46395c30e88d80f8ad5e4747cd0dfec2c0bb17de629053326529"
+    "vendored": "cf19624650d74df4c873c5d02579ee9d4aff249174f1ec0516dc782f7ff806d1"
   },
   "web/src/lib/queued-state-reconciliation.ts": {
     "upstream": "5b7dd68748008ef72e5ec6b7551a3245a9b9663af855ce51c427970079c8fb63",
-    "vendored": "7e2ef850fa8e00a3327e875cb0dd2a9e87dd9c5af2b0ac0c8ac37ea35bad90ce"
+    "vendored": "3004c3b7565ef972c8d3a9fc42050140d1a031252a6838752e91a39166033ac9"
   },
   "web/src/lib/randomId.test.ts": {
     "upstream": "2f25a8e240f15c538ed7525fd5809a4785804e58039c19a9a7f967e97b793c43",
