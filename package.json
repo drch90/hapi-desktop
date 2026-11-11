@@ -1,6 +1,6 @@
 {
   "name": "hapi-desktop",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "A Windows workbench for your HAPI sessions",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -16,6 +16,7 @@
     "test": "node scripts/limit-cpu.mjs node node_modules/vitest/vitest.mjs run",
     "test:e2e": "node scripts/limit-cpu.mjs node node_modules/@playwright/test/cli.js test",
     "package:win": "bun run build && node scripts/limit-cpu.mjs node scripts/package-win.mjs",
+    "package:overlay": "node scripts/limit-cpu.mjs node scripts/overlay/package.mjs",
     "cleanup:build": "node scripts/limit-cpu.mjs node scripts/cleanup-builds.mjs",
     "i18n:sync": "node scripts/i18n-sync.mjs",
     "verify:upstream": "node scripts/verify-upstream.mjs",

@@ -75,13 +75,14 @@ describe('Markdown image sharing', () => {
 
   it('captures diagrams and unclips math with embedded local fonts', async () => {
     const { container } = render(
-      <MarkdownRenderer content={'\\[\\frac{1}{2}\\]\n\n```mermaid\nflowchart LR\n A --> B\n```'} />,
+      <MarkdownRenderer content={'$x^2$\n\n$$\\frac{1}{2}$$\n\n```mermaid\nflowchart LR\n A --> B\n```'} />,
     )
     const snapshot = document.createElement('div')
     snapshot.innerHTML = createShareSnapshot(container)
     const png = await renderShareImage(snapshot, 640)
     expect(png.type).toBe('image/png')
     const [capture, options] = vi.mocked(toBlob).mock.calls[0]
+    expect(capture.querySelectorAll('.katex')).toHaveLength(2)
     expect(capture.querySelector('[data-mermaid-diagram] svg')?.textContent).toBe('Diagram content')
     expect(capture.querySelector<HTMLElement>('.katex-display')?.style.overflow).toBe('visible')
     expect(options?.fontEmbedCSS).toContain('font-family:KaTeX_Main')

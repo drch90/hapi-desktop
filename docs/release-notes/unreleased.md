@@ -1,8 +1,33 @@
 # 尚未发布的更新
 
-当前源码版本号为 1.0.21，压缩报告默认折叠与打包记录见 [1.0.21 版本说明](v1.0.21.md)。此前工作区新建加号对齐见 [1.0.20](v1.0.20.md)，侧栏精简见 [1.0.19](v1.0.19.md)，Antigravity 命令与上下文适配见 [1.0.18](v1.0.18.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
+当前源码版本号为 1.0.22，数学公式与轻量覆盖升级的交付记录见 [1.0.22 版本说明](v1.0.22.md)。此前压缩报告默认折叠见 [1.0.21](v1.0.21.md)，工作区新建加号对齐见 [1.0.20](v1.0.20.md)，侧栏精简见 [1.0.19](v1.0.19.md)。公开发布状态以 [GitHub Releases](https://github.com/drch90/hapi-desktop/releases) 为准。
 
 当前消息操作栏沿用 1.0.8 的行为：用户和 Agent 消息均采用 0.5 秒隐藏缓冲，用户按钮完整位于气泡下方。下方 1.0.7 的 1 秒缓冲及 24px 用户消息间隔是历史记录，已由 1.0.8 替代。
+
+## 轻量覆盖升级与历史包清理（1.0.22）
+
+- 兼容已有安装时默认提供轻量覆盖包，纳入仓库交付规则。生成流程核对两份已验证安装包的运行时、程序代码和外部资源；覆盖内容与已测试构建逐项比对。
+- 提供基础版本与文件摘要校验、自动查找安装目录、备份、原子替换及恢复脚本；连续覆盖升级保留并验证兼容的基础可执行程序。
+- 安装包与轻量包各自保留最新两份已验证产物；更早的轻量 ZIP 自动清理，历史基础关系、摘要、日志及源码证据继续保留。损坏或未知包保留并报告。
+
+命令、使用与限制见 [轻量覆盖升级](../../README.md#轻量覆盖升级)，本机产物与验证结果见 [1.0.22 版本说明](v1.0.22.md#本机安装包)。
+
+## Markdown 数学公式（1.0.22）
+
+- Agent 回复和文件预览支持 `$…$` 行内公式，分数、上下标等无需改写成括号分隔符。同行的 `$$…$$` 按独立公式排版，适用于列表计算步骤和引用。
+- 普通金额、转义美元符号、行内代码和普通代码围栏保留文本；未完成的行内公式在结束符补齐后渲染，无效 TeX 保留可读内容。
+- 放大阅读、长文后台预览和分享图片使用相同规则，复制保留完整原始 Markdown；用户消息继续按原文显示。
+
+使用方式与美元符号边界见 [Markdown 使用说明](../markdown.md#公式)。
+
+验证：`bun run typecheck`、`bun run build` 和本次 TS/TSX 的 Prettier 检查通过；以下定向验证通过 30 项单元／组件测试与 5 项 Electron 回归：
+
+```sh
+bun run test --project desktop tests/markdown-math.test.tsx tests/markdown.test.tsx tests/markdown-preview.test.tsx tests/markdown-share.test.tsx
+xvfb-run -a bun run test:e2e tests/markdown-math.e2e.ts tests/desktop.e2e.ts --grep 'dollar math|same-line display equations|Markdown math, tasks|Markdown embedded code' --max-failures=1
+```
+
+以负分数乘整数的完整计算过程复现并修复 9 处行内公式缺失、3 处同行公式未独立排版的问题。检查覆盖金额、转义、代码、括号与 `math` 围栏、无效／流式公式、完整原文复制、放大阅读、文件与后台长文预览、分享图片，以及 920×640、最大字号、单栏／双栏和深浅主题。构建及测试串行执行，整个进程树限制为 2 个逻辑 CPU；Electron 初次启动受沙箱本地端口限制，调整执行权限后通过。使用 Linux / Xvfb 与模拟 Hub，未进行 Windows 实机验证。本次按请求纳入 1.0.22，产物记录见版本说明；实际渲染与界面截图位于本机 `build/markdown-math/`。
 
 ## 压缩报告默认折叠（1.0.21）
 

@@ -217,3 +217,70 @@ test('package verification failure does not trigger automatic cleanup', async (t
   assert.equal(await readFile(old.installer, 'utf8'), old.bytes)
   await missing(join(root, 'build', 'cleanup-reports'))
 })
+
+async function overlay(root, fromVersion, version) {
+  const folder = join(root, 'build', `v${version}`)
+  const name = `HAPI-Desktop-${fromVersion}-to-${version}-win-x64-overlay.zip`
+  const bytes = `verified overlay ${fromVersion} to ${version}`
+  const manifest = JSON.stringify({ fromVersion, version })
+  const path = join(folder, name)
+  await write(path, bytes)
+  await write(join(folder, 'overlay-manifest.json'), manifest)
+  await write(join(folder, 'OVERLAY-SHA256SUMS.txt'), `${digest(bytes)}  ${name}\n`)
+  await write(
+    join(folder, 'overlay-verification.json'),
+    JSON.stringify({
+      status: 'verified',
+      fromVersion,
+      version,
+      sha256: digest(bytes),
+      manifestSha256: digest(manifest),
+    }),
+  )
+  return { folder, path, bytes }
+}
+
+test('overlay cleanup retains the latest two verified packages and all historical evidence', async (t) => {
+  const root = await fixture(t)
+  const oldInstaller = await archive(root, '1.0.9')
+  const old = await overlay(root, '1.0.8', '1.0.9')
+  await rm(oldInstaller.installer) // Its full installer was already pruned on an earlier delivery.
+  await archive(root, '1.0.10')
+  const previous = await overlay(root, '1.0.9', '1.0.10')
+  await archive(root, '1.0.11')
+  const current = await archive(root, '1.0.12')
+  const latest = await overlay(root, '1.0.11', '1.0.12')
+  const unknown = join(current.folder, 'unknown-overlay.zip')
+  await write(unknown, 'unknown data')
+  const preview = await cleanupBuilds({ root })
+  assert.deepEqual(
+    preview.keepOverlays.map((item) => item.version),
+    ['1.0.12', '1.0.10'],
+  )
+  assert.equal(await readFile(old.path, 'utf8'), old.bytes)
+  const result = await cleanupBuilds({ root, apply: true })
+  await missing(old.path)
+  assert.equal(await readFile(previous.path, 'utf8'), previous.bytes)
+  assert.equal(await readFile(latest.path, 'utf8'), latest.bytes)
+  for (const name of ['overlay-verification.json', 'overlay-manifest.json', 'OVERLAY-SHA256SUMS.txt'])
+    assert.ok((await readFile(join(old.folder, name))).length > 0)
+  assert.equal(await readFile(unknown, 'utf8'), 'unknown data')
+  assert.ok(result.removed.includes(join('build', 'v1.0.9', old.path.split(/[\\/]/).at(-1))))
+})
+
+test('damaged current overlays block cleanup; damaged historical overlays remain untouched', async (t) => {
+  const root = await fixture(t)
+  const old = await archive(root, '1.0.9')
+  const damaged = await overlay(root, '1.0.8', '1.0.9')
+  await write(damaged.path, 'corrupt historical overlay')
+  await archive(root, '1.0.11')
+  await archive(root, '1.0.12')
+  const current = await overlay(root, '1.0.11', '1.0.12')
+  await write(current.path, 'corrupt current overlay')
+  await assert.rejects(cleanupBuilds({ root, apply: true }), /Current overlay is not safely archived/)
+  assert.equal(await readFile(old.installer, 'utf8'), old.bytes)
+  await write(current.path, current.bytes)
+  const result = await cleanupBuilds({ root, apply: true })
+  assert.ok(result.skipped.some((item) => item.path === 'v1.0.9/overlay-verification.json'))
+  assert.equal(await readFile(damaged.path, 'utf8'), 'corrupt historical overlay')
+})

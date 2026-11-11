@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\w.-]+))?$/
 const digestPattern = /^[a-f0-9]{64}$/
 
-function versionParts(version) {
+export function versionParts(version) {
   assert.equal(typeof version, 'string', 'Missing archive version')
   const match = version.match(versionPattern)
   assert.ok(match && match[0] === version, `Invalid archive version: ${version}`)
@@ -17,7 +17,7 @@ function versionParts(version) {
   return { core: match.slice(1, 4).map(BigInt), prerelease }
 }
 
-function compareVersions(left, right) {
+export function compareVersions(left, right) {
   const a = versionParts(left)
   const b = versionParts(right)
   for (let i = 0; i < 3; i++) {
@@ -39,7 +39,7 @@ function compareVersions(left, right) {
   return 0
 }
 
-async function info(path) {
+export async function info(path) {
   try {
     return await lstat(path)
   } catch (error) {
@@ -48,14 +48,14 @@ async function info(path) {
   }
 }
 
-async function hashFile(path) {
+export async function hashFile(path) {
   assert.ok((await info(path))?.isFile(), `Expected a regular file: ${path}`)
   const hash = createHash('sha256')
   for await (const bytes of createReadStream(path)) hash.update(bytes)
   return hash.digest('hex')
 }
 
-async function readArchive(build, directory) {
+export async function readArchive(build, directory) {
   const folder = join(build, directory)
   const reportPath = join(folder, 'verification.json')
   if (!(await info(reportPath))) return undefined
@@ -95,6 +95,28 @@ async function runtimeMatches(folder, report) {
     (await hashFile(asar)) === report.appAsarSha256 &&
     (await hashFile(executable)) === report.executableSha256
   )
+}
+
+async function readOverlay(build, directory) {
+  const folder = join(build, directory)
+  const reportPath = join(folder, 'overlay-verification.json')
+  if (!(await info(reportPath))) return undefined
+  assert.ok((await info(reportPath))?.isFile(), `Linked overlay report: ${directory}`)
+  const report = JSON.parse(await readFile(reportPath, 'utf8'))
+  versionParts(report.version)
+  versionParts(report.fromVersion)
+  assert.equal(directory, `v${report.version}`)
+  assert.equal(report.status, 'verified', 'Overlay did not pass verification')
+  const name = `HAPI-Desktop-${report.fromVersion}-to-${report.version}-win-x64-overlay.zip`
+  const path = join(folder, name)
+  if (!(await info(path))) return undefined // Pruned overlays retain their evidence.
+  assert.match(report.sha256, digestPattern)
+  assert.equal(await hashFile(path), report.sha256, `Overlay changed: ${directory}`)
+  assert.equal(await hashFile(join(folder, 'overlay-manifest.json')), report.manifestSha256)
+  assert.ok((await info(join(folder, 'OVERLAY-SHA256SUMS.txt')))?.isFile())
+  const sums = await readFile(join(folder, 'OVERLAY-SHA256SUMS.txt'), 'utf8')
+  assert.ok(sums.split(/\r?\n/).includes(`${report.sha256}  ${name}`), 'Overlay checksum record changed')
+  return { version: report.version, path, sha256: report.sha256 }
 }
 
 async function treeBytes(path) {
@@ -146,6 +168,28 @@ export async function cleanupBuilds({ root = '.', apply = false } = {}) {
     path: relative(root, installer),
     sha256: report.installerSha256,
   }))
+  const overlays = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !versionPattern.test(entry.name.slice(1)) || !entry.name.startsWith('v'))
+      continue
+    try {
+      const overlay = await readOverlay(build, entry.name)
+      if (overlay) overlays.push(overlay)
+    } catch (error) {
+      skipped.push({ path: `${entry.name}/overlay-verification.json`, reason: error.message })
+    }
+  }
+  assert.ok(
+    !overlays.some((overlay) => compareVersions(overlay.version, version) > 0),
+    'A newer overlay exists; no cleanup performed',
+  )
+  if (await info(join(current.folder, 'overlay-verification.json')))
+    assert.ok(
+      overlays.some((overlay) => overlay.version === version),
+      'Current overlay is not safely archived; no cleanup performed',
+    )
+  overlays.sort((a, b) => compareVersions(b.version, a.version))
+  const retainedOverlays = overlays.slice(0, 2)
   const remove = []
   async function add(path, reason) {
     const entry = await info(path)
@@ -157,6 +201,7 @@ export async function cleanupBuilds({ root = '.', apply = false } = {}) {
       skipped.push({ path: relative(root, path), reason: error.message })
     }
   }
+  for (const overlay of overlays.slice(2)) await add(overlay.path, 'older verified overlay')
   for (const archive of archives) {
     if (!retained.includes(archive)) {
       await add(archive.installer, 'older installer')
@@ -190,6 +235,7 @@ export async function cleanupBuilds({ root = '.', apply = false } = {}) {
     status: apply ? 'completed' : 'preview',
     version,
     keep,
+    keepOverlays: retainedOverlays.map((overlay) => ({ ...overlay, path: relative(root, overlay.path) })),
     remove,
     skipped,
     bytes: remove.reduce((sum, entry) => sum + entry.bytes, 0),
@@ -201,6 +247,7 @@ export async function cleanupBuilds({ root = '.', apply = false } = {}) {
   // archive, log, source snapshot, dependency, worktree or download cache is removed.
   for (const archive of retained)
     assert.equal(await hashFile(archive.installer), archive.report.installerSha256)
+  for (const overlay of retainedOverlays) assert.equal(await hashFile(overlay.path), overlay.sha256)
   const reports = join(build, 'cleanup-reports')
   if (await info(reports))
     assert.ok((await info(reports)).isDirectory(), 'Cleanup report directory is a link')

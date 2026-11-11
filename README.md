@@ -1,6 +1,6 @@
 # HAPI Desktop
 
-面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.21**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版对齐 Web 的压缩报告默认折叠行为，保留标题和 token 信息，点击即可展开完整摘要；此前的工作区加号对齐、右键复制、CLI 小图标及 Antigravity 适配继续保留。更新内容与打包记录见 [1.0.21 版本说明](docs/release-notes/v1.0.21.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
+面向 Windows 10/11 x64 的 HAPI 桌面客户端，通过已有 Hub 管理远端 Agent 会话。当前版本号为 **1.0.22**，支持服务端当前提供的 11 种可创建 CLI；可用列表、模型和权限取决于所选远端机器。本版补齐 `$…$` 行内公式和同行 `$$…$$` 独立公式，提供从兼容基础版本升级的轻量覆盖包；此前的压缩报告折叠、工作区加号对齐、侧栏与 Antigravity 适配继续保留。更新内容与打包记录见 [1.0.22 版本说明](docs/release-notes/v1.0.22.md)，开发变更记录见 [更新记录](docs/release-notes/unreleased.md)。
 
 ## 开始使用
 
@@ -10,7 +10,7 @@
 
 关闭窗口后应用驻留托盘；从托盘退出会关闭客户端，远端任务继续运行。开机启动默认关闭。安装包与 `SHA256SUMS.txt` 校验文件发布在 GitHub Releases，源码仓库不保存安装包。Windows 可用 `Get-FileHash .\HAPI-Desktop-<版本>-win-x64-setup.exe -Algorithm SHA256` 计算摘要，与校验文件中的值核对。
 
-当前安装包尚未配置代码签名，Windows 可能显示发布者未知。应用没有自动更新，更新时从 Releases 下载新版安装包安装。
+当前安装包尚未配置代码签名，Windows 可能显示发布者未知。应用没有自动更新；已有兼容安装可使用随版本交付的[轻量覆盖包](#轻量覆盖升级)，其他情况使用完整安装包。
 
 ## 新建会话
 
@@ -171,7 +171,7 @@ Agent 回复及文件预览中的代码支持反引号/波浪线围栏和缩进�
 
 消息和代码的复制按钮仍复制全文，文件也可下载到本机查看。长内容的分享图片展示当前渲染的内容节选，并标明“当前内容节选”；文字复制保留完整原文。
 
-公式沿用 Web 的 `\(…\)`、`\[…\]` 和 `$$` 语法，单个 `$` 保持普通文本，避免误识别金额。Mermaid 代码块可显示图表、切换源码、复制和放大查看，语法错误时保留源码并显示原因。公式和代码支持窄窗口横向滚动、深色主题及分享图片。格式和示例见 [Markdown 使用说明](docs/markdown.md)。
+公式支持 `$…$`、`\(…\)` 行内写法，以及 `$$…$$`、`\[…\]` 独立公式；`$$` 可同行或分行书写。常见金额、转义美元符号和代码保留为普通文本，复制保留原始公式。Mermaid 代码块可显示图表、切换源码、复制和放大查看，语法错误时保留源码并显示原因。公式和代码支持窄窗口横向滚动、深色主题及分享图片。格式和示例见 [Markdown 使用说明](docs/markdown.md)。
 
 工具的时间和耗时放在悬停提示与展开详情中，普通工具点击一次即可在聊天中展开完整日期、输入和结果。短详情随内容收缩，长输出在可用宽度内滚动。子进程调用记录默认展开，只有一个子调用时直接显示内容，多个子调用可逐项展开查看。连续探索操作沿用 Web 分组，可在设置中调整默认折叠；分组中的工具详情使用弹窗，默认最大为 1100×780px，可拖动右下角调整大小，随应用窗口限制边界，标题和关闭按钮保持可见，内容独立滚动。计划提案、步骤进度和待审批内容直接展示。
 
@@ -296,7 +296,7 @@ node scripts/limit-cpu.mjs bun run --cwd ../hapi build:single-exe
 bun run package:win
 ```
 
-打包后的暂存路径为 `build/HAPI-Desktop-1.0.21-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.21/HAPI-Desktop-1.0.21-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
+打包后的暂存路径为 `build/HAPI-Desktop-1.0.22-win-x64-setup.exe`，完成下方校验后保留归档路径 `build/v1.0.22/HAPI-Desktop-1.0.22-win-x64-setup.exe` 并自动清理暂存副本。版本取自 `package.json`。Linux 打包使用 electron-builder 26.15.3 的跨平台 NSIS uninstaller reader；升级 builder 时需重新验证该适配。可用 `HAPI_ELECTRON_DIST` 指向经过校验的 Electron Windows zip。当前未配置代码签名或自动更新。
 
 需要归档并验证安装包时，安装 7-Zip 并保证 `7z` 在 PATH 中；使用 [安装包校验脚本](scripts/verify-package.mjs) 按以下顺序执行。版本取自 `package.json`，记录摘要时若文件已存在会停止，避免覆盖旧证据。
 
@@ -310,11 +310,35 @@ node scripts/limit-cpu.mjs node scripts/verify-package.mjs verify
 
 校验会检查 NSIS 与内层压缩包、包内版本和每个构建文件，并将安装包及 SHA-256 归档到 `build/v<版本>/`。界面验证使用的 `out/` 必须与记录时一致；归档校验不等于 Windows 实机安装测试。每次本机版本交付都以此校验命令结束，成功后自动执行下方清理规则；普通构建或打包失败不会触发清理。
 
+### 轻量覆盖升级
+
+能兼容已有安装的新版本默认同时交付轻量 ZIP，包含应用资源、版本与摘要、升级／恢复脚本和说明。完整安装包验证通过后生成，例如本次从 1.0.21 升至 1.0.22：
+
+```sh
+bun run package:overlay --from 1.0.21
+```
+
+[生成脚本](scripts/overlay/package.mjs) 从两份已验证安装包提取文件，要求 Electron 版本、可执行代码与 `app.asar` 之外的文件完全兼容，并检查 ASAR 校验策略。仅 PE 版本和 ASAR 摘要等资源可不同；脚本不会关闭校验。条件不满足时使用完整安装包。新资源逐项与已测试的 `out/` 核对；连续使用轻量包时，保留并验证原始可执行程序的兼容身份。
+
+产物归档到 `build/v<目标版本>/HAPI-Desktop-<基础版本>-to-<目标版本>-win-x64-overlay.zip`，校验文件为同目录的 `OVERLAY-SHA256SUMS.txt`，证据为 `overlay-manifest.json`、`overlay-verification.json` 与日志。安装包和覆盖包均不进入 Git。
+
+使用时解压整个 ZIP，**从托盘退出 HAPI Desktop → 双击 `update.cmd` → 看到 Completed 后重新启动**。脚本自动查找安装目录；找不到或存在多个安装时选择已安装的 `HAPI Desktop.exe`。安装在受保护目录时需要管理员权限。脚本核对基础文件、备份旧 `app.asar`、校验暂存文件后原子替换；版本或摘要不符时停止。连接、标签、草稿与远端会话继续保留。
+
+需要回退时从托盘退出，再运行同一解压目录的 `restore.cmd`；保留安装目录的 `resources/app.asar.backup-*`。覆盖包只更新应用资源，**应用内显示新版本，Windows 应用列表和 exe 文件属性仍显示基础安装包版本**；完整覆盖安装可同步系统登记。此方式无需在 Windows 安装 Node.js、Bun 或联网。
+
+覆盖脚本回归使用真实 PowerShell 引擎（Windows 自带 Windows PowerShell；Linux 需 PowerShell 7，可通过 `HAPI_TEST_PWSH` 指定路径）：
+
+```sh
+node scripts/limit-cpu.mjs node --test scripts/overlay/*.test.mjs scripts/cleanup-builds.test.mjs
+```
+
 ### 本地产物保留与清理
 
 安装包只保存在被 Git 忽略的 `build/` 下。[清理脚本](scripts/cleanup-builds.mjs) 在安装包校验、归档成功后自动执行：保留本次与上一份已验证安装包，删除更早版本的安装包及对应 blockmap、已归档的暂存副本、与校验记录一致的历史 `verification/` 解包目录和本次 `win-unpacked/`。清理前重新核对保留安装包的 SHA-256；本次归档不完整或存在更新的已归档版本时停止清理。
 
-所有版本的说明、SHA-256、源码摘要、补丁、日志和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机安装包路径属于历史记录，其二进制可能已按保留规则清理。本次安装包位置与摘要见 [1.0.21 安装包记录](docs/release-notes/v1.0.21.md#本机安装包)。
+轻量包验证成功后也自动运行同一清理流程，独立保留最新两份已验证轻量 ZIP，清理更早的轻量 ZIP。即使相应完整安装包已被清理，轻量包仍按自身校验记录识别；当前轻量包损坏时停止清理，未知或损坏的历史轻量包保留并报告原因。
+
+所有版本的说明、SHA-256、源码摘要、补丁、日志、覆盖基础关系和验证记录继续保留；删除清单与执行结果写入 `build/cleanup-reports/`。更早版本说明中的本机产物路径属于历史记录，其二进制可能已按保留规则清理。本次产物位置与摘要见 [1.0.22 安装包记录](docs/release-notes/v1.0.22.md#本机安装包)。
 
 补做清理可以先预览，再执行：
 
@@ -329,7 +353,7 @@ bun run cleanup:build --apply
 
 [Desktop Build and Release](https://github.com/drch90/hapi-desktop/actions/workflows/desktop.yml) 仅在手动运行或推送 `v*` 标签时执行版本信息检查与 Windows x64 打包。普通分支推送和 PR 不触发 Actions；工作流已移除自动测试步骤，本地仍须按改动范围完成类型、单元和 Electron 验证。Actions 构建产物保留 14 天，下载需要 GitHub 登录；正式发布文件在 Releases 公开下载。
 
-当前源码使用 1.0.21 版本号，压缩报告默认折叠并支持按需展开，包含紧凑侧栏、工作区加号对齐、右键复制路径、CLI 小图标，以及 Antigravity 专用命令目录、命令排队保护与上下文上报验证，并保留新建选择记忆、首屏滚动跟随、草稿恢复及此前的桌面改进。本次本机安装包的位置、校验与 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。已有安装需覆盖安装新版才能使用本次桌面改进。
+当前源码使用 1.0.22 版本号，补齐常用美元分隔符数学公式，并加入可验证、可回退的轻量覆盖交付与历史包清理流程；保留此前的压缩折叠、侧栏和会话改进。本次本机安装包与覆盖包的位置、校验及 SHA-256 见版本说明。获取 Actions 构建时仍需核对对应提交；公开发布状态以 Releases 为准。更新客户端后生效。
 
 本地 Electron 界面测试失败时，`test-results/` 保留 Playwright trace 和失败页面上下文。旧自动测试工作流的失败原因、复现方法及修复说明见 [CI 排错记录](docs/ci-troubleshooting.md)。
 
@@ -340,11 +364,11 @@ bun run cleanup:build --apply
 3. 创建与 `package.json` 一致的标签并推送，例如当前版本：
 
 ```sh
-git tag -a v1.0.21 -m "HAPI Desktop 1.0.21"
-git push origin v1.0.21
+git tag -a v1.0.22 -m "HAPI Desktop 1.0.22"
+git push origin v1.0.22
 ```
 
-推送 `v*` 标签会检查版本信息并构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.21-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
+推送 `v*` 标签会检查版本信息并构建，校验标签、版本及更新说明后，将安装包和 SHA-256 文件上传到 Release 草稿；文件上传成功才公开发布。`v1.0.22-rc.1` 这样的版本自动标为预发布。工作流使用 GitHub 提供的 `GITHUB_TOKEN`，只有发布任务拥有仓库写权限，无需添加个人访问令牌。
 
 标签与版本不一致、缺少更新说明或打包失败时不会公开发布；测试需在发布前本地完成。上传失败时可重跑工作流完成草稿；已公开 Release 的文件不会被重跑覆盖，修改发布内容应使用新版本号和新标签。安装包对应的源码由 GitHub 按标签提供。
 
