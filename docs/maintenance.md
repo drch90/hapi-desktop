@@ -2,6 +2,8 @@
 
 这份导航帮助维护者和 AI 找到修改位置、控制改动范围并检查交付。执行规范从[根 AGENTS.md](../AGENTS.md)开始，按需要读取目录细则；下面列的是现有入口，不表示所有文件都已经完成模块化。
 
+安装、操作和升级见[使用指南](usage.md)；开发环境、验证、打包和产物清理见[开发指南](development.md)。
+
 ## 项目如何连接
 
 桌面由三个部分协作：React 界面描述用户意图，preload 提供有限的方法桥接，Electron 主进程负责认证、网络和系统操作。Hub 与 runner/CLI 独立部署，桌面更新不会自动升级它们。
@@ -38,8 +40,8 @@ Hub → runner / CLI
 | 文件、图片与导出 | [FilePreview.tsx](../src/renderer/components/FilePreview.tsx)、[SaveFileButton.tsx](../src/renderer/components/SaveFileButton.tsx)、[image-export.ts](../src/main/image-export.ts) | `file-preview.test.tsx`、`media.test.tsx`、`markdown-share.test.tsx` |
 | 上游升级、接口不兼容 | [vendor 规范](../vendor/AGENTS.md)、[对齐记录](upstream-alignment.md)、[补丁刷新](../scripts/refresh-upstream-patch.mjs) | 来源重放、共享契约、受影响 Electron 用例 |
 | 打包或 CI 失败 | [package.json](../package.json)、[package-win.mjs](../scripts/package-win.mjs)、[verify-package.mjs](../scripts/verify-package.mjs)、[CI 排查](ci-troubleshooting.md) | 构建、版本与包校验；系统行为另做 Windows 验证 |
-| 轻量覆盖升级、备份与恢复 | [覆盖包生成](../scripts/overlay/package.mjs)、[兼容性核对](../scripts/overlay/artifacts.mjs)、[升级脚本](../scripts/overlay/Update.ps1)、[使用说明](../README.md#轻量覆盖升级) | `scripts/overlay/*.test.mjs`、完整包及覆盖包校验 |
-| 本机产物占用、版本交付后清理 | [cleanup-builds.mjs](../scripts/cleanup-builds.mjs)、[产物保留规则](../README.md#本地产物保留与清理) | `scripts/cleanup-builds.test.mjs`、`scripts/release.test.mjs`；保留安装包的摘要与清理记录 |
+| 轻量覆盖升级、备份与恢复 | [覆盖包生成](../scripts/overlay/package.mjs)、[兼容性核对](../scripts/overlay/artifacts.mjs)、[升级脚本](../scripts/overlay/Update.ps1)、[使用说明](usage.md#轻量覆盖升级) | `scripts/overlay/*.test.mjs`、完整包及覆盖包校验 |
+| 本机产物占用、版本交付后清理 | [cleanup-builds.mjs](../scripts/cleanup-builds.mjs)、[产物保留规则](development.md#本地产物保留与清理) | `scripts/cleanup-builds.test.mjs`、`scripts/release.test.mjs`；保留安装包的摘要与清理记录 |
 
 测试文件名在 `tests/` 下查找，共享测试另按配置定位。表中是起点，不能据此跳过实际调用方和适用目录规范。
 

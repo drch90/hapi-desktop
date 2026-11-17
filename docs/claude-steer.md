@@ -91,7 +91,7 @@ node ../hapi-desktop/scripts/limit-cpu.mjs bun run build:single-exe
 
 分别部署 CLI 可执行文件、`hub/dist/index.js` 和 `web/dist`。根目录的 `bun run build:cli` 只做 CLI 类型检查，不生成可执行文件。
 
-构建与测试均限制为 2 个 CPU 核心，子进程继承限制，具体要求见 [CPU 资源限制](../README.md#cpu-资源限制)。按现有服务管理流程更新并重启 Hub/runner；已运行的旧 Claude/Codex CLI 会话仍使用旧代码，需在合适时机重新启动。只应用源码不会部署服务；本机已完成的更新见[部署记录](model-queue-fixes.md#本机部署与打包记录)。
+构建与测试均限制为 2 个 CPU 核心，子进程继承限制，具体要求见 [CPU 资源限制](development.md#cpu-资源限制)。按现有服务管理流程更新并重启 Hub/runner；已运行的旧 Claude/Codex CLI 会话仍使用旧代码，需在合适时机重新启动。只应用源码不会部署服务；本机已完成的更新见[部署记录](model-queue-fixes.md#本机部署与打包记录)。
 
 ### PM2 服务更新
 

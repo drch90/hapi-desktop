@@ -55,7 +55,7 @@ bun run test --project desktop \
 - 提供基础版本与文件摘要校验、自动查找安装目录、备份、原子替换及恢复脚本；连续覆盖升级保留并验证兼容的基础可执行程序。
 - 安装包与轻量包各自保留最新两份已验证产物；更早的轻量 ZIP 自动清理，历史基础关系、摘要、日志及源码证据继续保留。损坏或未知包保留并报告。
 
-命令、使用与限制见 [轻量覆盖升级](../../README.md#轻量覆盖升级)，本机产物与验证结果见 [1.0.22 版本说明](v1.0.22.md#本机安装包)。
+构建命令与兼容性核对见 [开发指南](../development.md#轻量覆盖升级)，升级与回退见 [使用指南](../usage.md#轻量覆盖升级)；本机产物与验证结果见 [1.0.22 版本说明](v1.0.22.md#本机安装包)。
 
 ## Markdown 数学公式（1.0.22）
 
@@ -79,7 +79,7 @@ xvfb-run -a bun run test:e2e tests/markdown-math.e2e.ts tests/desktop.e2e.ts --g
 - Codex 等会话的上下文压缩报告对齐 Web：摘要默认折叠，标题与可用的 token 数始终显示；点击标题或使用键盘可展开完整 Markdown，再次进入会话或重载后恢复折叠。
 - 空摘要不显示展开按钮；晚到的摘要默认折叠，后续 token 信息更新保留当前展开选择。沿用既有压缩记录合并与排队消息确认规则。
 
-操作说明见 [README：上下文与会话设置](../../README.md#通知上下文与会话设置)。本次按打包请求纳入 1.0.21，安装包校验与交付记录见 [版本说明](v1.0.21.md#本机安装包)。
+操作说明见 [使用指南：上下文与会话设置](../usage.md#通知上下文与会话设置)。本次按打包请求纳入 1.0.21，安装包校验与交付记录见 [版本说明](v1.0.21.md#本机安装包)。
 
 核对来源为同级 HAPI `136c815c` 的 `CompactSummaryCard`，桌面入口为 [CompactSummary.tsx](../../src/renderer/components/CompactSummary.tsx)。`bun run typecheck`、`bun run build`、本次 TS/TSX 的 Prettier 检查及 `bun run test --project desktop tests/compact-summary.test.tsx` 的 5 项组件回归通过；另复用本轮已通过的 5 项文章分组测试结果。
 
@@ -100,7 +100,7 @@ xvfb-run -a bun run test:e2e tests/compaction-summary.e2e.ts --grep 'historical 
 - 目录名、数量、加号和折叠箭头共用首行高度；完整路径另起一行，避免按钮落在两行文字之间。
 - 在 1.0.19 构建中复现约 13px 的横向错位；修复后类型检查、生产构建和 6 项 Electron 回归通过，覆盖 1／12／100 条会话、长路径、220px 侧栏、920×640、单栏／双栏、最大字号、深浅主题、法语与新建／复制／折叠交互。
 
-操作说明见 [会话工作台](../../README.md#会话工作台)，新包与验证记录见 [1.0.20](v1.0.20.md)。
+操作说明见 [会话工作台](../usage.md#会话工作台)，新包与验证记录见 [1.0.20](v1.0.20.md)。
 
 ## 左侧会话列表精简（1.0.19）
 
@@ -108,7 +108,7 @@ xvfb-run -a bun run test:e2e tests/compaction-summary.e2e.ts --grep 'historical 
 - 历史工作区移除项目、机器装饰图标和机器名，保留目录名、完整路径、数量和新建加号；机器仍由顶部筛选框选择。
 - 将复制路径移入工作区右键菜单，支持 Shift+F10、方向键、Enter 和 Escape；成功显示“已复制”，失败在菜单内提示并保留重试入口。搜索期间和机器离线时仍可复制，缺少路径时隐藏复制入口。
 
-操作说明见 [会话工作台](../../README.md#会话工作台)。本次按打包请求纳入 1.0.19；新包验证及校验记录见 [版本说明](v1.0.19.md#本机安装包)，1.0.18 安装包保留原有内容。
+操作说明见 [会话工作台](../usage.md#会话工作台)。本次按打包请求纳入 1.0.19；新包验证及校验记录见 [版本说明](v1.0.19.md#本机安装包)，1.0.18 安装包保留原有内容。
 
 验证：`bun run typecheck`、`bun run build` 和本次 TS/TSX/CSS 文件的 Prettier 检查通过；以下定向检查分别通过 38 项单元／组件测试和 10 项 Electron 回归：
 
@@ -211,7 +211,7 @@ xvfb-run -a bun run test:e2e tests/desktop.e2e.ts --grep 'Hermes creation uses'
 - 清理前核对保留安装包的 SHA-256；未知或校验失败的构建、目录链接、依赖、下载缓存、源码、工作树和发布准备文件均保留。删除清单与执行结果记录在 `build/cleanup-reports/`，支持 `bun run cleanup:build` 预览与 `--apply` 执行。
 - `release.mjs prepare` 支持在暂存副本已清理后从归档读取安装包，并校验摘要；清理与发布准备测试已接入 CI。
 
-这是桌面仓库的工程流程改动，不改变 1.0.12 安装包的内容、版本和既有校验记录。使用方式见 [产物保留与清理](../../README.md#本地产物保留与清理)。
+这是桌面仓库的工程流程改动，不改变 1.0.12 安装包的内容、版本和既有校验记录。使用方式见 [产物保留与清理](../development.md#本地产物保留与清理)。
 
 验证：`node scripts/limit-cpu.mjs node --test scripts/cleanup-builds.test.mjs scripts/release.test.mjs` 共 10 项通过；使用已验证安装包的隔离副本走通归档验证、自动清理及从归档准备发布文件的完整流程。检查覆盖摘要异常、未完成构建、版本排序、目录链接、重复执行和验证失败时保留产物。全部检查使用 Linux，进程及子进程最多使用 2 个逻辑 CPU。
 
@@ -319,7 +319,7 @@ xvfb-run -a bun run test:e2e tests/desktop.e2e.ts --grep 'Hermes creation uses'
 - 沿用 Hub 机器更新事件，在后续更新或重连时恢复读取；离线、连接中断及读取失败后隐藏缓存指标，未上报时显示“指标不可用”。
 - 补齐七种语言，并适配深浅主题、大字号、键盘操作与窄窗口。
 
-无需新增 Hub 接口；需要远端 Hub／runner 支持 Web 的机器健康功能。操作说明见 [README：机器负载与系统健康](../../README.md#机器负载与系统健康)。
+无需新增 Hub 接口；需要远端 Hub／runner 支持 Web 的机器健康功能。操作说明见 [使用指南：机器负载与系统健康](../usage.md#机器负载与系统健康)。
 
 ### 验证
 
@@ -349,7 +349,7 @@ xvfb-run -a bun run test:e2e tests/desktop.e2e.ts --grep 'Hermes creation uses'
 - 会话列表显示定时消息数量和最近发送时间；提交后的消息沿用 Hub 队列、编辑和取消接口，与 Web 同步。
 - 定时消息限制附件与优先插入，正确处理暂存模式、原生命令、会话恢复和取消排队期间的新草稿。过期的草稿时间需重新选择。
 
-无需新增 Hub 接口；需要所连接的 Hub 已支持 Web 的定时消息功能。Hub 需保持运行，CLI 到时在线或之后重连时接收消息。操作说明见 [README：定时发送](../../README.md#定时发送)。
+无需新增 Hub 接口；需要所连接的 Hub 已支持 Web 的定时消息功能。Hub 需保持运行，CLI 到时在线或之后重连时接收消息。操作说明见 [使用指南：定时发送](../usage.md#定时发送)。
 
 ### 验证
 

@@ -46,7 +46,7 @@ EOF
 FONTCONFIG_FILE=/tmp/hapi-ci-fonts.conf xvfb-run -a bun run test:e2e --grep 'HAPI interactive questions' --repeat-each=3
 ```
 
-字体目录需在本机存在。旧断言在此环境中失败；修复后的测试仍检查实际内容与答案契约。完整检查命令见 [README](../README.md#开发验证与打包)，验证结果应对应实际检查的源码与构建。
+字体目录需在本机存在。旧断言在此环境中失败；修复后的测试仍检查实际内容与答案契约。完整检查命令见 [开发指南](development.md#开发验证与打包)，验证结果应对应实际检查的源码与构建。
 
 ### 同次本地回归发现的目录查询竞态
 
