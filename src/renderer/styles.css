@@ -1799,6 +1799,18 @@ input[type='checkbox'] {
   color: var(--desk-muted);
   margin: 15px 0;
 }
+.system-message {
+  border-left: 2px solid var(--desk-border);
+  padding-left: 12px;
+  color: var(--desk-muted);
+}
+.system-message-label {
+  margin-bottom: 6px;
+  font-size: calc(11px * var(--desk-font-scale));
+}
+.model-error-event summary {
+  cursor: pointer;
+}
 .load-history {
   display: flex;
   margin: 0 auto 20px;

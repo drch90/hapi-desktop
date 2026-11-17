@@ -17,10 +17,43 @@ vi.mock('@/lib/use-translation', () => ({
 }))
 
 import { RequestUserInputFooter } from './RequestUserInputFooter'
+import { AskUserQuestionFooter } from './AskUserQuestionFooter'
 
 afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+})
+
+// A translator may replace React's text nodes while a permission reply is in flight.
+it.each([RequestUserInputFooter, AskUserQuestionFooter])('keeps submission and retry working after translated button text is replaced (%#)', async (Footer) => {
+    const api = new ApiClient('')
+    const response = Promise.withResolvers<void>()
+    const approve = vi.spyOn(api, 'approvePermission').mockResolvedValue(undefined)
+    approve.mockReturnValueOnce(response.promise)
+    const tool = makeTool({ questions: [choice] })
+    if (Footer === AskUserQuestionFooter) tool.name = 'AskUserQuestion'
+    render(<Footer api={api} sessionId="translation-session" tool={tool} disabled={false} onDone={vi.fn()} />)
+    fireEvent.click(screen.getByRole(Footer === AskUserQuestionFooter ? 'radio' : 'button', { name: /Alpha/ }))
+    const button = screen.getByRole('button', { name: 'tool.submit' })
+    function translateLabel() {
+        const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
+        let text = walker.nextNode()
+        while (text && !text.textContent?.startsWith('tool.')) text = walker.nextNode()
+        if (!text?.parentNode) throw new Error('Submission label missing')
+        const translation = document.createElement('font')
+        translation.textContent = '确认'
+        text.parentNode.replaceChild(translation, text)
+    }
+    translateLabel()
+    fireEvent.click(button)
+    expect(approve).toHaveBeenCalledOnce()
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    translateLabel()
+    await act(async () => response.reject(new Error('Try again')))
+    expect(button).toHaveAttribute('aria-busy', 'false')
+    expect(screen.getByRole('alert')).toHaveTextContent('Try again')
+    fireEvent.click(button)
+    await waitFor(() => expect(approve).toHaveBeenCalledTimes(2))
 })
 
 const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ label: 'Alpha' }, { label: 'Beta' }] }

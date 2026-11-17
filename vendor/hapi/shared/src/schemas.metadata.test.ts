@@ -12,6 +12,22 @@ describe('MetadataSchema cursorSessionProtocol', () => {
         expect(MetadataSchema.safeParse({ ...base, cursorSessionProtocol: 'stream-json' }).success).toBe(true);
     });
 
+    it('retains native identity history and externally attached Codex state without requiring them on older sessions', () => {
+        expect(MetadataSchema.parse(base)).toEqual(base);
+        const metadata = {
+            ...base,
+            claudeSessionId: 'current-native-id',
+            claudeSessionIdHistory: ['earlier-native-id'],
+            codexRuntime: {
+                kind: 'attached',
+                bindingId: '123e4567-e89b-42d3-a456-426614174000',
+                state: 'history-changed',
+            },
+        };
+        expect(MetadataSchema.parse(metadata)).toEqual(metadata);
+        expect(MetadataSchema.safeParse({ ...metadata, codexRuntime: { ...metadata.codexRuntime, state: 'owned' } }).success).toBe(false);
+    });
+
     it('rejects unknown protocol values', () => {
         expect(MetadataSchema.safeParse({ ...base, cursorSessionProtocol: 'websocket' }).success).toBe(false);
     });

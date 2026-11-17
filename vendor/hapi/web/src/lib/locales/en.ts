@@ -621,6 +621,7 @@ export default {
   'tool.requestUserInput.cancellationRequested': 'Dismissal requested',
   'tool.requestUserInput.waitingForCancellation': 'Dismissal requested. Waiting for the agent to confirm…',
   'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
+  'tool.waitingForReply': 'Waiting for your reply',
   'toolGroup.title': 'Tool activity',
   'toolGroup.friendly.inspectTarget': 'Inspect {target}',
   'toolGroup.friendly.searchTarget': 'Search “{target}”',

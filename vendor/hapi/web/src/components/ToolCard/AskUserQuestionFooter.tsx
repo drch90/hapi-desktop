@@ -349,6 +349,10 @@ export function AskUserQuestionFooter(props: {
         }
     }
 
+    let submitLabel = 'tool.submit'
+    if (loading) submitLabel = 'tool.submitting'
+    else if (acceptedAction === 'answer') submitLabel = 'tool.requestUserInput.submitted'
+
     return (
         <div
             className={cn('rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable && 'flex h-full min-h-0 flex-col')}
@@ -510,13 +514,10 @@ export function AskUserQuestionFooter(props: {
                             className={cn(questionNavButtonClassName, 'gap-2')}
                         >
                             {loading ? (
-                                <>
-                                    <Spinner size="sm" label={null} className="text-[var(--app-fg)]" />
-                                    {t('tool.submitting')}
-                                </>
-                            ) : (
-                                t(acceptedAction === 'answer' ? 'tool.requestUserInput.submitted' : 'tool.submit')
-                            )}
+                                <Spinner size="sm" label={null} className="text-[var(--app-fg)]" />
+                            ) : null}
+                            {/* Keep the label element stable if browser translation replaces its text node. */}
+                            <span>{t(submitLabel)}</span>
                         </Button>
                     )}
                 </div>

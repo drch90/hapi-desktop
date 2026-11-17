@@ -5679,10 +5679,33 @@ index e84e5673dd85fe39234034266d3849a85b7357ec..5d9eb46c132610285c53345c4e62c61d
          expect(SessionEndReasonSchema.parse('cleared')).toBe('cleared')
      })
 diff --git a/vendor/hapi/shared/src/schemas.metadata.test.ts b/vendor/hapi/shared/src/schemas.metadata.test.ts
-index d3e0189463d3d87dc765cff5a69da6c2faf3e3f4..5dae6602a0a3a8abb4db29f9a5c6fbab4eb35399 100644
+index d3e0189463d3d87dc765cff5a69da6c2faf3e3f4..ecbb99290554360f08ef3d7b6de7b20a4deaa273 100644
 --- a/vendor/hapi/shared/src/schemas.metadata.test.ts
 +++ b/vendor/hapi/shared/src/schemas.metadata.test.ts
-@@ -24,4 +24,16 @@ describe('MetadataSchema cursorSessionProtocol', () => {
+@@ -12,6 +12,22 @@ describe('MetadataSchema cursorSessionProtocol', () => {
+         expect(MetadataSchema.safeParse({ ...base, cursorSessionProtocol: 'stream-json' }).success).toBe(true);
+     });
+ 
++    it('retains native identity history and externally attached Codex state without requiring them on older sessions', () => {
++        expect(MetadataSchema.parse(base)).toEqual(base);
++        const metadata = {
++            ...base,
++            claudeSessionId: 'current-native-id',
++            claudeSessionIdHistory: ['earlier-native-id'],
++            codexRuntime: {
++                kind: 'attached',
++                bindingId: '123e4567-e89b-42d3-a456-426614174000',
++                state: 'history-changed',
++            },
++        };
++        expect(MetadataSchema.parse(metadata)).toEqual(metadata);
++        expect(MetadataSchema.safeParse({ ...metadata, codexRuntime: { ...metadata.codexRuntime, state: 'owned' } }).success).toBe(false);
++    });
++
+     it('rejects unknown protocol values', () => {
+         expect(MetadataSchema.safeParse({ ...base, cursorSessionProtocol: 'websocket' }).success).toBe(false);
+     });
+@@ -24,4 +40,16 @@ describe('MetadataSchema cursorSessionProtocol', () => {
          expect(result.success).toBe(true);
          expect(result.data?.conversationHistoryEntryIds).toEqual({ 'local-user-id': 'pi-entry-id' });
      });
@@ -5752,7 +5775,7 @@ index 36afa290aac6a229a2aea222cf01e314a6a1c203..4801a53038f7244b0215283059475440
 +    });
  });
 diff --git a/vendor/hapi/shared/src/schemas.ts b/vendor/hapi/shared/src/schemas.ts
-index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0ee135ee7e 100644
+index 9177c805cf86037c85eadabbbde259ed1dba6a60..92485c64ed8c7744e0191b332a284d8e91ee832f 100644
 --- a/vendor/hapi/shared/src/schemas.ts
 +++ b/vendor/hapi/shared/src/schemas.ts
 @@ -1,4 +1,5 @@
@@ -5761,7 +5784,26 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
  import { COPILOT_AGENT_MODES, type CopilotAgentMode } from './copilotModes'
  import { CODEX_COLLABORATION_MODES, PERMISSION_MODES } from './modes'
  import { AgentConfigDescriptorSchema } from './agentConfig'
-@@ -20,6 +21,7 @@ const MetadataSummarySchema = z.object({
+@@ -11,6 +12,18 @@ export const CopilotAgentModeSchema = z.union([
+     z.literal('fleet').transform((): CopilotAgentMode => 'interactive'),
+ ])
+ export const SessionEndReasonSchema = z.enum(['completed', 'terminated', 'error', 'handoff', 'cleared'])
++/** OpenCode-only durable operation. No native identity change or filesystem rewind. */
++export const OpenCodeRewindSchema = z.object({
++    operationId: z.string().min(1), nativeSessionId: z.string().min(1), workerId: z.string().min(1),
++    workerPid: z.number().int().positive().optional(), workerStartMarker: z.string().min(1).optional(),
++    requestedLocalId: z.string().min(1), nativeMessageId: z.string().min(1),
++    cutoffSeq: z.number().int().positive(), sourceEpoch: z.number().int().nonnegative(),
++    sourceMaxSeq: z.number().int().nonnegative(), reservationVersion: z.number().int().nonnegative(),
++    sourceTranscriptHash: z.string().regex(/^[a-f0-9]{64}$/),
++    phase: z.enum(['reserved', 'prepared', 'unknown', 'committed', 'rejected']),
++    sourceHash: z.string().optional(), prefixHash: z.string().optional()
++})
++export type OpenCodeRewindOperation = z.infer<typeof OpenCodeRewindSchema>
+ export type SessionEndReason = z.infer<typeof SessionEndReasonSchema>
+ 
+ const MetadataSummarySchema = z.object({
+@@ -20,6 +33,7 @@ const MetadataSummarySchema = z.object({
  
  const ConversationHistoryCapabilitiesSchema = z.object({
      forkCurrent: z.boolean().optional(),
@@ -5769,7 +5811,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      forkAtMessage: z.boolean().optional(),
      rewindToMessage: z.boolean().optional()
  })
-@@ -57,8 +59,21 @@ export const MetadataSchema = z.object({
+@@ -57,22 +71,61 @@ export const MetadataSchema = z.object({
      host: z.string(),
      version: z.string().optional(),
      name: z.string().optional(),
@@ -5790,8 +5832,37 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
 +    promptTitle: z.string().optional(),
      machineId: z.string().optional(),
      claudeSessionId: z.string().optional(),
++    // Earlier Claude session ids of this HAPI session (Claude rotates the id on
++    // some resumes / local↔remote switches). Lets a resume by an older Claude
++    // id find the same HAPI session instead of minting a duplicate.
++    claudeSessionIdHistory: z.array(z.string()).optional(),
      // Parent HAPI session id when this session was created by message-level fork
-@@ -72,7 +87,10 @@ export const MetadataSchema = z.object({
+     // (`claude --resume <id> --fork-session`). Lets the web list mark the new
+     // session as a branch of `<id>` instead of an unrelated duplicate.
+     forkedFrom: z.string().optional(),
++    // Portable branches carry visible reference context, never native session ids.
++    conversationBranch: z.object({
++        sourceSessionId: z.string(),
++        messageLocalId: z.string().optional(),
++        messageId: z.string().optional(),
++        boundary: z.enum(['before', 'after']),
++        mode: z.literal('visible-text'),
++        requestFingerprint: z.string(),
++        state: z.enum(['launching', 'started', 'uncertain']),
++        createdAt: z.number(),
++        messageCount: z.number().int().nonnegative(),
++        workspace: z.enum(['current', 'worktree'])
++    }).optional(),
+     codexSessionId: z.string().optional(),
++    // A bridge to an externally owned app-server, never an owned cold-resume target.
++    codexRuntime: z.object({
++        kind: z.literal('attached'),
++        bindingId: z.string().uuid(),
++        state: z.enum(['attached', 'detached', 'unavailable', 'history-changed'])
++    }).optional(),
+     // 原始 Codex thread id。导入 Codex 历史后，HAPI 会 fork 出自己的续写 thread；
+     // codexSessionId 保存 fork 后的 thread，codexSourceSessionId 保留来源 thread 便于同步/展示。
+     codexSourceSessionId: z.string().optional(),
      geminiSessionId: z.string().optional(),
      opencodeSessionId: z.string().optional(),
      grokSessionId: z.string().optional(),
@@ -5802,7 +5873,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      cursorSessionId: z.string().optional(),
      cursorSessionProtocol: z.enum(['acp', 'stream-json']).optional(),
      // Drives the web `CursorMigrationBanner`:
-@@ -85,6 +103,9 @@ export const MetadataSchema = z.object({
+@@ -85,6 +138,9 @@ export const MetadataSchema = z.object({
      kimiSessionId: z.string().optional(),
      copilotSessionId: z.string().optional(),
      piSessionId: z.string().optional(),
@@ -5812,7 +5883,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      piResumeAttempt: z.object({
          state: z.enum(['resuming', 'terminating', 'quarantined']),
          machineId: z.string(),
-@@ -101,6 +122,14 @@ export const MetadataSchema = z.object({
+@@ -101,6 +157,14 @@ export const MetadataSchema = z.object({
          state: z.enum(['resuming', 'quarantined']),
          machineId: z.string(),
          startedAt: z.number(),
@@ -5827,7 +5898,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      }).optional(),
      tools: z.array(z.string()).optional(),
      slashCommands: z.array(z.string()).optional(),
-@@ -110,15 +139,38 @@ export const MetadataSchema = z.object({
+@@ -110,15 +174,38 @@ export const MetadataSchema = z.object({
      happyToolsDir: z.string().optional(),
      startedFromRunner: z.boolean().optional(),
      hostPid: z.number().optional(),
@@ -5866,7 +5937,28 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      // Durable in-progress state for runner-backed OpenCode /clear.
      opencodeClearOperation: OpencodeClearOperationSchema.optional(),
      preferredPermissionMode: PermissionModeSchema.optional(),
-@@ -152,6 +204,14 @@ export const MetadataSchema = z.object({
+@@ -132,6 +219,20 @@ export const MetadataSchema = z.object({
+     // Native locators for historical fork/rewind (e.g. Grok prompt indexes).
+     // Kept separately from the boolean UI markers above.
+     conversationHistoryIndexes: z.record(z.string(), z.number().int().nonnegative()).optional(),
++    opencodeHistoryCheckpoint: z.object({
++        sessionId: z.string().min(1),
++        messageIds: z.array(z.string().min(1)),
++        userMessageIds: z.array(z.string().min(1)),
++        // Present even when empty once local publication tracking is enabled.
++        localMessageIds: z.array(z.string().min(1)).optional(),
++        localPublicationPending: z.literal(true).optional()
++    }).optional(),
++    // Hub-owned until the child's first validated session-ready is committed.
++    opencodeForkPending: z.literal(true).optional(),
++    opencodeWorkerId: z.string().optional(),
++    opencodeWorkerProcess: z.object({ workerId: z.string().min(1), pid: z.number().int().positive(),
++        startMarker: z.string().min(1) }).optional(),
++    opencodeRewind: OpenCodeRewindSchema.optional(),
+     // Codex localId → turnId mapping (durable across runner relaunches).
+     conversationHistoryTurns: z.record(z.string(), z.string().min(1)).optional(),
+     // Pi localId → append-only session entry id mapping. Pi entry ids are the
+@@ -152,6 +253,14 @@ export const MetadataSchema = z.object({
      }).optional(),
      // Set when native rewind succeeded but HAPI truncate/hydrate failed.
      conversationHistoryDiverged: z.boolean().optional(),
@@ -5881,7 +5973,42 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      worktree: WorktreeMetadataSchema.optional(),
      // Cached Pi model list — written by CLI, read by web (inactive session fallback).
      // Minimal shape: each entry must have modelId; other fields (provider, name, etc.) pass through.
-@@ -200,6 +260,8 @@ export const AgentStateSchema = z.object({
+@@ -160,7 +269,33 @@ export const MetadataSchema = z.object({
+     // field stores only modelId (shared across all flavors); this preserves
+     // the provider so web can resolve the exact model when two providers
+     // share a modelId.
+-    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional()
++    piSelectedModel: z.object({ provider: z.string(), modelId: z.string() }).nullable().optional(),
++    lastModelError: z.object({
++        /** Stable identity for this error event (not wall-clock order). */
++        eventId: z.string().min(1),
++        kind: z.string(),
++        transient: z.boolean(),
++        rawSnippet: z.string(),
++        /** Display / telemetry timestamp only — not used for notify/ack identity. */
++        atTs: z.number(),
++        priorAssistantClaimsDone: z.boolean(),
++        lastUserMessage: z.string().optional(),
++        bridgedForEventId: z.string().optional(),
++        retriedAndFailed: z.boolean().optional(),
++        /**
++         * Set when a non-bridge user turn starts after this error was recorded.
++         * Blocks Bridge so a later retry cannot replay work the newer turn already handled.
++         */
++        supersededByUserTurn: z.boolean().optional(),
++        /**
++         * Explicit false blocks Bridge (idle stderr after a successful turn).
++         * Omitted / true keeps the existing transient gate.
++         */
++        bridgeable: z.boolean().optional(),
++        acknowledgedAt: z.number().optional(),
++        /** Hub-owned: successful push/FCM/Telegram delivery watermark. */
++        notifiedAt: z.number().optional()
++    }).optional()
+ })
+ 
+ export type Metadata = z.infer<typeof MetadataSchema>
+@@ -200,6 +335,8 @@ export const AgentStateSchema = z.object({
      controlledByUser: z.boolean().nullish(),
      // Current actionable shared Codex proposal; content remains in the transcript.
      codexPlanProposalId: z.string().nullish(),
@@ -5890,7 +6017,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      // True while the CLI is delivering a queued message into the active turn
      // (Steer). Surfaced so the web can reflect the inject in progress.
      steeringActive: z.boolean().nullish(),
-@@ -299,6 +361,7 @@ export const AttachmentMetadataSchema = z.object({
+@@ -299,6 +436,7 @@ export const AttachmentMetadataSchema = z.object({
  export type AttachmentMetadata = z.infer<typeof AttachmentMetadataSchema>
  
  export const DecryptedMessageSchema = z.object({
@@ -5898,7 +6025,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      id: z.string(),
      seq: z.number().nullable(),
      localId: z.string().nullable(),
-@@ -306,16 +369,29 @@ export const DecryptedMessageSchema = z.object({
+@@ -306,16 +444,29 @@ export const DecryptedMessageSchema = z.object({
      createdAt: z.number(),
      invokedAt: z.number().nullable().optional(),
      scheduledAt: z.number().nullable().optional(),
@@ -5931,7 +6058,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      hasConversationContent: z.boolean().optional(),
      id: z.string(),
      namespace: z.string(),
-@@ -335,6 +411,7 @@ export const SessionSchema = z.object({
+@@ -335,6 +486,7 @@ export const SessionSchema = z.object({
      thinkingAt: z.number(),
      activeTurnStartedAt: z.number().nullable().optional(),
      backgroundTaskCount: z.number().optional(),
@@ -5939,7 +6066,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      todos: TodosSchema.optional(),
      teamState: TeamStateSchema.optional(),
      // Watermarks for structured SSE patches (PR #897). Dual EventSource
-@@ -383,7 +460,86 @@ const VersionedTeamStatePatchSchema = z.object({
+@@ -383,7 +535,86 @@ const VersionedTeamStatePatchSchema = z.object({
      value: TeamStateSchema.nullable()
  })
  
@@ -6026,7 +6153,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
      active: z.boolean().optional(),
      thinking: z.boolean().optional(),
      activeTurnStartedAt: z.number().nullable().optional(),
-@@ -409,13 +565,18 @@ export const SessionPatchSchema = z.object({
+@@ -409,13 +640,18 @@ export const SessionPatchSchema = z.object({
      collaborationMode: CodexCollaborationModeSchema.optional(),
      copilotAgentMode: CopilotAgentModeSchema.optional(),
      backgroundTaskCount: z.number().optional(),
@@ -6046,7 +6173,7 @@ index 9177c805cf86037c85eadabbbde259ed1dba6a60..8aef1833c6c9a9fe1acd653898b0cc0e
  }).strict()
  
  export type SessionPatch = z.infer<typeof SessionPatchSchema>
-@@ -606,9 +767,15 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
+@@ -606,9 +842,15 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
          steered: z.boolean().optional()
      }),
      SessionChangedSchema.extend({
@@ -6377,10 +6504,27 @@ index 0000000000000000000000000000000000000000..42267700a397449c7a0f06d419895e16
 +    }
 +}
 diff --git a/vendor/hapi/shared/src/sessionSummary.test.ts b/vendor/hapi/shared/src/sessionSummary.test.ts
-index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..83ff0d3ce967197939a2ec7c90ff2a76af01716f 100644
+index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..f17dc1aa43118d6d9f2c9e10860d96cfc0401466 100644
 --- a/vendor/hapi/shared/src/sessionSummary.test.ts
 +++ b/vendor/hapi/shared/src/sessionSummary.test.ts
-@@ -69,6 +69,10 @@ describe('getPendingRequestKinds', () => {
+@@ -44,6 +44,16 @@ describe('getPendingRequestKinds', () => {
+         expect(kinds).toEqual(['input'])
+     })
+ 
++    it('classifies Cursor questions as input', () => {
++        const kinds = getPendingRequestKinds(makeSession({
++            agentState: {
++                requests: {
++                    req1: { tool: 'CursorAskQuestion', arguments: {} }
++                }
++            }
++        }))
++        expect(kinds).toEqual(['input'])
++    })
+     it('classifies other pending tools as permission', () => {
+         const kinds = getPendingRequestKinds(makeSession({
+             agentState: {
+@@ -69,6 +79,10 @@ describe('getPendingRequestKinds', () => {
  })
  
  describe('toSessionSummary', () => {
@@ -6391,7 +6535,7 @@ index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..83ff0d3ce967197939a2ec7c90ff2a76
      it('includes the pinned state', () => {
          expect(toSessionSummary(makeSession({ pinned: true })).pinned).toBe(true)
          expect(toSessionSummary(makeSession({ globalPinned: true })).globalPinned).toBe(true)
-@@ -102,17 +106,18 @@ describe('toSessionSummary', () => {
+@@ -102,17 +116,18 @@ describe('toSessionSummary', () => {
          expect(summary.metadata?.agentSessionId).toBe('cursor-session-1')
      })
  
@@ -6413,7 +6557,7 @@ index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..83ff0d3ce967197939a2ec7c90ff2a76
      })
  
      it('does not fall back to a stale cross-agent id for a known flavor', () => {
-@@ -330,6 +335,27 @@ describe('summary derivation helpers', () => {
+@@ -330,6 +345,27 @@ describe('summary derivation helpers', () => {
          expect(computePendingRequestsCount(undefined)).toBe(0)
      })
  
@@ -6441,10 +6585,28 @@ index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..83ff0d3ce967197939a2ec7c90ff2a76
      it('toSessionSummaryMetadata returns null for null metadata', () => {
          expect(toSessionSummaryMetadata(null)).toBeNull()
          expect(toSessionSummaryMetadata(undefined)).toBeNull()
-@@ -343,4 +369,14 @@ describe('summary derivation helpers', () => {
+@@ -343,4 +379,32 @@ describe('summary derivation helpers', () => {
          })
          expect(summary?.agentSessionId).toBe('cursor-xyz')
      })
++
++    it('toSessionSummaryMetadata omits lastModelError.lastUserMessage', () => {
++        const summary = toSessionSummaryMetadata({
++            path: '/p',
++            host: 'h',
++            lastModelError: {
++                eventId: 'evt-1',
++                kind: 'transport_closed',
++                transient: true,
++                rawSnippet: 'WritableIterable is closed',
++                atTs: 1,
++                priorAssistantClaimsDone: false,
++                lastUserMessage: 'secret prompt text that must not leak into list payloads'
++            }
++        })
++        expect(summary?.lastModelError?.eventId).toBe('evt-1')
++        expect(summary?.lastModelError).not.toHaveProperty('lastUserMessage')
++    })
 +
 +    it('carries current-fork capability into list summaries', () => {
 +        const summary = toSessionSummaryMetadata({
@@ -6457,10 +6619,10 @@ index 792dcba882e928ceccf662e8b93ebf85d97e6fdd..83ff0d3ce967197939a2ec7c90ff2a76
 +    })
  })
 diff --git a/vendor/hapi/shared/src/sessionSummary.ts b/vendor/hapi/shared/src/sessionSummary.ts
-index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae5463a566302 100644
+index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..c8359126792328c40d82602ef4924306c49fe0eb 100644
 --- a/vendor/hapi/shared/src/sessionSummary.ts
 +++ b/vendor/hapi/shared/src/sessionSummary.ts
-@@ -1,7 +1,28 @@
+@@ -1,12 +1,35 @@
 -import type { AgentState, Metadata, Session, TodoItem, WorktreeMetadata } from './schemas'
 +import type { AgentState, AttachedJob, Metadata, Session, TodoItem, WorktreeMetadata } from './schemas'
 +import type { SessionReadState } from './sessionReadState'
@@ -6490,7 +6652,14 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
  export type PendingRequestKind = 'permission' | 'input'
  
  const INPUT_REQUEST_TOOLS = new Set([
-@@ -28,30 +49,41 @@ export type PendingRequest = {
+     'AskUserQuestion',
+     'ask_user_question',
++    'CursorAskQuestion',
++    'cursor_ask_question',
+     'ExitPlanMode',
+     'exit_plan_mode',
+     'request_user_input'
+@@ -28,30 +51,55 @@ export type PendingRequest = {
      since: number
  }
  
@@ -6515,6 +6684,20 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
 +    conversationHistory?: ConversationHistoryCapabilities
      /** Loopback MCP URL when session CLI happy server is running (#956). */
      hapiMcpUrl?: string
++    lastModelError?: {
++        eventId: string
++        kind: string
++        transient: boolean
++        rawSnippet: string
++        atTs: number
++        priorAssistantClaimsDone: boolean
++        bridgedForEventId?: string
++        retriedAndFailed?: boolean
++        supersededByUserTurn?: boolean
++        bridgeable?: boolean
++        acknowledgedAt?: number
++        notifiedAt?: number
++    }
  }
  
  export type SessionSummary = {
@@ -6533,7 +6716,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
      pinned?: boolean
      globalPinned?: boolean
      metadata: SessionSummaryMetadata | null
-@@ -72,6 +104,13 @@ export type SessionSummary = {
+@@ -72,6 +120,13 @@ export type SessionSummary = {
      futureScheduledMessageCount: number
      /** Epoch ms of the soonest uninvoked future scheduled message, or null. */
      nextScheduledAt: number | null
@@ -6547,7 +6730,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
      model: string | null
      modelReasoningEffort?: string | null
      effort: string | null
-@@ -155,11 +194,13 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR: Partial<Record<AgentFlavor, keyof Metada
+@@ -155,11 +210,13 @@ const AGENT_SESSION_ID_FIELD_BY_FLAVOR: Partial<Record<AgentFlavor, keyof Metada
      gemini: 'geminiSessionId',
      opencode: 'opencodeSessionId',
      grok: 'grokSessionId',
@@ -6562,7 +6745,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
  }
  
  function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
-@@ -183,6 +224,7 @@ function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
+@@ -183,6 +240,7 @@ function getSummaryAgentSessionId(metadata: Metadata): string | undefined {
          ?? metadata.cursorSessionId
          ?? metadata.kimiSessionId
          ?? metadata.copilotSessionId
@@ -6570,7 +6753,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
          ?? undefined
  }
  
-@@ -192,18 +234,30 @@ export function toSessionSummaryMetadata(metadata: Metadata | null | undefined):
+@@ -192,18 +250,41 @@ export function toSessionSummaryMetadata(metadata: Metadata | null | undefined):
      }
      return {
          name: metadata.name,
@@ -6583,8 +6766,20 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
          worktree: metadata.worktree,
          agentSessionId: getSummaryAgentSessionId(metadata),
          lifecycleState: metadata.lifecycleState,
+-        hapiMcpUrl: metadata.hapiMcpUrl ?? undefined
 +        conversationHistory: metadata.capabilities?.conversationHistory,
-         hapiMcpUrl: metadata.hapiMcpUrl ?? undefined
++        hapiMcpUrl: metadata.hapiMcpUrl ?? undefined,
++        // Omit lastUserMessage — bridge recovery text stays in full session
++        // metadata only; list/SSE summaries must not ship up to 32 KB of prompt.
++        lastModelError: metadata.lastModelError
++            ? (() => {
++                const {
++                    lastUserMessage: _omitLastUserMessage,
++                    ...summaryError
++                } = metadata.lastModelError
++                return summaryError
++            })()
++            : undefined
      }
  }
  
@@ -6602,7 +6797,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
      return {
          hasConversationContent: session.hasConversationContent ?? false,
          id: session.id,
-@@ -211,6 +265,10 @@ export function toSessionSummary(session: Session): SessionSummary {
+@@ -211,6 +292,10 @@ export function toSessionSummary(session: Session): SessionSummary {
          thinking: session.thinking,
          activeAt: session.activeAt,
          updatedAt: session.updatedAt,
@@ -6613,7 +6808,7 @@ index f2d787e6b93639e099644ca0e9f6cbc487d62e2a..670e8c637c80a0e98b570a11c6cae546
          pinned: session.pinned ?? false,
          globalPinned: session.globalPinned ?? false,
          metadata: toSessionSummaryMetadata(session.metadata),
-@@ -224,6 +282,10 @@ export function toSessionSummary(session: Session): SessionSummary {
+@@ -224,6 +309,10 @@ export function toSessionSummary(session: Session): SessionSummary {
          backgroundTaskCount: session.backgroundTaskCount ?? 0,
          futureScheduledMessageCount: 0,
          nextScheduledAt: null,
@@ -7581,10 +7776,38 @@ index 5cbecfda4fe2f4f0f8d4b35557d88ca24495e9f3..19b795eb265d16c3a9714bf9b6585ba9
                  : DEFAULT_CLAUDE_CONTEXT_WINDOW_TOKENS
          }
 diff --git a/vendor/hapi/web/src/chat/normalize.test.ts b/vendor/hapi/web/src/chat/normalize.test.ts
-index 903e5da55a55740191604b9ccf200f059ef6b0ba..6e4b9efe62f3aa7eb2616678afa5fc703b4b8cd7 100644
+index 903e5da55a55740191604b9ccf200f059ef6b0ba..c5cf10c4b91ff9e27e5792de7c788cc149d92499 100644
 --- a/vendor/hapi/web/src/chat/normalize.test.ts
 +++ b/vendor/hapi/web/src/chat/normalize.test.ts
-@@ -1313,7 +1313,7 @@ describe('normalizeDecryptedMessage', () => {
+@@ -122,6 +122,27 @@ describe('normalizeDecryptedMessage', () => {
+         })
+     })
+ 
++    it('keeps the Codex generation pair on the turn-duration event only when both are valid', () => {
++        const normalize = (data: Record<string, unknown>) => normalizeDecryptedMessage(makeMessage({
++            role: 'agent',
++            content: { type: 'codex', data: { type: 'turn_duration', flavor: 'codex', turn_id: 'turn', durationMs: 4_000, ...data } }
++        }))
++        expect(normalize({ generationMs: 2_200, generationOutputTokens: 50 })).toMatchObject({
++            content: { type: 'turn-duration', provider: 'codex', durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 }
++        })
++        for (const generation of [
++            {}, { generationMs: 2_200 }, { generationOutputTokens: 50 },
++            ...[0, -1, NaN, Infinity, '5', 0.5, Number.MAX_SAFE_INTEGER + 1].flatMap(value => [
++                { generationMs: value, generationOutputTokens: 50 },
++                { generationMs: 2_200, generationOutputTokens: value }
++            ])
++        ]) {
++            const normalized = normalize(generation)
++            expect(normalized?.content).not.toHaveProperty('generationMs')
++            expect(normalized?.content).not.toHaveProperty('generationOutputTokens')
++        }
++    })
++
+     it('drops fractional and unsafe token counters and turn counts while retaining valid model fields', () => {
+         const message = makeMessage({
+             role: 'agent',
+@@ -1313,7 +1334,7 @@ describe('normalizeDecryptedMessage', () => {
          })
      })
  
@@ -7593,7 +7816,7 @@ index 903e5da55a55740191604b9ccf200f059ef6b0ba..6e4b9efe62f3aa7eb2616678afa5fc70
          const message = makeMessage({
              role: 'agent',
              content: {
-@@ -1329,9 +1329,9 @@ describe('normalizeDecryptedMessage', () => {
+@@ -1329,9 +1350,9 @@ describe('normalizeDecryptedMessage', () => {
          expect(normalizeDecryptedMessage(message)).toMatchObject({
              role: 'event',
              content: {
@@ -7654,10 +7877,10 @@ index 2bd2ab2edd74a3aad1ba5a15ebb3c66f40717657..4abf8c5d0ac0e13f02c580f3a4208145
  })
 diff --git a/vendor/hapi/web/src/chat/normalizeAgent.roundSummary.test.ts b/vendor/hapi/web/src/chat/normalizeAgent.roundSummary.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7f2d7e601e811bd0137fc4de35bdef8f3fa91750
+index 0000000000000000000000000000000000000000..46fdc125afc484395e17c58b221681865c94919c
 --- /dev/null
 +++ b/vendor/hapi/web/src/chat/normalizeAgent.roundSummary.test.ts
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,226 @@
 +import { describe, expect, it } from 'vitest';
 +import { normalizeDecryptedMessage } from './normalize';
 +
@@ -7875,6 +8098,14 @@ index 0000000000000000000000000000000000000000..7f2d7e601e811bd0137fc4de35bdef8f
 +        expect(normalizeCarrier({ provider: 'agy', agy_usage: { input_tokens: -1 } })).toBeNull()
 +        expect(normalizeCarrier({ provider: 'agy', agy_usage: [1, 2] })).toBeNull()
 +    })
++
++    it('keeps the agy model-call turn count only when positive (google-antigravity/antigravity-cli#1045)', () => {
++        const base = { provider: 'agy', agy_usage: { output_tokens: 70 }, duration_ms: 14_900 }
++        expect(normalizeCarrier({ ...base, num_turns: 3 })?.content).toMatchObject({ summary: { numTurns: 3 } })
++        for (const numTurns of [undefined, 0, -2, 'many', 1.5]) {
++            expect(normalizeCarrier({ ...base, num_turns: numTurns })?.content).not.toHaveProperty('summary.numTurns')
++        }
++    })
 +})
 diff --git a/vendor/hapi/web/src/chat/normalizeAgent.test.ts b/vendor/hapi/web/src/chat/normalizeAgent.test.ts
 index 55a3a13e3009bfff74e510ba90ba93208b3a4cdf..e7f27b5a36b335c780be6b6e65068d6b39719308 100644
@@ -7923,7 +8154,7 @@ index 55a3a13e3009bfff74e510ba90ba93208b3a4cdf..e7f27b5a36b335c780be6b6e65068d6b
 +    expect(normalized?.role === 'event' && normalized.content).not.toHaveProperty('tokensBefore', 0)
 +})
 diff --git a/vendor/hapi/web/src/chat/normalizeAgent.ts b/vendor/hapi/web/src/chat/normalizeAgent.ts
-index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc184c818dac 100644
+index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..96212f6b2a9edaa8c724db98b51db3b956a39e40 100644
 --- a/vendor/hapi/web/src/chat/normalizeAgent.ts
 +++ b/vendor/hapi/web/src/chat/normalizeAgent.ts
 @@ -1,7 +1,8 @@
@@ -7936,7 +8167,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
  import { parseAgentTimestampMs } from '@/chat/agentTimestamp'
  
  function normalizeToolResultPermissions(value: unknown): ToolResultPermission | undefined {
-@@ -85,11 +86,93 @@ function normalizeRoundSummary(value: unknown): RoundSummary | undefined {
+@@ -85,11 +86,95 @@ function normalizeRoundSummary(value: unknown): RoundSummary | undefined {
          return undefined
      }
  
@@ -7967,6 +8198,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
 +    }
 +    const durationMs = nonNegativeNumber(value.duration_ms)
 +    const model = asString(value.model)
++    const numTurns = nonNegativeSafeInteger(value.num_turns)
 +    const hasUsage = Object.keys(agyUsage).length > 0
 +    if (!hasUsage && durationMs === undefined) return undefined
 +    const generationMs = nonNegativeSafeInteger(value.generation_ms)
@@ -7975,6 +8207,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
 +        provider: 'agy',
 +        modelUsage: model ? { [model]: {} } : {},
 +        ...(hasUsage ? { agyUsage } : {}),
++        ...(numTurns !== undefined && numTurns > 0 ? { numTurns } : {}),
 +        ...(durationMs !== undefined ? { durationMs } : {}),
 +        ...(generationMs && generationOutputTokens ? { generationMs, generationOutputTokens } : {})
 +    }
@@ -8030,7 +8263,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
          durationMs
      }
  }
-@@ -539,16 +622,6 @@ export function stripAgyReadArtifacts(content: string): string {
+@@ -539,16 +624,6 @@ export function stripAgyReadArtifacts(content: string): string {
          .trimEnd()
  }
  
@@ -8047,7 +8280,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
  // Canonical tool id for agy's transitional "Inside the task-NNN log…" narration,
  // rendered as a compact Send-Message-style chip instead of a full agent bubble.
  export const AGY_TASK_LOG_TOOL = 'AgyTaskLog'
-@@ -733,6 +806,29 @@ export function normalizeAgentRecord(
+@@ -733,6 +808,29 @@ export function normalizeAgentRecord(
          if (data.isCompactSummary) return null
          if (!isClaudeChatVisibleMessage({ type: data.type, subtype: data.subtype })) return null
  
@@ -8077,7 +8310,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
          if (data.type === 'assistant') {
              return normalizeAssistantOutput(messageId, localId, createdAt, data, meta)
          }
-@@ -852,14 +948,15 @@ export function normalizeAgentRecord(
+@@ -852,14 +950,15 @@ export function normalizeAgentRecord(
          // fallback. Empty planner steps (intermediate, no content) are skipped so
          // they don't produce empty chat bubbles.
          if (data.type === 'agy_message') {
@@ -8096,7 +8329,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                  const toolCallId = `${messageId}:tasklog`
                  return {
                      id: messageId,
-@@ -868,7 +965,7 @@ export function normalizeAgentRecord(
+@@ -868,7 +967,7 @@ export function normalizeAgentRecord(
                      role: 'agent',
                      isSidechain: false,
                      content: [
@@ -8105,7 +8338,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                          { type: 'tool-result', tool_use_id: toolCallId, content: '', is_error: false, uuid: messageId, parentUUID: null }
                      ],
                      meta
-@@ -880,7 +977,7 @@ export function normalizeAgentRecord(
+@@ -880,7 +979,7 @@ export function normalizeAgentRecord(
                  createdAt,
                  role: 'agent',
                  isSidechain: false,
@@ -8114,7 +8347,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                  // Per-turn model (display name from the conversation DB), surfaced
                  // in the message metadata footer like the other flavors.
                  model: asString(data.model) ?? null,
-@@ -999,6 +1096,8 @@ export function normalizeAgentRecord(
+@@ -999,6 +1098,8 @@ export function normalizeAgentRecord(
      if (content.type === AGENT_MESSAGE_PAYLOAD_TYPE) {
          const data = isObject(content.data) ? content.data : null
          if (!data || typeof data.type !== 'string') return null
@@ -8123,7 +8356,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
  
          if (
              data.type === 'agent-run-start'
-@@ -1016,6 +1115,22 @@ export function normalizeAgentRecord(
+@@ -1016,6 +1117,22 @@ export function normalizeAgentRecord(
              }
          }
  
@@ -8146,7 +8379,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
          if (data.type === 'generated-image') {
              const imageId = asString(data.imageId ?? data.image_id)
              if (!imageId) return null
-@@ -1108,9 +1223,12 @@ export function normalizeAgentRecord(
+@@ -1108,9 +1225,12 @@ export function normalizeAgentRecord(
                  createdAt,
                  role: 'event',
                  content: {
@@ -8162,7 +8395,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                  },
                  isSidechain: false,
                  meta
-@@ -1120,8 +1238,7 @@ export function normalizeAgentRecord(
+@@ -1120,8 +1240,7 @@ export function normalizeAgentRecord(
          // Defensive parity with context_compacted above: a compact-summary
          // arriving in the codex envelope (e.g. from an older import path or a
          // future producer) must not be silently dropped by the codex-content
@@ -8172,7 +8405,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
          if (data.type === 'compact-summary' && typeof data.summary === 'string') {
              return {
                  id: messageId,
-@@ -1131,7 +1248,9 @@ export function normalizeAgentRecord(
+@@ -1131,7 +1250,9 @@ export function normalizeAgentRecord(
                  content: {
                      type: 'compact-summary',
                      summary: data.summary,
@@ -8182,7 +8415,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                      estimatedTokensAfter: asNumber(data.estimatedTokensAfter) ?? undefined
                  },
                  isSidechain: false,
-@@ -1139,6 +1258,23 @@ export function normalizeAgentRecord(
+@@ -1139,6 +1260,28 @@ export function normalizeAgentRecord(
              }
          }
  
@@ -8192,12 +8425,17 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
 +            const scopeRole = asString(data.scope_role ?? data.scopeRole ?? scope?.role)
 +            if (data.flavor !== 'codex' || data.hapiUsageScope === 'imported-history'
 +                || scopeRole === 'child' || !turnId || durationMs === undefined) return null
++            const generationMs = nonNegativeSafeInteger(data.generationMs)
++            const generationOutputTokens = nonNegativeSafeInteger(data.generationOutputTokens)
++            const generation = generationMs !== undefined && generationMs > 0
++                && generationOutputTokens !== undefined && generationOutputTokens > 0
++                ? { generationMs, generationOutputTokens } : {}
 +            return {
 +                id: messageId,
 +                localId,
 +                createdAt,
 +                role: 'event',
-+                content: { type: 'turn-duration', provider: 'codex', durationMs, turnId },
++                content: { type: 'turn-duration', provider: 'codex', durationMs, turnId, ...generation },
 +                isSidechain: false,
 +                meta
 +            }
@@ -8206,7 +8444,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
          if (data.type === 'token_count') {
              const usage = normalizeCodexTokenUsage(data.info, data)
              return usage ? {
-@@ -1152,6 +1288,7 @@ export function normalizeAgentRecord(
+@@ -1152,6 +1295,7 @@ export function normalizeAgentRecord(
                      ...(data.flavor === 'codex'
                          ? {
                              provider: 'codex' as const,
@@ -8214,7 +8452,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                              model: asString(data.model) ?? undefined
                          }
                          : {})
-@@ -1222,6 +1359,18 @@ export function normalizeAgentRecord(
+@@ -1222,6 +1366,18 @@ export function normalizeAgentRecord(
  
          if (data.type === 'tool-call-result' && typeof data.callId === 'string') {
              const uuid = asString(data.id) ?? messageId
@@ -8233,7 +8471,7 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
              return {
                  id: messageId,
                  localId,
-@@ -1232,7 +1381,8 @@ export function normalizeAgentRecord(
+@@ -1232,7 +1388,8 @@ export function normalizeAgentRecord(
                      type: 'tool-result',
                      tool_use_id: data.callId,
                      content: data.output,
@@ -8243,8 +8481,35 @@ index 3684c2fdcf2d17240f3705334c0a7c119ab9e115..92d905e8274af8c5152b4ef4ecdccc18
                      uuid,
                      parentUUID: null
                  }],
+diff --git a/vendor/hapi/web/src/chat/presentation.test.ts b/vendor/hapi/web/src/chat/presentation.test.ts
+index 3db9c891e7773d69a8058c501e91ba2b154af0be..ef9d8b1a39ead94fc83c02a25b5d12e13cbefabf 100644
+--- a/vendor/hapi/web/src/chat/presentation.test.ts
++++ b/vendor/hapi/web/src/chat/presentation.test.ts
+@@ -132,6 +132,22 @@ describe('getEventPresentation — api-error', () => {
+     })
+ })
+ 
++describe('getEventPresentation — modelError', () => {
++    it('renders a short kind label without rawSnippet JSON dump', () => {
++        const result = getEventPresentation({
++            type: 'modelError',
++            kind: 'quota_exhausted',
++            transient: true,
++            rawSnippet: 'Error: RetriableError: [resource_exhausted] Error',
++            priorAssistantClaimsDone: false
++        })
++
++        expect(result.icon).toBe('⚠️')
++        expect(result.text).toBe('Model error (quota_exhausted, transient)')
++        expect(result.text).not.toContain('RetriableError')
++    })
++})
++
+ describe('getEventPresentation — limit-warning', () => {
+     it('formats five_hour warning', () => {
+         const result = getEventPresentation({
 diff --git a/vendor/hapi/web/src/chat/presentation.ts b/vendor/hapi/web/src/chat/presentation.ts
-index 5877bbcf1c07ae86698ab3b4faf05549620cad53..09b4bf07aaf33f0690e7d5a29edc4a766ad0555c 100644
+index 5877bbcf1c07ae86698ab3b4faf05549620cad53..c27a833d0b553d366c475130cbf19f7dfe099f1e 100644
 --- a/vendor/hapi/web/src/chat/presentation.ts
 +++ b/vendor/hapi/web/src/chat/presentation.ts
 @@ -45,7 +45,7 @@ export function formatMessageTimestamp(date: Date, now: Date = new Date()): stri
@@ -8268,6 +8533,35 @@ index 5877bbcf1c07ae86698ab3b4faf05549620cad53..09b4bf07aaf33f0690e7d5a29edc4a76
      const dateLabel = sameYear ? `${month}/${day}` : `${year}/${month}/${day}`
      return `${dateLabel} ${time}`
  }
+@@ -283,6 +288,28 @@ export function getEventPresentation(event: AgentEvent): EventPresentation {
+     if (event.type === 'token-count') {
+         return formatTokenCountEvent(event)
+     }
++    if (event.type === 'modelError') {
++        // Banner already surfaces the full model-error UI; avoid dumping
++        // rawSnippet via the JSON.stringify fallback into the chat thread.
++        const kind = typeof event.kind === 'string' ? event.kind : 'unknown'
++        const transient = event.transient === true
++        return {
++            icon: '⚠️',
++            text: transient
++                ? `Model error (${kind}, transient)`
++                : `Model error (${kind})`
++        }
++    }
++    if (event.type === 'modelErrorBridged') {
++        const kind = typeof event.kind === 'string' ? event.kind : 'unknown'
++        const auto = event.auto === true
++        return {
++            icon: '✓',
++            text: auto
++                ? `HAPI auto-bridged after ${kind} — re-sent last user message`
++                : `HAPI bridged after ${kind} — re-sent last user message`
++        }
++    }
+     try {
+         return { icon: null, text: JSON.stringify(event) }
+     } catch {
 diff --git a/vendor/hapi/web/src/chat/reconcile.roundSummary.test.ts b/vendor/hapi/web/src/chat/reconcile.roundSummary.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..558ea2e7e912c476836c4455139c0b4348469b8a
@@ -8377,7 +8671,7 @@ index 601adabd76236a5c88f8a810f39a646acabeac03..394e12ed84ffd3542fc8aa35ee073b52
          && left.tool.execStartedAt === right.tool.execStartedAt
          && left.tool.execCompletedAt === right.tool.execCompletedAt
 diff --git a/vendor/hapi/web/src/chat/reducer.test.ts b/vendor/hapi/web/src/chat/reducer.test.ts
-index 449eb95df3232d91068680a7158344d3c982492e..b18d44d1c3253ef012499c373421b186d828f631 100644
+index 449eb95df3232d91068680a7158344d3c982492e..b387a42ed54ca024577d485f2a80f9214231f683 100644
 --- a/vendor/hapi/web/src/chat/reducer.test.ts
 +++ b/vendor/hapi/web/src/chat/reducer.test.ts
 @@ -1,8 +1,10 @@
@@ -8392,7 +8686,70 @@ index 449eb95df3232d91068680a7158344d3c982492e..b18d44d1c3253ef012499c373421b186
  import type { DecryptedMessage } from '@/types/api'
  import type { AgentState, ThreadGoal, ThreadGoalStatus } from '@/types/api'
  
-@@ -441,6 +443,101 @@ describe('reduceChatBlocks', () => {
+@@ -426,6 +428,62 @@ describe('reduceChatBlocks', () => {
+         expect(reduced.blocks.some(b => b.kind === 'tool-call' && b.id === 'ask-done')).toBe(false)
+     })
+ 
++    describe('question card free-text flag from the pending request', () => {
++        const toolCall = (input: unknown): NormalizedMessage => ({
++            id: 'agent-ask', localId: null, createdAt: 1_700_000_000_100, role: 'agent', isSidechain: false,
++            content: [{
++                type: 'tool-call', id: 'call_q', name: 'AskUserQuestion', input,
++                description: null, uuid: 'u-ask', parentUUID: null
++            }]
++        })
++        const pending = (allowFreeText?: boolean): AgentState => ({
++            requests: {
++                call_q: {
++                    tool: 'AskUserQuestion',
++                    arguments: { questions: [{ question: 'Pick?', options: [{ label: 'A' }], ...(allowFreeText === undefined ? {} : { allowFreeText }) }] },
++                    createdAt: 1_700_000_000_200
++                }
++            },
++            completedRequests: {}
++        })
++        const renderedInput = (agentState: AgentState) => {
++            // agy's tool call input carries no flag: the form arrives later.
++            const reduced = reduceChatBlocks([
++                userMessage('u1', 'hello', 1_700_000_000_000),
++                toolCall({ questions: [{ question: 'Pick?', header: null, options: [{ label: 'A', description: null }], multiSelect: false }] })
++            ], agentState)
++            const block = reduced.blocks.find(b => b.kind === 'tool-call' && b.id === 'call_q')
++            if (block?.kind !== 'tool-call') throw new Error('Expected the question tool call')
++            return block.tool.input
++        }
++
++        it('carries allowFreeText=false from the pending request onto the tool call input', () => {
++            expect(renderedInput(pending(false))).toHaveProperty('questions.0.allowFreeText', false)
++        })
++
++        it('leaves the input without a flag when the request has none', () => {
++            expect(renderedInput(pending())).not.toHaveProperty('questions.0.allowFreeText')
++        })
++    })
++
++    it('synthesizes the selected live-only request even when it predates the window', () => {
++        const messages = [userMessage('u1', 'hello', 1_700_000_000_000)]
++        const agentState: AgentState = {
++            requests: {
++                'cursor-old': { tool: 'CursorAskQuestion', toolCallId: 'cursor-tool-call', arguments: { prompt: 'Pick one' }, createdAt: 1_600_000_000_000 },
++                'other-old': { tool: 'Bash', arguments: {}, createdAt: 1_600_000_000_100 }
++            },
++            completedRequests: {}
++        }
++
++        const reduced = reduceChatBlocks(messages, agentState, { pendingRequestTargetId: 'cursor-old' })
++        const rendered = reduced.blocks.filter((block) => block.kind === 'tool-call').map((block) => block.kind === 'tool-call' ? block.id : null)
++        expect(rendered).toContain('cursor-tool-call')
++        const selectedBlock = reduced.blocks.find((block) => block.kind === 'tool-call' && block.id === 'cursor-tool-call')
++        expect(selectedBlock?.kind === 'tool-call' ? selectedBlock.tool.permission?.id : null).toBe('cursor-old')
++        expect(rendered).not.toContain('other-old')
++    })
++
+     it('still synthesizes a card for a pending request with no message in the window', () => {
+         const messages = [userMessage('u1', 'hello', 1_700_000_000_000)]
+         const agentState = {
+@@ -441,6 +499,101 @@ describe('reduceChatBlocks', () => {
          expect(block?.kind === 'tool-call' ? block.tool.permission?.status : null).toBe('pending')
      })
  
@@ -8494,7 +8851,7 @@ index 449eb95df3232d91068680a7158344d3c982492e..b18d44d1c3253ef012499c373421b186
      it('attaches a result summary to the first block in the preceding contiguous assistant group', () => {
          const summary = {
              usage: { input_tokens: 100, output_tokens: 20 },
-@@ -459,6 +556,10 @@ describe('reduceChatBlocks', () => {
+@@ -459,6 +612,10 @@ describe('reduceChatBlocks', () => {
                  id: 'a2', localId: 'turn-2', createdAt: 3, role: 'agent', isSidechain: false,
                  content: [{ type: 'text', text: 'answer', uuid: 'a2', parentUUID: 'a1' }]
              },
@@ -8505,7 +8862,7 @@ index 449eb95df3232d91068680a7158344d3c982492e..b18d44d1c3253ef012499c373421b186
              {
                  id: 'summary', localId: null, createdAt: 4, role: 'event', isSidechain: false,
                  content: { type: 'turn-summary', summary } as any
-@@ -544,4 +645,80 @@ describe('reduceChatBlocks', () => {
+@@ -544,4 +701,80 @@ describe('reduceChatBlocks', () => {
          const assistant = reconciled.blocks.find(block => block.kind === 'agent-text')
          expect(assistant?.kind === 'agent-text' ? assistant.roundSummary : undefined).toEqual(summary)
      })
@@ -8587,7 +8944,7 @@ index 449eb95df3232d91068680a7158344d3c982492e..b18d44d1c3253ef012499c373421b186
 +    })
  })
 diff --git a/vendor/hapi/web/src/chat/reducer.ts b/vendor/hapi/web/src/chat/reducer.ts
-index b01c0c1781b070fe36b666ee33cf218db7163b67..0a34bb50f2413caad5876ab7634995f134da28dc 100644
+index b01c0c1781b070fe36b666ee33cf218db7163b67..6d1ad7e27a59060dc25652fe3da7c167de5ed5c4 100644
 --- a/vendor/hapi/web/src/chat/reducer.ts
 +++ b/vendor/hapi/web/src/chat/reducer.ts
 @@ -3,7 +3,7 @@ import type { AgentEvent, ChatBlock, NormalizedMessage, UsageData } from '@/chat
@@ -8599,7 +8956,16 @@ index b01c0c1781b070fe36b666ee33cf218db7163b67..0a34bb50f2413caad5876ab7634995f1
  import { reduceTimeline } from '@/chat/reducerTimeline'
  import { isRedundantGoalStatusMessageText } from '@hapi/protocol/messages'
  
-@@ -113,7 +113,6 @@ export function reduceChatBlocks(
+@@ -49,6 +49,8 @@ export type LatestUsage = {
+ 
+ export type ReduceChatBlocksOptions = {
+     goalStateMessages?: NormalizedMessage[]
++    /** Pending request selected for navigation. This live-only request may be synthesized even when it predates the loaded window. */
++    pendingRequestTargetId?: string
+ }
+ 
+ function getLatestThreadGoal(normalized: NormalizedMessage[]): ThreadGoal | null {
+@@ -113,7 +115,6 @@ export function reduceChatBlocks(
      options: ReduceChatBlocksOptions = {}
  ): { blocks: ChatBlock[]; hasReadyEvent: boolean; latestUsage: LatestUsage | null; latestGoal: ThreadGoal | null } {
      const permissionsById = getPermissions(agentState)
@@ -8607,7 +8973,7 @@ index b01c0c1781b070fe36b666ee33cf218db7163b67..0a34bb50f2413caad5876ab7634995f1
      const titleChangesByToolUseId = collectTitleChanges(normalized)
  
      const traced = traceMessages(normalized)
-@@ -136,25 +135,42 @@ export function reduceChatBlocks(
+@@ -136,31 +137,50 @@ export function reduceChatBlocks(
      const rootResult = reduceTimeline(root, reducerContext)
      let hasReadyEvent = rootResult.hasReadyEvent
  
@@ -8659,6 +9025,15 @@ index b01c0c1781b070fe36b666ee33cf218db7163b67..0a34bb50f2413caad5876ab7634995f1
 +        if (renderedToolBlockIds.has(id)) continue
  
          const createdAt = entry.permission.createdAt ?? Date.now()
+ 
+         // Skip permissions that are older than the oldest message in the current view.
+         // These will be shown when the user loads older messages.
+-        if (oldestMessageTime !== null && createdAt < oldestMessageTime) {
++        if (oldestMessageTime !== null && createdAt < oldestMessageTime
++            && id !== options.pendingRequestTargetId
++            && entry.permission.id !== options.pendingRequestTargetId) {
+             continue
+         }
  
 diff --git a/vendor/hapi/web/src/chat/reducerEvents.test.ts b/vendor/hapi/web/src/chat/reducerEvents.test.ts
 index fb3bd37b06f47bfa54d6efcb92d4c445297495d8..5c9b58ce685b9f0f509280433ecd2eb3c02ccbf7 100644
@@ -8743,7 +9118,7 @@ index 23ac761b7f94d65ef07c179119a293feb7bcff17..430cda2b779765a1d2a3a142264ede48
              const title = event.title.trim()
              const key = `title-changed:${title}`
 diff --git a/vendor/hapi/web/src/chat/reducerTimeline.test.ts b/vendor/hapi/web/src/chat/reducerTimeline.test.ts
-index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b9a0702e7 100644
+index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..2f7958a4096286a0b98a60042bb7b9e625831a77 100644
 --- a/vendor/hapi/web/src/chat/reducerTimeline.test.ts
 +++ b/vendor/hapi/web/src/chat/reducerTimeline.test.ts
 @@ -1,5 +1,9 @@
@@ -8756,7 +9131,7 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
  import { toolDurationMs } from '@/components/ToolCard/toolDuration'
  import type { TracedMessage } from './tracer'
  
-@@ -236,6 +240,143 @@ describe('reduceTimeline', () => {
+@@ -236,6 +240,185 @@ describe('reduceTimeline', () => {
          }])
      })
  
@@ -8843,6 +9218,48 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
 +        expect((blocks[0] as { roundSummary?: { durationMs?: number } }).roundSummary?.durationMs).toBeUndefined()
 +    })
 +
++    it('keeps the generation pair when token usage arrives after the turn duration', () => {
++        const messages = [
++            { turn_id: 'turn', type: 'message', message: 'answer' },
++            { turn_id: 'turn', type: 'turn_duration', flavor: 'codex', durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 },
++            { turn_id: 'turn', type: 'token_count', flavor: 'codex', model: 'gpt-5.4',
++                info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } }
++        ].map((data, index) => {
++            const message = normalizeAgentRecord(`late-usage-${index}`, null, index, { type: 'codex', data })
++            if (!message) throw new Error('Expected a normalized Codex message')
++            return message
++        })
++        const { blocks } = reduceTimeline(messages, makeContext())
++        expect(blocks[0]).toMatchObject({ roundSummary: { provider: 'codex', turnId: 'turn', numTurns: 1,
++            durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50,
++            usage: { input_tokens: 100, output_tokens: 10 },
++            modelUsage: { 'gpt-5.4': { inputTokens: 100, outputTokens: 10 } } } })
++        const answer = blocks[0]
++        if (answer?.kind !== 'agent-text') throw new Error('Expected the assistant answer')
++        expect(buildMessageMetadataLabels({ roundSummary: answer.roundSummary }))
++            .toContain('Round: 4s · 1 turn · 22.7 tok/s')
++    })
++
++    it('carries the Codex generation pair into the round summary for the tok/s footer', () => {
++        const messages = [
++            { turn_id: 'turn', type: 'message', message: 'answer' },
++            { turn_id: 'turn', type: 'token_count', flavor: 'codex', model: 'gpt-5.4',
++                info: { last_token_usage: { input_tokens: 100, output_tokens: 10 } } },
++            { turn_id: 'turn', type: 'turn_duration', flavor: 'codex', durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 }
++        ].map((data, index) => {
++            const message = normalizeAgentRecord(`generation-${index}`, null, index, { type: 'codex', data })
++            if (!message) throw new Error('Expected a normalized Codex message')
++            return message
++        })
++        const { blocks } = reduceTimeline(messages, makeContext())
++        expect(blocks[0]).toMatchObject({ roundSummary: { provider: 'codex', turnId: 'turn',
++            durationMs: 4_000, generationMs: 2_200, generationOutputTokens: 50 } })
++        const answer = blocks[0]
++        if (answer?.kind !== 'agent-text') throw new Error('Expected the assistant answer')
++        expect(buildMessageMetadataLabels({ roundSummary: answer.roundSummary }))
++            .toContain('Round: 4s · 1 turn · 22.7 tok/s')
++    })
++
 +    it('rejects unmatched Codex metadata when the response has a different native turn ID', () => {
 +        const messages = [
 +            { type: 'message', message: 'new answer', turn_id: 'new' },
@@ -8900,7 +9317,7 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
      it('does not derive a Round summary from unmarked token usage', () => {
          const assistant = makeAgentMessage('Imported Codex answer', {
              id: 'imported-codex-answer',
-@@ -311,6 +452,49 @@ describe('reduceTimeline', () => {
+@@ -311,6 +494,49 @@ describe('reduceTimeline', () => {
          expect(agentTextBlock.model).toBeUndefined()
      })
  
@@ -8950,7 +9367,7 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
      it('collapses reasoning snapshots with the same stream id', () => {
          const first: TracedMessage = {
              id: 'reasoning-row-1',
-@@ -446,7 +630,8 @@ describe('reduceTimeline', () => {
+@@ -446,7 +672,8 @@ describe('reduceTimeline', () => {
          expect(textBlocks).toHaveLength(2)
          expect(textBlocks[0]).toMatchObject({
              id: 'text-stream-1',
@@ -8960,7 +9377,7 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
          })
          expect(textBlocks[1]).toMatchObject({
              id: 'text-row-3:0',
-@@ -1615,3 +1800,30 @@ describe('reduceTimeline', () => {
+@@ -1615,3 +1842,30 @@ describe('reduceTimeline', () => {
          })
      })
  })
@@ -8992,10 +9409,38 @@ index 33e0a2c10cdae2bd9b5967b20e21d12ba4baa00a..c56cc943f790224a68826b6003c1f82b
 +    })
 +})
 diff --git a/vendor/hapi/web/src/chat/reducerTimeline.ts b/vendor/hapi/web/src/chat/reducerTimeline.ts
-index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccdec8742f0 100644
+index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..baef3c44962e73c265147389c40d90431ac7581c 100644
 --- a/vendor/hapi/web/src/chat/reducerTimeline.ts
 +++ b/vendor/hapi/web/src/chat/reducerTimeline.ts
-@@ -85,8 +85,19 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
+@@ -6,6 +6,27 @@ import { collectTitleChanges, ensureToolBlock, extractTitleFromChangeTitleInput,
+ import { isSubagentToolName } from '@/chat/subagentTool'
+ import { asString, isObject } from '@hapi/protocol'
+ 
++/**
++ * A question tool call's own input can predate what limits its answers (agy
++ * learns whether free text is allowed only when the form arrives), so take
++ * `allowFreeText` from the pending request's input for questions that carry
++ * none. Anything else is left as is.
++ */
++function withRequestFreeTextFlags(input: unknown, requestInput: unknown): unknown {
++    if (!isObject(input) || !isObject(requestInput)) return input
++    const requestQuestions = requestInput.questions
++    if (!Array.isArray(input.questions) || !Array.isArray(requestQuestions)) return input
++    let changed = false
++    const questions = input.questions.map((question, index) => {
++        const requested: unknown = requestQuestions[index]
++        if (!isObject(question) || 'allowFreeText' in question) return question
++        if (!isObject(requested) || typeof requested.allowFreeText !== 'boolean') return question
++        changed = true
++        return { ...question, allowFreeText: requested.allowFreeText }
++    })
++    return changed ? { ...input, questions } : input
++}
++
+ function getEventString(event: Record<string, unknown>, key: string): string | null {
+     return asString(event[key])
+ }
+@@ -85,8 +106,19 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
          && block.kind !== 'agent-event'
          && !(block.kind === 'cli-output' && block.source === 'user')
  
@@ -9016,7 +9461,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
          if (!isSummaryTarget(blocks[index])) break
          firstIndex = index
      }
-@@ -94,7 +105,21 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
+@@ -94,7 +126,21 @@ function attachCodexRoundSummaryToLatestGroup(blocks: ChatBlock[], summary: Roun
  
      const firstBlock = blocks[firstIndex]
      if (isSummaryTarget(firstBlock)) {
@@ -9039,7 +9484,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
      }
  }
  
-@@ -507,6 +532,7 @@ export function reduceTimeline(
+@@ -507,6 +553,7 @@ export function reduceTimeline(
                  const tokenCount = msg.content as {
                      type: 'token-count'
                      provider?: 'codex'
@@ -9047,7 +9492,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                      model?: string | null
                  }
                  if (
-@@ -515,16 +541,10 @@ export function reduceTimeline(
+@@ -515,16 +562,10 @@ export function reduceTimeline(
                      && msg.usage.scope_role !== 'child'
                  ) {
                      const model = tokenCount.model ?? undefined
@@ -9066,7 +9511,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                          modelUsage: model
                              ? {
                                  [model]: {
-@@ -552,18 +572,30 @@ export function reduceTimeline(
+@@ -552,18 +593,37 @@ export function reduceTimeline(
                      && !(block.kind === 'cli-output' && block.source === 'user')
                  let firstIndex = -1
                  for (let index = blocks.length - 1; index >= 0; index -= 1) {
@@ -9094,15 +9539,22 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
              }
              if (msg.content.type === 'turn-duration') {
 +                if (msg.content.provider === 'codex') {
++                    // The pair rides conditionally: a later usage summary must
++                    // not wipe a duration summary's generation fields.
++                    const { generationMs, generationOutputTokens } = msg.content
++                    const generation = typeof generationMs === 'number' && Number.isSafeInteger(generationMs) && generationMs > 0
++                        && typeof generationOutputTokens === 'number' && Number.isSafeInteger(generationOutputTokens) && generationOutputTokens > 0
++                        ? { generationMs, generationOutputTokens } : {}
 +                    attachCodexRoundSummaryToLatestGroup(blocks, {
-+                        provider: 'codex', turnId: msg.content.turnId as string, modelUsage: {}, numTurns: 1, durationMs: msg.content.durationMs as number
++                        provider: 'codex', turnId: msg.content.turnId as string, modelUsage: {}, numTurns: 1, durationMs: msg.content.durationMs as number,
++                        ...generation
 +                    })
 +                    continue
 +                }
                  const targetId = msg.content.targetMessageId
                  const durationMs = msg.content.durationMs as number
                  type DurationBearingBlock = AgentTextBlock | AgentReasoningBlock | CliOutputBlock | ToolCallBlock
-@@ -852,6 +884,10 @@ export function reduceTimeline(
+@@ -852,6 +912,10 @@ export function reduceTimeline(
                      if (streamId) {
                          const existing = textBlocksByStreamId.get(streamId)
                          if (existing) {
@@ -9113,7 +9565,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                              existing.text = c.text
                              existing.usage = msg.usage
                              existing.model = msg.model
-@@ -863,13 +899,11 @@ export function reduceTimeline(
+@@ -863,13 +927,11 @@ export function reduceTimeline(
  
                      const block: AgentTextBlock = {
                          kind: 'agent-text',
@@ -9131,7 +9583,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                          localId: msg.localId,
                          createdAt: msg.createdAt,
                          invokedAt: msg.invokedAt,
-@@ -906,6 +940,10 @@ export function reduceTimeline(
+@@ -906,6 +968,10 @@ export function reduceTimeline(
                      if (streamId) {
                          const existing = reasoningBlocksByStreamId.get(streamId)
                          if (existing) {
@@ -9142,7 +9594,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                              existing.text = c.text
                              existing.usage = msg.usage
                              existing.model = msg.model
-@@ -915,13 +953,17 @@ export function reduceTimeline(
+@@ -915,13 +981,17 @@ export function reduceTimeline(
                          }
                      }
  
@@ -9164,7 +9616,26 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                          localId: msg.localId,
                          createdAt: msg.createdAt,
                          invokedAt: msg.invokedAt,
-@@ -1002,6 +1044,11 @@ export function reduceTimeline(
+@@ -983,7 +1053,8 @@ export function reduceTimeline(
+                         continue
+                     }
+ 
+-                    const permission = context.permissionsById.get(c.id)?.permission
++                    const permissionEntry = context.permissionsById.get(c.id)
++                    const permission = permissionEntry?.permission
+ 
+                     const block = ensureToolBlock(blocks, toolBlocksById, c.id, {
+                         createdAt: msg.createdAt,
+@@ -993,7 +1064,7 @@ export function reduceTimeline(
+                         localId: msg.localId,
+                         meta: msg.meta,
+                         name: c.name,
+-                        input: c.input,
++                        input: withRequestFreeTextFlags(c.input, permissionEntry?.input),
+                         description: c.description,
+                         nativeTitle: c.nativeTitle,
+                         nativeKind: c.nativeKind,
+@@ -1002,6 +1073,11 @@ export function reduceTimeline(
                          agentTimestamp: msg.agentTimestamp
                      })
  
@@ -9176,7 +9647,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                      if (block.tool.state === 'pending') {
                          block.tool = { ...block.tool, state: 'running' }
                      }
-@@ -1014,6 +1061,7 @@ export function reduceTimeline(
+@@ -1014,6 +1090,7 @@ export function reduceTimeline(
                      // null exec timestamp is a no-op, leaving exec start unset so
                      // toolDurationMs falls back to hub times on both sides.
                      setEarliestStartedAt(block, msg.createdAt)
@@ -9184,7 +9655,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                      setEarliestExecStartedAt(block, msg.agentTimestamp ?? null)
  
                      if (isSubagentToolName(c.name) && !context.consumedGroupIds.has(msg.id)) {
-@@ -1068,6 +1116,7 @@ export function reduceTimeline(
+@@ -1068,6 +1145,7 @@ export function reduceTimeline(
                          return permissionFromResult ?? permissionEntry?.permission
                      })()
  
@@ -9192,7 +9663,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                      const block = ensureToolBlock(blocks, toolBlocksById, c.tool_use_id, {
                          createdAt: msg.createdAt,
                          invokedAt: msg.invokedAt,
-@@ -1075,8 +1124,8 @@ export function reduceTimeline(
+@@ -1075,8 +1153,8 @@ export function reduceTimeline(
                          model: msg.model,
                          localId: msg.localId,
                          meta: msg.meta,
@@ -9203,7 +9674,7 @@ index 6cdf38ccfaa5d47fb6f679b4d45535a8ca5b2fa9..5484a8380943b26527bf2a8829087ccd
                          description: null,
                          permission
                          // NOTE: no agentTimestamp seed here. execStartedAt must
-@@ -1090,6 +1139,10 @@ export function reduceTimeline(
+@@ -1090,6 +1168,10 @@ export function reduceTimeline(
  
                      block.tool = {
                          ...block.tool,
@@ -10511,7 +10982,7 @@ index cc6fc6fe875f03e7184073c8a5bc9757364a58a8..07d9a29567530e6e8084560eaa9ccf6e
      }
  
 diff --git a/vendor/hapi/web/src/chat/types.ts b/vendor/hapi/web/src/chat/types.ts
-index e0bcdd3e36c64591a11f1a2ab502fe4cef4ecf8f..053c92ee80a6dbeeddd56149f02d4c3ff303faf4 100644
+index e0bcdd3e36c64591a11f1a2ab502fe4cef4ecf8f..9788df4216902309a851e0d8ab3f619396bdc770 100644
 --- a/vendor/hapi/web/src/chat/types.ts
 +++ b/vendor/hapi/web/src/chat/types.ts
 @@ -21,13 +21,21 @@ export type RoundModelUsage = {
@@ -10542,7 +11013,7 @@ index e0bcdd3e36c64591a11f1a2ab502fe4cef4ecf8f..053c92ee80a6dbeeddd56149f02d4c3f
      | { type: 'ready' }
      | { type: 'api-error'; retryAttempt: number; maxRetries: number; error: unknown }
 -    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string }
-+    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string }
++    | { type: 'turn-duration'; durationMs: number; targetMessageId?: string; provider?: 'codex'; turnId?: string; generationMs?: number; generationOutputTokens?: number }
      | { type: 'turn-summary'; summary: RoundSummary }
 -    | { type: 'token-count'; info: unknown; provider?: 'codex'; model?: string | null }
 +    | { type: 'token-count'; info: unknown; provider?: 'codex'; turnId?: string; model?: string | null }
@@ -10950,11 +11421,136 @@ index 086cc5dc53a429f6d0fbe2d927d5aebd784e65c3..aa79375a74cb8febb62e5f7fd10aa3db
  }
  
  function normalizeClaudeComposerModel(model?: string | null): string | null {
+diff --git a/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.test.ts b/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.test.ts
+index 901e2c715cf625145331d9089b670e269ba2a3bf..25dbb66ede85d1cbdd8ffd3ee1551adb07bc8619 100644
+--- a/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.test.ts
++++ b/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.test.ts
+@@ -72,6 +72,31 @@ describe('getCodexComposerReasoningEffortOptions', () => {
+         ])
+     })
+ 
++    it('drops provider-default entries from dynamic options so Default is not duplicated', () => {
++        expect(getCodexComposerReasoningEffortOptions('default', 'opencode', [
++            { value: 'low', name: 'Low' },
++            { value: 'high', name: 'High' },
++            { value: 'max', name: 'Max' },
++            { value: 'default', name: 'Default' }
++        ])).toEqual([
++            { value: null, label: 'Default' },
++            { value: 'low', label: 'Low' },
++            { value: 'high', label: 'High' },
++            { value: 'max', label: 'Max' }
++        ])
++
++        expect(getCodexComposerReasoningEffortOptions('', 'dsh', [
++            { value: '', name: 'Provider default' },
++            { value: 'Default', name: 'Default' },
++            { value: 'low', name: 'Low' },
++            { value: 'high', name: 'High' }
++        ])).toEqual([
++            { value: null, label: 'Default' },
++            { value: 'low', label: 'Low' },
++            { value: 'high', label: 'High' }
++        ])
++    })
++
+     it('preserves unsupported current OpenCode values in the dropdown', () => {
+         expect(getCodexComposerReasoningEffortOptions('high', 'opencode', [
+             { value: 'low', name: 'Low' },
+@@ -83,4 +108,24 @@ describe('getCodexComposerReasoningEffortOptions', () => {
+             { value: 'medium', label: 'Medium' }
+         ])
+     })
++    it('builds DSH options from the fixed thought_level presets', () => {
++        expect(getCodexComposerReasoningEffortOptions(null, 'dsh')).toEqual([
++            { value: null, label: 'Default' },
++            { value: 'off', label: 'Off' },
++            { value: 'low', label: 'Low' },
++            { value: 'high', label: 'High' },
++            { value: 'max', label: 'Max' }
++        ])
++    })
++
++    it('prefers discovered DSH options over the presets', () => {
++        expect(getCodexComposerReasoningEffortOptions('low', 'dsh', [
++            { value: 'low', name: 'Low' },
++            { value: 'ultra', name: 'Ultra' }
++        ])).toEqual([
++            { value: null, label: 'Default' },
++            { value: 'low', label: 'Low' },
++            { value: 'ultra', label: 'Ultra' }
++        ])
++    })
+ })
+diff --git a/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.ts b/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.ts
+index 692a51ee005a68352fcd2d7fb0de4efd16b6b81c..9076c6949998744e9887998bb63c8dc36c26f931 100644
+--- a/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.ts
++++ b/vendor/hapi/web/src/components/AssistantChat/codexReasoningEffortOptions.ts
+@@ -18,6 +18,17 @@ const CODEX_REASONING_EFFORT_LABELS: Record<string, string> = {
+     ultra: 'Ultra'
+ }
+ 
++// DSH advertises a single session-wide `reasoning_effort` config option
++// (category thought_level) whose value set is fixed: off/low/high/max plus
++// '' meaning "Provider default". The composer maps '' to the null Default
++// entry, so only the four explicit levels are listed here.
++export const DSH_REASONING_EFFORT_PRESETS = ['off', 'low', 'high', 'max'] as const
++
++/** Source options for SessionChat's dsh picker (mirrors what the agent's config option advertises). */
++export function getDshReasoningEffortSourceOptions(): ComposerReasoningEffortSourceOption[] {
++    return DSH_REASONING_EFFORT_PRESETS.map((value) => ({ value }))
++}
++
+ function normalizeCodexComposerReasoningEffort(effort?: string | null): string | null {
+     const trimmedEffort = effort?.trim().toLowerCase()
+     if (!trimmedEffort || trimmedEffort === 'default') {
+@@ -36,7 +47,10 @@ function buildDynamicReasoningEffortOptions(
+     currentEffort: string | null,
+     dynamicOptions: ComposerReasoningEffortSourceOption[]
+ ): CodexComposerReasoningEffortOption[] {
+-    const optionValues = new Set(dynamicOptions.map((option) => option.value))
++    const filteredOptions = dynamicOptions.filter(
++        (option) => normalizeCodexComposerReasoningEffort(option.value) !== null
++    )
++    const optionValues = new Set(filteredOptions.map((option) => option.value))
+     const options: CodexComposerReasoningEffortOption[] = [
+         { value: null, label: 'Default' }
+     ]
+@@ -48,7 +62,7 @@ function buildDynamicReasoningEffortOptions(
+         })
+     }
+ 
+-    options.push(...dynamicOptions.map((option) => ({
++    options.push(...filteredOptions.map((option) => ({
+         value: option.value,
+         label: option.name ?? formatCodexReasoningEffortLabel(option.value)
+     })))
+@@ -70,6 +84,15 @@ export function getCodexComposerReasoningEffortOptions(
+         return buildDynamicReasoningEffortOptions(normalizedCurrentEffort, dynamicOptions)
+     }
+ 
++    if (flavor === 'dsh') {
++        // DSH has a fixed thought_level value set; prefer discovered options
++        // when a catalog provides them, otherwise fall back to the presets.
++        const sourceOptions = dynamicOptions && dynamicOptions.length > 0
++            ? dynamicOptions
++            : getDshReasoningEffortSourceOptions()
++        return buildDynamicReasoningEffortOptions(normalizedCurrentEffort, sourceOptions)
++    }
++
+     if (dynamicOptions && dynamicOptions.length > 0) {
+         return buildDynamicReasoningEffortOptions(normalizedCurrentEffort, dynamicOptions)
+     }
 diff --git a/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.test.ts b/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.test.ts
-index 1fc112e7610170c817dc973e7c29c1eee5fa6725..9f74b196b68dad21bedd4ce6772344a6d2652b12 100644
+index 1fc112e7610170c817dc973e7c29c1eee5fa6725..a2d9a5891bf48d40fcf2cc1abd22bd652116dc7b 100644
 --- a/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.test.ts
 +++ b/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.test.ts
-@@ -216,3 +216,58 @@ describe('buildMessageMetadataLabels', () => {
+@@ -212,7 +212,156 @@ describe('buildMessageMetadataLabels', () => {
+             'Models: claude-opus-5, claude-haiku-4-5, claude-empty-5',
+             'Tokens: 24 (10 in · 14 out)',
+             'Cost: <$0.0001',
+-            'Round: 0.0s'
++            'Round: 0s'
          ])
      })
  })
@@ -11013,11 +11609,126 @@ index 1fc112e7610170c817dc973e7c29c1eee5fa6725..9f74b196b68dad21bedd4ce6772344a6
 +        expect(labels(input, cached).join(' ')).not.toMatch(/NaN|Infinity/)
 +    })
 +})
++
++
++describe('provider throughput metadata', () => {
++    const summary = {
++        modelUsage: { 'fixture/model': { outputTokens: 1_000 } },
++        durationMs: 9_000, numTurns: 2, generationMs: 1_500, generationOutputTokens: 30
++    }
++    it('uses provider time and assistant-only output instead of wall time or compaction usage', () => {
++        expect(buildMessageMetadataLabels({ roundSummary: summary })).toContain('Round: 9s · 2 turns · 20.0 tok/s')
++    })
++    it.each([undefined, 0, -1, NaN, Infinity, Number.MIN_VALUE])('hides invalid or overflowing duration %s', (generationMs) => {
++        expect(buildMessageMetadataLabels({ roundSummary: { ...summary, generationMs } }).join(' ')).not.toContain('tok/s')
++    })
++    it.each([undefined, 0, -1, NaN, Infinity, 1.5])('hides invalid output %s', (generationOutputTokens) => {
++        expect(buildMessageMetadataLabels({ roundSummary: { ...summary, generationOutputTokens } }).join(' ')).not.toContain('tok/s')
++    })
++    it('renders the agy usage breakdown, cache share and round time', () => {
++        const parts = buildMessageMetadataLabels({
++            roundSummary: {
++                provider: 'agy',
++                modelUsage: { 'gemini-3-flash-low': {} },
++                agyUsage: { input_tokens: 30_458, output_tokens: 58, thinking_tokens: 120, cache_read_tokens: 10_000, total_tokens: 30_636 },
++                durationMs: 9_500
++            }
++        })
++
++        expect(parts).toEqual([
++            'Model: gemini-3-flash-low',
++            'Tokens: 30.6k (30.5k in · 58 out · 120 thinking)',
++            'Cached input: 24.7%',
++            'Round: 9.5s'
++        ])
++    })
++
++    it('adds agy tok/s to the Round line when the summary carries generation time', () => {
++        const parts = buildMessageMetadataLabels({
++            roundSummary: {
++                provider: 'agy',
++                modelUsage: {},
++                agyUsage: { input_tokens: 4_422, output_tokens: 58, thinking_tokens: 12, total_tokens: 35_530 },
++                durationMs: 14_900,
++                generationMs: 2_500,
++                generationOutputTokens: 70
++            }
++        })
++        expect(parts.at(-1)).toBe('Round: 14.9s · 28.0 tok/s')
++    })
++
++    it('adds Claude tok/s to the Round line from the duration_api_ms pair', () => {
++        const parts = buildMessageMetadataLabels({
++            roundSummary: {
++                modelUsage: { 'claude-opus-5': { inputTokens: 4_422, outputTokens: 70, cacheReadInputTokens: 900, cacheCreationInputTokens: 100 } },
++                usage: { input_tokens: 4_422, output_tokens: 70, cache_read_input_tokens: 900, cache_creation_input_tokens: 100 },
++                numTurns: 3,
++                durationMs: 14_900,
++                generationMs: 2_500,
++                generationOutputTokens: 70
++            }
++        })
++        expect(parts.at(-1)).toBe('Round: 14.9s · 3 turns · 28.0 tok/s')
++    })
++
++    it('omits the agy cache share without cache reads and shows partial usage as reported', () => {
++        expect(buildMessageMetadataLabels({
++            model: 'fallback-model',
++            roundSummary: { provider: 'agy', modelUsage: {}, agyUsage: { input_tokens: 15_172, output_tokens: 44, cache_read_tokens: 0 } }
++        })).toEqual(['Model: fallback-model', 'Tokens: 15.2k in · 44 out'])
++    })
++
++    it('adds the agy turn count to the agy Round line (google-antigravity/antigravity-cli#1045)', () => {
++        const parts = buildMessageMetadataLabels({
++            roundSummary: {
++                provider: 'agy',
++                modelUsage: {},
++                agyUsage: { input_tokens: 4_422, output_tokens: 58 },
++                durationMs: 14_900,
++                numTurns: 3
++            }
++        })
++        expect(parts.at(-1)).toBe('Round: 14.9s · 3 turns')
++        for (const numTurns of [undefined, 0, -2]) {
++            const hidden = buildMessageMetadataLabels({
++                roundSummary: {
++                    provider: 'agy',
++                    modelUsage: {},
++                    agyUsage: { input_tokens: 4_422, output_tokens: 58 },
++                    durationMs: 14_900,
++                    numTurns
++                }
++            })
++            expect(hidden.at(-1)).toBe('Round: 14.9s')
++        }
++    })
++})
 diff --git a/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.tsx b/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.tsx
-index 58133a35cc2b6e8a47dda3b0917f63e42e573d78..ce8d77dfac2c4ea96232bdab732763e7ae6c2bbe 100644
+index 58133a35cc2b6e8a47dda3b0917f63e42e573d78..7365d69085f491e51534b005b465aeb9e063ba2b 100644
 --- a/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.tsx
 +++ b/vendor/hapi/web/src/components/AssistantChat/messages/MessageMetadata.tsx
-@@ -39,7 +39,9 @@ function getRoundUsage(summary: RoundSummary): UsageData | undefined {
+@@ -21,10 +21,19 @@ function formatCompactTokenCount(value: number): string {
+     return `${(Math.round((value / divisor) * 10) / 10).toString()}${suffix}`
+ }
+ 
+-function formatPercentage(value: number): string {
++function formatOneDecimal(value: number): string {
+     return (Math.round(value * 10) / 10).toString()
+ }
+ 
++function formatPercentage(value: number): string {
++    return formatOneDecimal(value)
++}
++
++function formatRoundDuration(durationMs: number): string {
++    if (durationMs < 60_000) return formatOneDecimal(durationMs / 1000) + 's'
++    return formatDuration(durationMs)
++}
++
+ function formatUsd(value: number): string {
+     if (value < 0.0001) return '<$0.0001'
+     return value >= 0.01 ? `$${value.toFixed(3)}` : `$${value.toFixed(4)}`
+@@ -39,27 +48,77 @@ function getRoundUsage(summary: RoundSummary): UsageData | undefined {
          input_tokens: total.input_tokens + (usage.inputTokens ?? 0),
          output_tokens: total.output_tokens + (usage.outputTokens ?? 0),
          cache_creation_input_tokens: (total.cache_creation_input_tokens ?? 0) + (usage.cacheCreationInputTokens ?? 0),
@@ -11028,13 +11739,55 @@ index 58133a35cc2b6e8a47dda3b0917f63e42e573d78..ce8d77dfac2c4ea96232bdab732763e7
      }), { input_tokens: 0, output_tokens: 0 })
  }
  
-@@ -49,17 +51,25 @@ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string |
++function formatTokensPerSecond({ generationMs, generationOutputTokens }: RoundSummary): string | undefined {
++    if (generationMs === undefined || !Number.isSafeInteger(generationMs) || generationMs <= 0
++        || generationOutputTokens === undefined || !Number.isSafeInteger(generationOutputTokens) || generationOutputTokens <= 0) {
++        return undefined
++    }
++    const tokensPerSecond = generationOutputTokens / (generationMs / 1_000)
++    return Number.isFinite(tokensPerSecond) ? `${tokensPerSecond.toFixed(1)} tok/s` : undefined
++}
++
++function buildAgyRoundLabels(summary: RoundSummary): string[] {
++    const parts: string[] = []
++    const usage = summary.agyUsage
++    if (usage) {
++        const breakdown = [
++            usage.input_tokens !== undefined ? `${formatCompactTokenCount(usage.input_tokens)} in` : undefined,
++            usage.output_tokens !== undefined ? `${formatCompactTokenCount(usage.output_tokens)} out` : undefined,
++            usage.thinking_tokens !== undefined ? `${formatCompactTokenCount(usage.thinking_tokens)} thinking` : undefined
++        ].filter(Boolean).join(' · ')
++        const total = usage.total_tokens !== undefined ? formatCompactTokenCount(usage.total_tokens) : undefined
++        if (total || breakdown) parts.push(`Tokens: ${total ? total + (breakdown ? ` (${breakdown})` : '') : breakdown}`)
++        // agy's input excludes cache reads.
++        const input = usage.input_tokens
++        const cached = usage.cache_read_tokens
++        if (input !== undefined && cached !== undefined && cached > 0 && Number.isSafeInteger(input + cached)) {
++            parts.push(`Cached input: ${formatPercentage(cached / (input + cached) * 100)}%`)
++        }
++    }
++    const round: string[] = []
++    if (summary.durationMs !== undefined) round.push(formatRoundDuration(summary.durationMs))
++    if (summary.numTurns !== undefined && summary.numTurns > 0) {
++        round.push(`${summary.numTurns} turn${summary.numTurns === 1 ? '' : 's'}`)
++    }
++    const tokensPerSecond = formatTokensPerSecond(summary)
++    if (tokensPerSecond) round.push(tokensPerSecond)
++    if (round.length > 0) parts.push(`Round: ${round.join(' · ')}`)
++    return parts
++}
++
+ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string | null): string[] {
+     const parts: string[] = []
+     const models = Object.keys(summary.modelUsage)
      const model = models.length > 0 ? models.join(', ') : fallbackModel
      if (model) parts.push(`${models.length > 1 ? 'Models' : 'Model'}: ${model}`)
  
 -    const usage = getRoundUsage(summary)
 -    if (usage) {
 -        const input = usage.input_tokens
++    if (summary.provider === 'agy') return [...parts, ...buildAgyRoundLabels(summary)]
++
 +    const isCodex = summary.provider === 'codex'
 +    const usage = isCodex && summary.usage ? summary.usage : getRoundUsage(summary)
 +    if (usage && (!isCodex || (Number.isSafeInteger(usage.input_tokens) && usage.input_tokens >= 0
@@ -11059,6 +11812,20 @@ index 58133a35cc2b6e8a47dda3b0917f63e42e573d78..ce8d77dfac2c4ea96232bdab732763e7
          }
          if (summary.totalCostUsd !== undefined && summary.totalCostUsd > 0) {
              economics.push(`Cost: ${formatUsd(summary.totalCostUsd)}`)
+@@ -70,10 +129,12 @@ function buildRoundSummaryLabels(summary: RoundSummary, fallbackModel?: string |
+     }
+ 
+     const round: string[] = []
+-    if (summary.durationMs !== undefined && summary.durationMs >= 0) round.push(formatDuration(summary.durationMs))
++    if (summary.durationMs !== undefined && summary.durationMs >= 0) round.push(formatRoundDuration(summary.durationMs))
+     if (summary.numTurns !== undefined && summary.numTurns > 0) {
+         round.push(`${summary.numTurns} turn${summary.numTurns === 1 ? '' : 's'}`)
+     }
++    const tokensPerSecond = formatTokensPerSecond(summary)
++    if (tokensPerSecond) round.push(tokensPerSecond)
+     if (round.length > 0) parts.push(`Round: ${round.join(' · ')}`)
+     return parts
+ }
 diff --git a/vendor/hapi/web/src/components/AssistantChat/messages/SystemMessage.tsx b/vendor/hapi/web/src/components/AssistantChat/messages/SystemMessage.tsx
 index 5bc0dd3ccecce3026872c8fc5c13a9e3972bc1c7..ada10a134ac77ca95cb9a321a4f75f91884adb62 100644
 --- a/vendor/hapi/web/src/components/AssistantChat/messages/SystemMessage.tsx
@@ -12268,7 +13035,7 @@ index 7b2cac482b8e29376ff7da10199ae0e85501c00d..74243e3ddb7af5468336fbafe2658279
 +    })
  })
 diff --git a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
-index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533fb51d2de 100644
+index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..d86eb305f67b048a97b2940b3b3ed2c85b6295f1 100644
 --- a/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/AskUserQuestionFooter.tsx
 @@ -82,7 +82,7 @@ function computeAnswersForQuestion(
@@ -12366,9 +13133,14 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
      }
  
      const next = () => {
-@@ -330,8 +350,20 @@ export function AskUserQuestionFooter(props: {
+@@ -329,9 +349,25 @@ export function AskUserQuestionFooter(props: {
+         }
      }
  
++    let submitLabel = 'tool.submit'
++    if (loading) submitLabel = 'tool.submitting'
++    else if (acceptedAction === 'answer') submitLabel = 'tool.requestUserInput.submitted'
++
      return (
 -        <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
 -            <div className="flex items-start justify-between gap-3">
@@ -12389,7 +13161,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -345,26 +377,32 @@ export function AskUserQuestionFooter(props: {
+@@ -345,26 +381,32 @@ export function AskUserQuestionFooter(props: {
              </div>
  
              {error ? (
@@ -12426,7 +13198,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                      <div className="flex items-start justify-between gap-3">
                          <div className="min-w-0 flex-1">
                              {questions[clampedStep]?.header ? (
-@@ -393,7 +431,7 @@ export function AskUserQuestionFooter(props: {
+@@ -393,7 +435,7 @@ export function AskUserQuestionFooter(props: {
                                      key={optIdx}
                                      checked={selected}
                                      mode={mode}
@@ -12435,7 +13207,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                                      title={opt.label}
                                      description={opt.description}
                                      onClick={() => toggleOption(clampedStep, optIdx)}
-@@ -401,20 +439,20 @@ export function AskUserQuestionFooter(props: {
+@@ -401,20 +443,20 @@ export function AskUserQuestionFooter(props: {
                              )
                          })}
  
@@ -12461,7 +13233,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                                  placeholder={t('tool.askUserQuestion.otherPlaceholder')}
                                  className="mt-2 min-h-[88px] w-full resize-y rounded-xl border border-[var(--app-border)] bg-[var(--app-tool-card-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] disabled:opacity-50"
                              />
-@@ -423,14 +461,14 @@ export function AskUserQuestionFooter(props: {
+@@ -423,14 +465,14 @@ export function AskUserQuestionFooter(props: {
                  </div>
              )}
  
@@ -12478,7 +13250,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                              onClick={prev}
                              className={questionNavButtonClassName}
                          >
-@@ -439,13 +477,23 @@ export function AskUserQuestionFooter(props: {
+@@ -439,13 +481,23 @@ export function AskUserQuestionFooter(props: {
                      ) : null}
                  </div>
  
@@ -12504,7 +13276,7 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                              onClick={next}
                              className={questionNavButtonClassName}
                          >
-@@ -456,7 +504,7 @@ export function AskUserQuestionFooter(props: {
+@@ -456,19 +508,16 @@ export function AskUserQuestionFooter(props: {
                              type="button"
                              variant="outline"
                              size="sm"
@@ -12513,15 +13285,22 @@ index 544c6fe70dba9a9a658dbf4e7d9e599c6d8abaae..cb61e51ab1155f5569644cbdf4e35533
                              onClick={submit}
                              aria-busy={loading}
                              className={cn(questionNavButtonClassName, 'gap-2')}
-@@ -467,7 +515,7 @@ export function AskUserQuestionFooter(props: {
-                                     {t('tool.submitting')}
-                                 </>
-                             ) : (
+                         >
+                             {loading ? (
+-                                <>
+-                                    <Spinner size="sm" label={null} className="text-[var(--app-fg)]" />
+-                                    {t('tool.submitting')}
+-                                </>
+-                            ) : (
 -                                t('tool.submit')
-+                                t(acceptedAction === 'answer' ? 'tool.requestUserInput.submitted' : 'tool.submit')
-                             )}
+-                            )}
++                                <Spinner size="sm" label={null} className="text-[var(--app-fg)]" />
++                            ) : null}
++                            {/* Keep the label element stable if browser translation replaces its text node. */}
++                            <span>{t(submitLabel)}</span>
                          </Button>
                      )}
+                 </div>
 diff --git a/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx b/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx
 index 5466b94a27806e58c08e30e9bb53cb82982365a4..339071684dcca0a2ca60ca217c5a318ec6ee1a1a 100644
 --- a/vendor/hapi/web/src/components/ToolCard/PermissionFooter.tsx
@@ -12585,7 +13364,7 @@ index 5466b94a27806e58c08e30e9bb53cb82982365a4..339071684dcca0a2ca60ca217c5a318e
              <div className="mt-2 rounded-xl border border-[var(--app-badge-error-border)] bg-[var(--app-badge-error-bg)] px-3 py-2 text-xs text-[var(--app-badge-error-text)]">
                  {permission.reason}
 diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
-index a59fcc79dbb6bfe92007029f5e34ca04253b2868..6f749acfd9a67954a3219343c8f497217f3fe96e 100644
+index a59fcc79dbb6bfe92007029f5e34ca04253b2868..342c70e9c28ffee61797e994edd3fc7a53056a4a 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.test.tsx
 @@ -1,6 +1,6 @@
@@ -12598,15 +13377,49 @@ index a59fcc79dbb6bfe92007029f5e34ca04253b2868..6f749acfd9a67954a3219343c8f49721
  import type { ChatToolCall } from '@/chat/types'
  
  vi.mock('@/hooks/usePlatform', () => ({
-@@ -18,15 +18,22 @@ vi.mock('@/lib/use-translation', () => ({
+@@ -17,16 +17,56 @@ vi.mock('@/lib/use-translation', () => ({
+ }))
  
  import { RequestUserInputFooter } from './RequestUserInputFooter'
- 
++import { AskUserQuestionFooter } from './AskUserQuestionFooter'
++
 +afterEach(() => {
 +    cleanup()
 +    vi.restoreAllMocks()
 +})
 +
++// A translator may replace React's text nodes while a permission reply is in flight.
++it.each([RequestUserInputFooter, AskUserQuestionFooter])('keeps submission and retry working after translated button text is replaced (%#)', async (Footer) => {
++    const api = new ApiClient('')
++    const response = Promise.withResolvers<void>()
++    const approve = vi.spyOn(api, 'approvePermission').mockResolvedValue(undefined)
++    approve.mockReturnValueOnce(response.promise)
++    const tool = makeTool({ questions: [choice] })
++    if (Footer === AskUserQuestionFooter) tool.name = 'AskUserQuestion'
++    render(<Footer api={api} sessionId="translation-session" tool={tool} disabled={false} onDone={vi.fn()} />)
++    fireEvent.click(screen.getByRole(Footer === AskUserQuestionFooter ? 'radio' : 'button', { name: /Alpha/ }))
++    const button = screen.getByRole('button', { name: 'tool.submit' })
++    function translateLabel() {
++        const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
++        let text = walker.nextNode()
++        while (text && !text.textContent?.startsWith('tool.')) text = walker.nextNode()
++        if (!text?.parentNode) throw new Error('Submission label missing')
++        const translation = document.createElement('font')
++        translation.textContent = '确认'
++        text.parentNode.replaceChild(translation, text)
++    }
++    translateLabel()
++    fireEvent.click(button)
++    expect(approve).toHaveBeenCalledOnce()
++    expect(button).toHaveAttribute('aria-busy', 'true')
++    translateLabel()
++    await act(async () => response.reject(new Error('Try again')))
++    expect(button).toHaveAttribute('aria-busy', 'false')
++    expect(screen.getByRole('alert')).toHaveTextContent('Try again')
++    fireEvent.click(button)
++    await waitFor(() => expect(approve).toHaveBeenCalledTimes(2))
++})
+ 
  const choice = { id: 'choice', question: 'Choose', isOther: true, options: [{ label: 'Alpha' }, { label: 'Beta' }] }
  
  function renderFooter(input: unknown = { questions: [choice] }) {
@@ -12624,7 +13437,7 @@ index a59fcc79dbb6bfe92007029f5e34ca04253b2868..6f749acfd9a67954a3219343c8f49721
  }
  
  function makeTool(input: unknown): ChatToolCall {
-@@ -49,6 +56,94 @@ function makeTool(input: unknown): ChatToolCall {
+@@ -49,6 +89,94 @@ function makeTool(input: unknown): ChatToolCall {
  }
  
  describe('RequestUserInputFooter', () => {
@@ -12720,7 +13533,7 @@ index a59fcc79dbb6bfe92007029f5e34ca04253b2868..6f749acfd9a67954a3219343c8f49721
          const { approvePermission } = renderFooter()
          fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
 diff --git a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
-index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc67f6192cf 100644
+index b4b5d684e2c86063e059bac960b210fba898149d..816fcfcfeaf4046488dd48bc4d4ebf7c7f7ca379 100644
 --- a/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/RequestUserInputFooter.tsx
 @@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
@@ -12841,9 +13654,14 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
      }
  
      const next = () => {
-@@ -198,8 +224,8 @@ export function RequestUserInputFooter(props: {
+@@ -197,9 +223,13 @@ export function RequestUserInputFooter(props: {
+     const currentState = currentQuestion ? stateByQuestion[currentQuestion.id] : null
      const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
  
++    let submitLabel = 'tool.submit'
++    if (loading) submitLabel = 'tool.submitting'
++    else if (submitted) submitLabel = 'tool.requestUserInput.submitted'
++
      return (
 -        <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3">
 -            <div className="flex items-start justify-between gap-3">
@@ -12852,7 +13670,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                  <div className="min-w-0">
                      <div className="flex items-center gap-2">
                          <Badge variant="default">
-@@ -213,13 +239,19 @@ export function RequestUserInputFooter(props: {
+@@ -213,13 +243,19 @@ export function RequestUserInputFooter(props: {
              </div>
  
              {error ? (
@@ -12874,7 +13692,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                      {currentQuestion.question ? (
                          <div>
                              <MarkdownRenderer content={currentQuestion.question} />
-@@ -231,7 +263,7 @@ export function RequestUserInputFooter(props: {
+@@ -231,7 +267,7 @@ export function RequestUserInputFooter(props: {
                          <textarea
                              value={currentState?.userNote ?? ''}
                              onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
@@ -12883,7 +13701,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                              placeholder={currentQuestion.placeholder ?? t('tool.requestUserInput.textPlaceholder')}
                              className="mt-3 w-full min-h-[88px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                          />
-@@ -245,7 +277,7 @@ export function RequestUserInputFooter(props: {
+@@ -245,7 +281,7 @@ export function RequestUserInputFooter(props: {
                                          <OptionRow
                                              key={optIdx}
                                              checked={isSelected}
@@ -12892,7 +13710,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                                              title={opt.isOther ? t('tool.requestUserInput.otherLabel') : opt.label}
                                              description={opt.isOther ? t('tool.requestUserInput.otherDescription') : opt.description}
                                              onClick={() => selectOption(currentQuestion, opt)}
-@@ -264,7 +296,7 @@ export function RequestUserInputFooter(props: {
+@@ -264,7 +300,7 @@ export function RequestUserInputFooter(props: {
                                      aria-label={t('tool.requestUserInput.noteLabel')}
                                      value={currentState?.userNote ?? ''}
                                      onChange={(e) => updateUserNote(currentQuestion.id, e.target.value)}
@@ -12901,7 +13719,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                                      placeholder={t('tool.requestUserInput.notePlaceholder')}
                                      className="w-full min-h-[60px] resize-y rounded-md border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2 text-sm text-[var(--app-fg)] placeholder:text-[var(--app-hint)] focus:outline-none focus:ring-2 focus:ring-[var(--app-button)] focus:border-transparent disabled:opacity-50"
                                  />
-@@ -274,14 +306,27 @@ export function RequestUserInputFooter(props: {
+@@ -274,14 +310,27 @@ export function RequestUserInputFooter(props: {
                  </div>
              ) : null}
  
@@ -12931,7 +13749,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                              onClick={prev}
                          >
                              {t('tool.prev')}
-@@ -295,7 +340,7 @@ export function RequestUserInputFooter(props: {
+@@ -295,7 +344,7 @@ export function RequestUserInputFooter(props: {
                              type="button"
                              variant="default"
                              size="sm"
@@ -12940,7 +13758,7 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                              onClick={next}
                          >
                              {t('tool.next')}
-@@ -305,7 +350,7 @@ export function RequestUserInputFooter(props: {
+@@ -305,19 +354,16 @@ export function RequestUserInputFooter(props: {
                              type="button"
                              variant="default"
                              size="sm"
@@ -12949,15 +13767,22 @@ index b4b5d684e2c86063e059bac960b210fba898149d..9e1f8afa0c2267920a06ec0d712dffc6
                              onClick={submit}
                              aria-busy={loading}
                              className="gap-2"
-@@ -316,7 +361,7 @@ export function RequestUserInputFooter(props: {
-                                     {t('tool.submitting')}
-                                 </>
-                             ) : (
+                         >
+                             {loading ? (
+-                                <>
+-                                    <Spinner size="sm" label={null} className="text-[var(--app-button-text)]" />
+-                                    {t('tool.submitting')}
+-                                </>
+-                            ) : (
 -                                t('tool.submit')
-+                                t(submitted ? 'tool.requestUserInput.submitted' : 'tool.submit')
-                             )}
+-                            )}
++                                <Spinner size="sm" label={null} className="text-[var(--app-button-text)]" />
++                            ) : null}
++                            {/* Keep the label element stable if browser translation replaces its text node. */}
++                            <span>{t(submitLabel)}</span>
                          </Button>
                      )}
+                 </div>
 diff --git a/vendor/hapi/web/src/components/ToolCard/ToolCard.test.ts b/vendor/hapi/web/src/components/ToolCard/ToolCard.test.ts
 index 4d04c447d6b0f6b7d133e3d4ffd41ffca1f625a7..0404d614371c21c6a8b8985888c26e7b91bb1353 100644
 --- a/vendor/hapi/web/src/components/ToolCard/ToolCard.test.ts
@@ -13051,7 +13876,7 @@ index 4d04c447d6b0f6b7d133e3d4ffd41ffca1f625a7..0404d614371c21c6a8b8985888c26e7b
  
      it('extracts name + version from a full SDK model id, dropping the date suffix', () => {
 diff --git a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx b/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
-index d2c398d05b4d629cf44f8a9caf864f0c8b2ca49f..b0b377a7acc9111192810745a186cd2bb3ecb14e 100644
+index d2c398d05b4d629cf44f8a9caf864f0c8b2ca49f..1c50813c018d61a3059368f343e79a2b3887d931 100644
 --- a/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/ToolCard.tsx
 @@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
@@ -13158,7 +13983,25 @@ index d2c398d05b4d629cf44f8a9caf864f0c8b2ca49f..b0b377a7acc9111192810745a186cd2b
              <ToolTimingDetails block={props.block} />
              <div>
                  <div className="mb-1 text-xs font-medium text-[var(--app-hint)]">
-@@ -434,19 +453,17 @@ function ToolCardInner(props: ToolCardProps) {
+@@ -414,7 +433,8 @@ function ToolCardInner(props: ToolCardProps) {
+         result: props.block.tool.result,
+         childrenCount: props.block.children.length,
+         description: props.block.tool.nativeTitle ?? props.block.tool.description,
+-        metadata: props.metadata
++        metadata: props.metadata,
++        pending: props.block.tool.permission?.status === 'pending'
+     }, t), [
+         props.block.tool.name,
+         props.block.tool.input,
+@@ -423,6 +443,7 @@ function ToolCardInner(props: ToolCardProps) {
+         props.block.tool.nativeTitle,
+         props.block.tool.description,
+         props.metadata,
++        props.block.tool.permission?.status,
+         t
+     ])
+ 
+@@ -434,19 +455,17 @@ function ToolCardInner(props: ToolCardProps) {
          ? getSubagentModel(props.block.children, getInputStringAny(props.block.tool.input, ['model']))
          : null
      const isCodexAgentCard = toolName === 'CodexAgent'
@@ -13183,7 +14026,7 @@ index d2c398d05b4d629cf44f8a9caf864f0c8b2ca49f..b0b377a7acc9111192810745a186cd2b
      const hasBody = showInline || taskSummary !== null || showsPermissionFooter
      // Header/content padding already supplies 12-16px below timing; add only
      // the remainder needed to match the detail dialog's 16px section gap.
-@@ -538,7 +555,7 @@ function ToolCardInner(props: ToolCardProps) {
+@@ -538,7 +557,7 @@ function ToolCardInner(props: ToolCardProps) {
                          </button>
                      </DialogTrigger>
                      <DialogContent
@@ -13541,7 +14384,7 @@ index 0d2122e8a1a419204be208e88ae79ec0984ca175..241b8ceb94f42e1ecf3716909b14c515
              return 'inspect-files'
          }
 diff --git a/vendor/hapi/web/src/components/ToolCard/knownTools.test.tsx b/vendor/hapi/web/src/components/ToolCard/knownTools.test.tsx
-index 98251ace5bf92fd0c0fa7ab91a3ea097a2175078..3817da11c32ab163b260426e1536d7cc838a2e53 100644
+index 98251ace5bf92fd0c0fa7ab91a3ea097a2175078..72868489d82ca88b405e8f33383124997d3c008c 100644
 --- a/vendor/hapi/web/src/components/ToolCard/knownTools.test.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/knownTools.test.tsx
 @@ -1,5 +1,6 @@
@@ -13786,19 +14629,221 @@ index 98251ace5bf92fd0c0fa7ab91a3ea097a2175078..3817da11c32ab163b260426e1536d7cc
  })
  
  describe('getToolPresentation — request_user_input', () => {
+@@ -411,7 +622,199 @@ describe('getToolPresentation — request_user_input', () => {
+             metadata: null,
+         })
+ 
++        expect(presentation.title).toBe('Continue?')
++        expect(presentation.subtitle).toBeNull()
++    })
++
++    it('keeps the header as the title and the question as the subtitle when a header exists', () => {
++        const presentation = getToolPresentation({
++            toolName: 'request_user_input',
++            input: {
++                questions: [{
++                    header: 'Deploy',
++                    question: 'Deploy to staging now?'
++                }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++        })
++
++        expect(presentation.title).toBe('Deploy')
++        expect(presentation.subtitle).toBe('Deploy to staging now?')
++    })
++
++    it('keeps the counted title and question subtitle for multiple questions without a header', () => {
++        const presentation = getToolPresentation({
++            toolName: 'request_user_input',
++            input: {
++                questions: [
++                    { question: 'Deploy to staging now?' },
++                    { question: 'Run smoke tests after?' }
++                ]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++        })
++
++        expect(presentation.title).toBe('2 Questions')
++        expect(presentation.subtitle).toBe('Deploy to staging now? (+1 more)')
++    })
++
++    it('hides the question text from the header while the question is pending', () => {
++        const presentation = getToolPresentation({
++            toolName: 'request_user_input',
++            input: {
++                questions: [{ question: 'Deploy to staging now?' }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++            pending: true,
++        })
++
+         expect(presentation.title).toBe('Question')
+-        expect(presentation.subtitle).toBe('Continue?')
++        expect(presentation.subtitle).toBeNull()
++    })
++
++    it('keeps the counted title and drops the subtitle while pending', () => {
++        const presentation = getToolPresentation({
++            toolName: 'request_user_input',
++            input: {
++                questions: [
++                    { question: 'Deploy to staging now?' },
++                    { question: 'Run smoke tests after?' }
++                ]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++            pending: true,
++        })
++
++        expect(presentation.title).toBe('2 Questions')
++        expect(presentation.subtitle).toBeNull()
++    })
++})
++
++describe('getToolPresentation — CursorAskQuestion', () => {
++    it('titles single-question cards with the parsed header instead of the tool name', () => {
++        const presentation = getToolPresentation({
++            toolName: 'CursorAskQuestion',
++            input: {
++                questions: [{
++                    id: '1',
++                    title: 'Deployment',
++                    prompt: 'Deploy the build now?',
++                    options: [{ id: 'yes', label: 'Yes' }]
++                }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++        })
++
++        expect(presentation.title).toBe('Deployment')
++        expect(presentation.subtitle).toBe('Deploy the build now?')
++    })
++
++    it('keeps the pending header minimal like the other question tools', () => {
++        const presentation = getToolPresentation({
++            toolName: 'CursorAskQuestion',
++            input: {
++                questions: [{
++                    id: '1',
++                    title: 'Deployment',
++                    prompt: 'Deploy the build now?',
++                    options: [{ id: 'yes', label: 'Yes' }]
++                }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++            pending: true,
++        })
++
++        expect(presentation.title).toBe('Deployment')
++        expect(presentation.subtitle).toBeNull()
++    })
++
++    it('falls back to the request-level title when a Cursor question has none', () => {
++        const presentation = getToolPresentation({
++            toolName: 'CursorAskQuestion',
++            input: {
++                title: 'Choose approach',
++                questions: [
++                    {
++                        id: 'approach',
++                        prompt: 'Which approach?',
++                        allowMultiple: false,
++                        options: [
++                            { id: 'a', label: 'Option A' },
++                            { id: 'b', label: 'Option B' }
++                        ]
++                    }
++                ]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++        })
++
++        expect(presentation.title).toBe('Choose approach')
++        expect(presentation.subtitle).toBe('Which approach?')
++    })
++})
++
++describe('getToolPresentation — AskUserQuestion pending header', () => {
++    it('keeps the header title but hides the question subtitle while pending', () => {
++        const presentation = getToolPresentation({
++            toolName: 'AskUserQuestion',
++            input: {
++                questions: [{
++                    header: 'Database',
++                    multiSelect: false,
++                    options: [{ description: 'Local file', label: 'SQLite' }],
++                    question: 'Which database?'
++                }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++            pending: true,
++        })
++
++        expect(presentation.title).toBe('Database')
++        expect(presentation.subtitle).toBeNull()
++    })
++
++    it('shows the question subtitle again once the question settles', () => {
++        const presentation = getToolPresentation({
++            toolName: 'AskUserQuestion',
++            input: {
++                questions: [{
++                    header: 'Database',
++                    multiSelect: false,
++                    options: [{ description: 'Local file', label: 'SQLite' }],
++                    question: 'Which database?'
++                }]
++            },
++            result: null,
++            childrenCount: 0,
++            description: null,
++            metadata: null,
++        })
++
++        expect(presentation.title).toBe('Database')
++        expect(presentation.subtitle).toBe('Which database?')
+     })
+ })
 diff --git a/vendor/hapi/web/src/components/ToolCard/knownTools.tsx b/vendor/hapi/web/src/components/ToolCard/knownTools.tsx
-index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..920eb0f9eeabf43f9813fea573b16108df15daac 100644
+index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..52e84427cf4f94cbd572d87398a5ea84adca6b91 100644
 --- a/vendor/hapi/web/src/components/ToolCard/knownTools.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/knownTools.tsx
-@@ -6,6 +6,7 @@ import type { ChecklistItem } from '@/components/ToolCard/checklist'
+@@ -6,6 +6,8 @@ import type { ChecklistItem } from '@/components/ToolCard/checklist'
  import { extractTodoChecklist, extractUpdatePlanChecklist } from '@/components/ToolCard/checklist'
  import { basename, resolveDisplayPath } from '@/utils/path'
  import { getInputStringAny, truncate } from '@/lib/toolInputUtils'
++import { parseCursorAskQuestionInput } from '@/components/ToolCard/cursorAskQuestion'
 +import { resolveToolNameAlias } from '@/components/ToolCard/toolNameAliases'
  import {
      getCodexAgentActivity,
      getCodexAgentPrompt,
-@@ -56,6 +57,8 @@ export function formatTerminalCommandTitle(command: string | null): string | nul
+@@ -56,6 +58,8 @@ export function formatTerminalCommandTitle(command: string | null): string | nul
      return `${executable} ${subcommand}`
  }
  
@@ -13807,7 +14852,7 @@ index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..920eb0f9eeabf43f9813fea573b16108
  function getTerminalCommand(input: unknown): string | null {
      const command = getInputStringAny(input, ['command', 'cmd'])
      if (command) return command
-@@ -66,8 +69,15 @@ function getTerminalCommand(input: unknown): string | null {
+@@ -66,8 +70,15 @@ function getTerminalCommand(input: unknown): string | null {
  
  function getTerminalTitle(opts: ToolOpts): string {
      const command = getTerminalCommand(opts.input)
@@ -13825,15 +14870,84 @@ index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..920eb0f9eeabf43f9813fea573b16108
  }
  
  function getTerminalSubtitle(opts: ToolOpts): string | null {
-@@ -117,6 +127,7 @@ type ToolOpts = {
+@@ -117,8 +128,76 @@ type ToolOpts = {
      childrenCount: number
      description: string | null
      metadata: SessionMetadataSummary | null
++    // True while the tool's permission is still awaiting the user's reply.
++    // Question tools use it to keep the header minimal: the open card body
++    // already shows the question text, and it returns to the header once the
++    // card settles and collapses.
++    pending?: boolean
 +    t?: Translator
++}
++
++// AskUserQuestion, its lowercase alias and CursorAskQuestion share one
++// presentation: the parsed header titles the card and the question text is the
++// subtitle. While pending, the header stays minimal because the open card body
++// already shows the question; both return once the card settles and collapses.
++// Each tool parses its own payload shape, so the presentation takes a questions
++// reader — the Cursor reader is parseCursorAskQuestionInput itself, keeping its
++// request-level title fallback the single source of truth.
++function readQuestionFields(raw: unknown): { header: string; question: string } {
++    if (!isObject(raw)) return { header: '', question: '' }
++    const header = typeof raw.header === 'string' && raw.header.trim()
++        ? raw.header.trim()
++        : (typeof raw.title === 'string' ? raw.title.trim() : '')
++    const question = typeof raw.question === 'string' && raw.question.trim()
++        ? raw.question.trim()
++        : (typeof raw.prompt === 'string' ? raw.prompt.trim() : '')
++    return { header, question }
++}
++
++type PresentationQuestion = { header: string | null; question: string }
++
++function questionToolPresentation(readQuestions: (input: unknown) => PresentationQuestion[]) {
++    return {
++        icon: () => <QuestionIcon className={DEFAULT_ICON_CLASS} />,
++        title: (opts: ToolOpts) => {
++            const questions = readQuestions(opts.input)
++            const first = questions[0] ?? null
++            const header = first?.header?.trim() ?? ''
++
++            if (questions.length > 1) {
++                return `${questions.length} Questions`
++            }
++            return header.length > 0 ? header : 'Question'
++        },
++        subtitle: (opts: ToolOpts) => {
++            const questions = readQuestions(opts.input)
++            const first = questions[0] ?? null
++            const question = first?.question?.trim() ?? ''
++
++            // While the question awaits a reply the open card body already
++            // shows the question text, so the header must not repeat it.
++            if (opts.pending) return null
++
++            if (questions.length > 1 && question.length > 0) {
++                return truncate(question, 100) + ` (+${questions.length - 1} more)`
++            }
++            return question.length > 0 ? truncate(question, 120) : null
++        },
++        minimal: true
++    }
++}
++
++function readAskUserQuestionQuestions(input: unknown): PresentationQuestion[] {
++    return isObject(input) && Array.isArray(input.questions)
++        ? input.questions.map((question) => readQuestionFields(question))
++        : []
  }
  
++const askUserQuestionPresentation = questionToolPresentation(readAskUserQuestionQuestions)
++const cursorAskQuestionPresentation = questionToolPresentation(
++    (input) => parseCursorAskQuestionInput(input).questions
++)
++
  export const knownTools: Record<string, {
-@@ -291,7 +302,15 @@ export const knownTools: Record<string, {
+     icon: (opts: ToolOpts) => ReactNode
+     title: (opts: ToolOpts) => string
+@@ -291,7 +370,15 @@ export const knownTools: Record<string, {
      Read: {
          icon: () => <EyeIcon className={DEFAULT_ICON_CLASS} />,
          title: (opts) => {
@@ -13850,7 +14964,117 @@ index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..920eb0f9eeabf43f9813fea573b16108
              return file ? resolveDisplayPath(file, opts.metadata) : 'Read file'
          },
          minimal: true
-@@ -649,8 +668,6 @@ export const knownTools: Record<string, {
+@@ -557,7 +644,10 @@ export const knownTools: Record<string, {
+         title: () => 'Plan proposal',
+         minimal: false
+     },
+-    AskUserQuestion: {
++    AskUserQuestion: askUserQuestionPresentation,
++    ask_user_question: askUserQuestionPresentation,
++    CursorAskQuestion: cursorAskQuestionPresentation,
++    request_user_input: {
+         icon: () => <QuestionIcon className={DEFAULT_ICON_CLASS} />,
+         title: (opts) => {
+             const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+@@ -566,91 +656,46 @@ export const knownTools: Record<string, {
+             const first = questions[0] ?? null
+             const header = isObject(first) && typeof first.header === 'string'
+                 ? first.header.trim() : ''
+-
+-            if (count > 1) {
+-                return `${count} Questions`
+-            }
+-            return header.length > 0 ? header : 'Question'
+-        },
+-        subtitle: (opts) => {
+-            const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+-                ? opts.input.questions : []
+-            const count = questions.length
+-            const first = questions[0] ?? null
+             const question = isObject(first) && typeof first.question === 'string'
+                 ? first.question.trim() : ''
+ 
+-            if (count > 1 && question.length > 0) {
+-                return truncate(question, 100) + ` (+${count - 1} more)`
+-            }
+-            return question.length > 0 ? truncate(question, 120) : null
+-        },
+-        minimal: true
+-    },
+-    ask_user_question: {
+-        icon: () => <QuestionIcon className={DEFAULT_ICON_CLASS} />,
+-        title: (opts) => {
+-            const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+-                ? opts.input.questions : []
+-            const count = questions.length
+-            const first = questions[0] ?? null
+-            const header = isObject(first) && typeof first.header === 'string'
+-                ? first.header.trim() : ''
+-
+             if (count > 1) {
+                 return `${count} Questions`
+             }
+-            return header.length > 0 ? header : 'Question'
++            // While pending, the open card body already shows the question
++            // text; the question-text title applies once the card settles and
++            // its body collapses.
++            if (opts.pending) return 'Question'
++            // Codex questions carry no header field; a settled card would
++            // otherwise always read "Question" and hide the question text.
++            // Mirror the AskUserQuestion title and let the subtitle go, so
++            // the question is readable on the collapsed card.
++            if (header.length > 0) return header
++            return question.length > 0 ? truncate(question, 120) : 'Question'
+         },
+         subtitle: (opts) => {
+-            const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+-                ? opts.input.questions : []
+-            const count = questions.length
+-            const first = questions[0] ?? null
+-            const question = isObject(first) && typeof first.question === 'string'
+-                ? first.question.trim() : ''
+-
+-            if (count > 1 && question.length > 0) {
+-                return truncate(question, 100) + ` (+${count - 1} more)`
+-            }
+-            return question.length > 0 ? truncate(question, 120) : null
+-        },
+-        minimal: true
+-    },
+-    request_user_input: {
+-        icon: () => <QuestionIcon className={DEFAULT_ICON_CLASS} />,
+-        title: (opts) => {
+             const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+                 ? opts.input.questions : []
+             const count = questions.length
+             const first = questions[0] ?? null
+             const header = isObject(first) && typeof first.header === 'string'
+                 ? first.header.trim() : ''
+-
+-            if (count > 1) {
+-                return `${count} Questions`
+-            }
+-            return header.length > 0 ? header : 'Question'
+-        },
+-        subtitle: (opts) => {
+-            const questions = isObject(opts.input) && Array.isArray(opts.input.questions)
+-                ? opts.input.questions : []
+-            const count = questions.length
+-            const first = questions[0] ?? null
+             const question = isObject(first) && typeof first.question === 'string'
+                 ? first.question.trim() : ''
+ 
++            // While the question awaits a reply the open card body already
++            // shows the question text, so the header must not repeat it.
++            if (opts.pending) return null
++
+             if (count > 1 && question.length > 0) {
+                 return truncate(question, 100) + ` (+${count - 1} more)`
+             }
+-            return question.length > 0 ? truncate(question, 120) : null
++            return header.length > 0 && question.length > 0 ? truncate(question, 120) : null
+         },
+         minimal: true
      }
  }
  
@@ -13859,7 +15083,7 @@ index a1cde754e176986d5e4e461d7c5ce8a4ce78b378..920eb0f9eeabf43f9813fea573b16108
  export function getToolPresentation(
      opts: Omit<ToolOpts, 'metadata'> & { metadata: SessionMetadataSummary | null },
      t?: Translator
-@@ -664,17 +681,30 @@ export function getToolPresentation(
+@@ -664,17 +709,30 @@ export function getToolPresentation(
          }
      }
  
@@ -14208,9 +15432,17 @@ index 207cbe55bc880b9212035d93f65d70cd44ad0051..843407b84bea82c94f43697beec643ee
                  </div>
              )}
 diff --git a/vendor/hapi/web/src/components/ToolCard/views/_results.test.tsx b/vendor/hapi/web/src/components/ToolCard/views/_results.test.tsx
-index f481af02f816d136c97c0b2808f7fee88b10107f..de88263d1be66e2d2e9126fd4f4f47a75f03f9e6 100644
+index f481af02f816d136c97c0b2808f7fee88b10107f..56e2f1ab353391cec3bf42fdc28f71c4137bf652 100644
 --- a/vendor/hapi/web/src/components/ToolCard/views/_results.test.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/views/_results.test.tsx
+@@ -1,5 +1,5 @@
+-import { describe, expect, it, vi } from 'vitest'
+-import { render, screen } from '@testing-library/react'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++import { cleanup, render, screen } from '@testing-library/react'
+ import type { ToolCallBlock } from '@/chat/types'
+ import { extractCodexBashDisplay, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, parseNumberedFileLines } from '@/components/ToolCard/views/_results'
+ import { I18nProvider } from '@/lib/i18n-context'
 @@ -51,6 +51,14 @@ describe('extractTextFromResult', () => {
          expect(extractTextFromResult({ output: 'ok' })).toBe('ok')
      })
@@ -14226,7 +15458,26 @@ index f481af02f816d136c97c0b2808f7fee88b10107f..de88263d1be66e2d2e9126fd4f4f47a7
      it('extracts from object with error field', () => {
          expect(extractTextFromResult({ error: 'not found' })).toBe('not found')
      })
-@@ -150,6 +158,18 @@ describe('getToolResultViewComponent registry', () => {
+@@ -129,6 +137,18 @@ describe('extractCodexBashDisplay', () => {
+ })
+ 
+ describe('getToolResultViewComponent registry', () => {
++    afterEach(cleanup)
++
++    it.each(['AskUserQuestion', 'request_user_input', 'CursorAskQuestion'])('shows %s as waiting for an answer, including a live-only request', (name) => {
++        const ResultView = getToolResultViewComponent(name)
++        const block = makeResultBlock({ name, state: 'pending', result: undefined, permission: { id: 'reply-id', status: 'pending' } })
++        const view = render(<I18nProvider><ResultView block={block} metadata={null} /></I18nProvider>)
++        expect(screen.getByText('Waiting for your reply')).toBeVisible()
++        view.rerender(<I18nProvider><ResultView block={{ ...block, tool: { ...block.tool, state: 'running' } }} metadata={null} /></I18nProvider>)
++        expect(screen.getByText('Waiting for your reply')).toBeVisible()
++        expect(screen.queryByText('Running…')).toBeNull()
++    })
++
+     it('uses the same view for Write, Edit, MultiEdit, NotebookEdit', () => {
+         const writeView = getToolResultViewComponent('Write')
+         const editView = getToolResultViewComponent('Edit')
+@@ -150,6 +170,18 @@ describe('getToolResultViewComponent registry', () => {
          expect(getToolResultViewComponent('CodexBash')).not.toBe(getToolResultViewComponent('SomeUnknownTool'))
      })
  
@@ -14245,7 +15496,7 @@ index f481af02f816d136c97c0b2808f7fee88b10107f..de88263d1be66e2d2e9126fd4f4f47a7
      it('uses a dedicated result view for Codex agent tools', () => {
          expect(getToolResultViewComponent('spawn_agent')).not.toBe(getToolResultViewComponent('SomeUnknownTool'))
          expect(getToolResultViewComponent('wait_agent')).toBe(getToolResultViewComponent('spawn_agent'))
-@@ -165,6 +185,63 @@ describe('getToolResultViewComponent registry', () => {
+@@ -165,6 +197,63 @@ describe('getToolResultViewComponent registry', () => {
      })
  })
  
@@ -14309,7 +15560,7 @@ index f481af02f816d136c97c0b2808f7fee88b10107f..de88263d1be66e2d2e9126fd4f4f47a7
  describe('dialog result formatting', () => {
      const ResultView = getToolResultViewComponent('SomeUnknownTool')
  
-@@ -525,3 +602,128 @@ describe('parseNumberedFileLines', () => {
+@@ -525,3 +614,128 @@ describe('parseNumberedFileLines', () => {
          expect(parseNumberedFileLines('just some\nplain text')).toBeNull()
      })
  })
@@ -14439,25 +15690,45 @@ index f481af02f816d136c97c0b2808f7fee88b10107f..de88263d1be66e2d2e9126fd4f4f47a7
 +    return makeResultBlock({ name: 'SomeUnknownTool', input: { file_path: 'src/a.ts' } })
 +}
 diff --git a/vendor/hapi/web/src/components/ToolCard/views/_results.tsx b/vendor/hapi/web/src/components/ToolCard/views/_results.tsx
-index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb233b62ff2 100644
+index c14fde7f7a90300eb36f8c0e35673009ab257935..9c00e0636760b8252c7cfacf4652864fa219c1c0 100644
 --- a/vendor/hapi/web/src/components/ToolCard/views/_results.tsx
 +++ b/vendor/hapi/web/src/components/ToolCard/views/_results.tsx
-@@ -1,4 +1,5 @@
+@@ -1,11 +1,17 @@
  import type { ToolViewComponent, ToolViewProps } from '@/components/ToolCard/views/_all'
+-import type { ReactNode } from 'react'
 +import type { ToolCallBlock } from '@/chat/types'
- import type { ReactNode } from 'react'
++import { useContext, type ReactNode } from 'react'
  import { isObject, safeStringify } from '@hapi/protocol'
  import { CodeBlock } from '@/components/CodeBlock'
-@@ -6,6 +7,8 @@ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
  import { ChecklistList, extractTodoChecklist } from '@/components/ToolCard/checklist'
  import { basename, resolveDisplayPath } from '@/utils/path'
  import { getInputStringAny } from '@/lib/toolInputUtils'
++import { I18nContext } from '@/lib/i18n-context'
++import { isAskUserQuestionToolName } from '@/components/ToolCard/askUserQuestion'
++import { isRequestUserInputToolName } from '@/components/ToolCard/requestUserInput'
 +import { resolveToolNameAlias } from '@/components/ToolCard/toolNameAliases'
 +import { isTerminalToolBlock } from '@/chat/toolGroups'
  import {
      getCodexAgentActivity,
      getCodexAgentTargets,
-@@ -370,7 +373,7 @@ function extractReadFileContent(result: unknown): { filePath: string | null; con
+@@ -309,7 +315,14 @@ function renderText(text: string, opts: { mode: 'markdown' | 'code' | 'auto'; la
+     return renderResultBody(renderMarkdown(text, opts.surface), opts.surface)
+ }
+ 
+-function placeholderForState(state: ToolViewProps['block']['tool']['state']): string {
++function placeholderForState(block: ToolViewProps['block']): string {
++    const state = block.tool.state
++    // A pending question has no result to show and its state is 'running'
++    // until the reply lands; label it as waiting instead of running.
++    if ((state === 'running' || state === 'pending') && block.tool.permission?.status === 'pending'
++        && (isAskUserQuestionToolName(block.tool.name) || isRequestUserInputToolName(block.tool.name))) {
++        return 'Waiting for your reply'
++    }
+     if (state === 'pending') return 'Waiting for permission…'
+     if (state === 'running') return 'Running…'
+     return '(no output)'
+@@ -370,7 +383,7 @@ function extractReadFileContent(result: unknown): { filePath: string | null; con
  }
  
  function isReadFileToolCall(toolName: string, input: unknown): boolean {
@@ -14466,7 +15737,7 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
  
      const normalizedName = toolName.toLowerCase()
      if (normalizedName.includes('read_file') || normalizedName.includes('readfile')) return true
-@@ -386,7 +389,7 @@ function isReadFileToolCall(toolName: string, input: unknown): boolean {
+@@ -386,7 +399,7 @@ function isReadFileToolCall(toolName: string, input: unknown): boolean {
  function extractReadPathFromInput(input: unknown): string | null {
      if (!isObject(input)) return null
  
@@ -14475,7 +15746,7 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
      if (directPath) return directPath
  
      if (Array.isArray(input.parsed_cmd)) {
-@@ -426,6 +429,16 @@ export function parseNumberedFileLines(text: string): { startLine: number; body:
+@@ -426,6 +439,16 @@ export function parseNumberedFileLines(text: string): { startLine: number; body:
      return startLine === null ? null : { startLine, body: body.join('\n') }
  }
  
@@ -14492,7 +15763,65 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
  function renderReadTextResult(text: string, path: string | null, surface: ToolViewProps['surface'], parseNumberedLines: boolean) {
      // A file read is line-oriented content: render it in a code block (monospace
      // + line-number gutter) even when the extension is unknown (.txt, .log, agy
-@@ -665,11 +678,12 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
+@@ -454,7 +477,11 @@ function ResultMetaPill(props: { children: ReactNode }) {
+ }
+ 
+ function ResultStatusPill(props: { text: string }) {
+-    return <ResultMetaPill>{props.text}</ResultMetaPill>
++    const i18n = useContext(I18nContext)
++    const text = props.text === 'Waiting for your reply'
++        ? i18n?.t('tool.waitingForReply') ?? props.text
++        : props.text
++    return <ResultMetaPill>{text}</ResultMetaPill>
+ }
+ 
+ function extractLineList(text: string): string[] {
+@@ -486,7 +513,7 @@ const BashResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     if (typeof result === 'string') {
+@@ -535,7 +562,7 @@ const CodexBashResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const display = extractCodexBashDisplay(result)
+@@ -566,7 +593,7 @@ const MarkdownResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const text = extractTextFromResult(result)
+@@ -591,7 +618,7 @@ const LineListResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const text = extractTextFromResult(result)
+@@ -644,7 +671,7 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const file = extractReadFileContent(result)
+@@ -665,11 +692,12 @@ const ReadResultView: ToolViewComponent = (props: ToolViewProps) => {
  
      const text = extractTextFromResult(result)
      if (text) {
@@ -14507,7 +15836,97 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
                  <RawJsonDevOnly value={result} surface={props.surface} />
              </>
          )
-@@ -1020,7 +1034,15 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
+@@ -690,7 +718,7 @@ const MutationResultView: ToolViewComponent = (props: ToolViewProps) => {
+         if (state === 'completed') {
+             return <ResultStatusPill text="Done" />
+         }
+-        return <ResultStatusPill text={placeholderForState(state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const text = extractTextFromResult(result)
+@@ -730,7 +758,7 @@ const CodexPatchResultView: ToolViewComponent = (props: ToolViewProps) => {
+     if (result === undefined || result === null) {
+         return props.block.tool.state === 'completed'
+             ? <ResultStatusPill text="Done" />
+-            : <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++            : <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     return (
+@@ -744,7 +772,7 @@ const CodexPatchResultView: ToolViewComponent = (props: ToolViewProps) => {
+ const CodexReasoningResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const text = extractTextFromResult(result)
+@@ -770,7 +798,7 @@ const CodexDiffResultView: ToolViewComponent = (props: ToolViewProps) => {
+     if (result === undefined || result === null) {
+         return props.block.tool.state === 'completed'
+             ? <ResultStatusPill text="Done" />
+-            : <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++            : <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     const text = extractTextFromResult(result)
+@@ -794,7 +822,7 @@ const CodexDiffResultView: ToolViewComponent = (props: ToolViewProps) => {
+ const TodoWriteResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const todos = extractTodoChecklist(props.block.tool.input, props.block.tool.result)
+     if (todos.length === 0) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     return <ChecklistList items={todos} />
+@@ -814,7 +842,7 @@ const CodexAgentResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const showDetails = props.surface === 'dialog'
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={getCodexAgentActivity(input) ?? placeholderForState(state)} />
++        return <ResultStatusPill text={getCodexAgentActivity(input) ?? placeholderForState(props.block)} />
+     }
+ 
+     if (state === 'error') {
+@@ -941,7 +969,7 @@ const CodexAgentResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const text = extractTextFromResult(result)
+     if (text) {
+         if (!showDetails) {
+-            return <ResultStatusPill text={state === 'completed' ? 'Done' : placeholderForState(state)} />
++            return <ResultStatusPill text={state === 'completed' ? 'Done' : placeholderForState(props.block)} />
+         }
+ 
+         return (
+@@ -952,7 +980,7 @@ const CodexAgentResultView: ToolViewComponent = (props: ToolViewProps) => {
+         )
+     }
+ 
+-    return <ResultStatusPill text={state === 'completed' ? 'Done' : placeholderForState(state)} />
++    return <ResultStatusPill text={state === 'completed' ? 'Done' : placeholderForState(props.block)} />
+ }
+ 
+ const SkillResultView: ToolViewComponent = (props: ToolViewProps) => {
+@@ -962,7 +990,7 @@ const SkillResultView: ToolViewComponent = (props: ToolViewProps) => {
+         if (state === 'completed') {
+             return <ResultStatusPill text="Skill loaded" />
+         }
+-        return <ResultStatusPill text={placeholderForState(state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     // For errors, show the error text
+@@ -984,7 +1012,7 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
+     const result = props.block.tool.result
+ 
+     if (result === undefined || result === null) {
+-        return <ResultStatusPill text={placeholderForState(props.block.tool.state)} />
++        return <ResultStatusPill text={placeholderForState(props.block)} />
+     }
+ 
+     // Detect codex bash output format and render accordingly
+@@ -1020,7 +1048,15 @@ const GenericResultView: ToolViewComponent = (props: ToolViewProps) => {
          return (
              <>
                  {isReadFileToolCall(props.block.tool.name, props.block.tool.input)
@@ -14524,7 +15943,7 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
                      : renderText(text, { mode: 'auto', collapseLongContent: props.surface === 'inline', surface: props.surface })}
                  {typeof result === 'object' ? <RawJsonDevOnly value={result} surface={props.surface} /> : null}
              </>
-@@ -1041,6 +1063,7 @@ export const toolResultViewRegistry: Record<string, ToolViewComponent> = {
+@@ -1041,6 +1077,7 @@ export const toolResultViewRegistry: Record<string, ToolViewComponent> = {
      Grep: LineListResultView,
      LS: LineListResultView,
      Read: ReadResultView,
@@ -14532,7 +15951,7 @@ index c14fde7f7a90300eb36f8c0e35673009ab257935..a4862d11662249e0b0e5e72e3ba8acb2
      Edit: MutationResultView,
      MultiEdit: MutationResultView,
      Write: MutationResultView,
-@@ -1070,9 +1093,19 @@ export const toolResultViewRegistry: Record<string, ToolViewComponent> = {
+@@ -1070,9 +1107,19 @@ export const toolResultViewRegistry: Record<string, ToolViewComponent> = {
      exit_plan_mode: MarkdownResultView
  }
  
@@ -15287,8 +16706,61 @@ index 1b5b5053027070062d181b61ee6bb7ddc22a4da4..6d635dcdd187ede4d33ae99e3c417a62
  }
  
  /**
+diff --git a/vendor/hapi/web/src/lib/codexStatusLabels.test.ts b/vendor/hapi/web/src/lib/codexStatusLabels.test.ts
+index 7b165d0987e116071ae97152d83c4fea30e78603..cf2404e440bd11479d2ec51a06c78f02c5f9fb81 100644
+--- a/vendor/hapi/web/src/lib/codexStatusLabels.test.ts
++++ b/vendor/hapi/web/src/lib/codexStatusLabels.test.ts
+@@ -51,6 +51,8 @@ describe('reasoning status metadata', () => {
+     it('uses model reasoning effort for Codex/OpenCode and ordinary effort only for Pi', () => {
+         expect(getReasoningEffortForFlavor('codex', 'xhigh', 'max')).toBe('xhigh')
+         expect(getReasoningEffortForFlavor('opencode', 'high', 'max')).toBe('high')
++        expect(getReasoningEffortForFlavor('dsh', 'off', 'high')).toBe('off')
++        expect(getReasoningEffortForFlavor('dsh', null, 'high')).toBeNull()
+         expect(getReasoningEffortForFlavor('pi', 'xhigh', 'max')).toBe('max')
+         expect(getReasoningEffortForFlavor('claude', 'xhigh', 'max')).toBeNull()
+         expect(getReasoningEffortForFlavor('grok', 'xhigh', 'max')).toBeNull()
+@@ -60,6 +62,7 @@ describe('reasoning status metadata', () => {
+     it('keeps unset defaults for Codex/OpenCode and requires a real Pi effort', () => {
+         expect(shouldShowReasoningStatusLabel('codex', null)).toBe(true)
+         expect(shouldShowReasoningStatusLabel('opencode', null)).toBe(true)
++        expect(shouldShowReasoningStatusLabel('dsh', null)).toBe(true)
+         expect(shouldShowReasoningStatusLabel('pi', 'max')).toBe(true)
+         expect(shouldShowReasoningStatusLabel('pi', null)).toBe(false)
+         expect(shouldShowReasoningStatusLabel('pi', '   ')).toBe(false)
+diff --git a/vendor/hapi/web/src/lib/codexStatusLabels.ts b/vendor/hapi/web/src/lib/codexStatusLabels.ts
+index ae070cd3135a0f7f4fef7df05072c0de0028f4b5..9c1ff3707bf4200302bd493cabf4401b9be9ba65 100644
+--- a/vendor/hapi/web/src/lib/codexStatusLabels.ts
++++ b/vendor/hapi/web/src/lib/codexStatusLabels.ts
+@@ -13,14 +13,14 @@ export function formatReasoningLabel(effort?: string | null, showLabel = true):
+ 
+ /**
+  * Status metadata comes from different session fields by agent protocol:
+- * Codex/OpenCode publish model reasoning effort, while Pi publishes effort.
++ * Codex/OpenCode/DSH publish model reasoning effort, while Pi publishes effort.
+  */
+ export function getReasoningEffortForFlavor(
+     agentFlavor: string | null | undefined,
+     modelReasoningEffort?: string | null,
+     effort?: string | null
+ ): string | null {
+-    if (agentFlavor === 'codex' || agentFlavor === 'opencode') {
++    if (agentFlavor === 'codex' || agentFlavor === 'opencode' || agentFlavor === 'dsh') {
+         return modelReasoningEffort?.trim() || null
+     }
+     if (agentFlavor === 'pi') {
+@@ -33,8 +33,8 @@ export function shouldShowReasoningStatusLabel(
+     agentFlavor: string | null | undefined,
+     reasoningEffort?: string | null
+ ): boolean {
+-    // Codex/OpenCode retain their existing explicit default label when unset.
+-    if (agentFlavor === 'codex' || agentFlavor === 'opencode') return true
++    // These providers have an explicit default level even when unset.
++    if (agentFlavor === 'codex' || agentFlavor === 'opencode' || agentFlavor === 'dsh') return true
+     // Pi has no meaningful default for non-reasoning models; only show a real level.
+     return agentFlavor === 'pi' && Boolean(reasoningEffort?.trim())
+ }
 diff --git a/vendor/hapi/web/src/lib/locales/en.ts b/vendor/hapi/web/src/lib/locales/en.ts
-index fb62fac69d752f75ee60e74ee52700faf5c20ae8..0547eb6fba3fe68965eb72a69eea7df000e11a7a 100644
+index fb62fac69d752f75ee60e74ee52700faf5c20ae8..5e30ca33106d20c116475ec933c5707a5577edcf 100644
 --- a/vendor/hapi/web/src/lib/locales/en.ts
 +++ b/vendor/hapi/web/src/lib/locales/en.ts
 @@ -1,4 +1,13 @@
@@ -15305,7 +16777,7 @@ index fb62fac69d752f75ee60e74ee52700faf5c20ae8..0547eb6fba3fe68965eb72a69eea7df0
    // Loading states
    'loading': 'Loading…',
    'authorizing': 'Authorizing…',
-@@ -606,6 +615,12 @@ export default {
+@@ -606,6 +615,13 @@ export default {
    'tool.requestUserInput.otherLabel': 'None of the above',
    'tool.requestUserInput.otherDescription': 'Optionally, add details in notes.',
    'tool.requestUserInput.popupBlocked': 'Could not open the sign-in page. Allow popups and try again.',
@@ -15315,10 +16787,11 @@ index fb62fac69d752f75ee60e74ee52700faf5c20ae8..0547eb6fba3fe68965eb72a69eea7df0
 +  'tool.requestUserInput.cancellationRequested': 'Dismissal requested',
 +  'tool.requestUserInput.waitingForCancellation': 'Dismissal requested. Waiting for the agent to confirm…',
 +  'tool.requestUserInput.waitingForConfirmation': 'Answer submitted. Waiting for the agent to confirm…',
++  'tool.waitingForReply': 'Waiting for your reply',
    'toolGroup.title': 'Tool activity',
    'toolGroup.friendly.inspectTarget': 'Inspect {target}',
    'toolGroup.friendly.searchTarget': 'Search “{target}”',
-@@ -672,6 +687,7 @@ export default {
+@@ -672,6 +688,7 @@ export default {
    'queuedMessages.steer': 'Deliver into the running turn now',
    'queuedMessages.steerFailed': 'Steer failed — message stays queued',
    'queuedMessages.steerOutcomeUnknown': 'Delivery outcome unknown — retry or cancel explicitly',
@@ -15327,7 +16800,7 @@ index fb62fac69d752f75ee60e74ee52700faf5c20ae8..0547eb6fba3fe68965eb72a69eea7df0
    'queuedMessages.retryFailed': 'Retry failed',
    'queuedMessages.retryMissing': 'The message is no longer available',
 diff --git a/vendor/hapi/web/src/lib/locales/zh-CN.ts b/vendor/hapi/web/src/lib/locales/zh-CN.ts
-index 1633362861eb1462ddb545a325e7a57d1042772f..28a89a102dd5ba7ba15a26769800e1e7a022b58b 100644
+index 1633362861eb1462ddb545a325e7a57d1042772f..d92c4a4243cbb3f0fd2170d2c939b0f0def61b0d 100644
 --- a/vendor/hapi/web/src/lib/locales/zh-CN.ts
 +++ b/vendor/hapi/web/src/lib/locales/zh-CN.ts
 @@ -1,4 +1,13 @@
@@ -15344,7 +16817,7 @@ index 1633362861eb1462ddb545a325e7a57d1042772f..28a89a102dd5ba7ba15a26769800e1e7
    // Loading states
    'loading': '加载中…',
    'authorizing': '认证中…',
-@@ -604,6 +613,12 @@ export default {
+@@ -604,6 +613,13 @@ export default {
    'tool.requestUserInput.otherLabel': '以上都不是',
    'tool.requestUserInput.otherDescription': '可在备注中补充说明（可选）。',
    'tool.requestUserInput.popupBlocked': '无法打开登录页面。请允许弹出窗口后重试。',
@@ -15354,10 +16827,11 @@ index 1633362861eb1462ddb545a325e7a57d1042772f..28a89a102dd5ba7ba15a26769800e1e7
 +  'tool.requestUserInput.cancellationRequested': '已请求忽略',
 +  'tool.requestUserInput.waitingForCancellation': '已请求忽略，正在等待 Agent 确认…',
 +  'tool.requestUserInput.waitingForConfirmation': '答案已提交，正在等待 Agent 确认…',
++  'tool.waitingForReply': '等待你的回复',
    'toolGroup.title': '工具活动',
    'toolGroup.friendly.inspectTarget': '检查 {target}',
    'toolGroup.friendly.searchTarget': '搜索“{target}”',
-@@ -670,6 +685,7 @@ export default {
+@@ -670,6 +686,7 @@ export default {
    'queuedMessages.steer': '立即插入当前回合',
    'queuedMessages.steerFailed': '插入失败，消息仍在队列中',
    'queuedMessages.steerOutcomeUnknown': '发送结果未知，请明确重试或取消',

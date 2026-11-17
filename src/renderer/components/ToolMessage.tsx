@@ -48,6 +48,7 @@ export const ToolMessage = memo(function ToolMessage({
       childrenCount: block.children.length,
       description: block.tool.nativeTitle ?? block.tool.description,
       metadata,
+      pending: block.tool.permission?.status === 'pending',
     },
     web,
   )

@@ -35,7 +35,8 @@
     "Enable OpenCode steering for a live remote runtime through the existing message delivery and receipt contracts",
     "Align native Antigravity Auto/Plan permissions, runtime-gated steering and streamed prose while preserving native approval reply IDs and historical messages",
     "Align Antigravity builtin commands and native context fixtures; keep recognized commands and native aliases queued in desktop composer and queue controls",
-    "Align HAPI v0.34.6 receipt and gap-recovery contracts, additive session/job patches, question cancellation, OpenCode tool presentation and Copilot/Kimi effort discovery while preserving desktop state, labels and layout"
+    "Align HAPI v0.34.6 receipt and gap-recovery contracts, additive session/job patches, question cancellation, OpenCode tool presentation and Copilot/Kimi effort discovery while preserving desktop state, labels and layout",
+    "Align HAPI v0.36.4 additive metadata, question limits and presentation, round statistics, OpenCode default effort and DSH runtime effort; distinguish system notices and render Cursor model error events while retaining desktop IPC, draft safety, history windows and article layout"
   ],
   "notice": "HAPI includes work derived from Happy (https://github.com/slopus/happy). Preserve original notices.",
   "backports": [
@@ -334,6 +335,46 @@
         "web/src/lib/query-keys.ts": "69fddb2a79da2e51382453bb3ec732908af25aef4d1b4d1337da9c76ae1109d0",
         "web/src/lib/queued-state-reconciliation.test.ts": "cf19624650d74df4c873c5d02579ee9d4aff249174f1ec0516dc782f7ff806d1",
         "web/src/lib/queued-state-reconciliation.ts": "3004c3b7565ef972c8d3a9fc42050140d1a031252a6838752e91a39166033ac9"
+      }
+    },
+    {
+      "repository": "https://github.com/drch90/hapi",
+      "baseCommit": "aa8e6bf8c8d01e380762c2394c5ff709b78a529b",
+      "state": "Selected committed compatibility references from local HAPI including upstream v0.36.4. Hashes identify reviewed source files; desktop adapters and additional regressions remain in patches/hapi-desktop.patch. Imports retain additive session metadata, Cursor question classification, late question free-text limits, Codex/Antigravity round statistics, readable question cards and translation-safe submission labels. Desktop equivalents render hapi-system notices and Cursor model-error events, expose DSH runtime reasoning settings and deduplicate OpenCode Default. Existing gap-recovery guards, always-visible Codex notes, IPC transport, memory-only history and article layout are retained. Passkeys, quota dashboards, chunked uploads, HTML preview, native imports and branch/bridge actions remain separate feature integrations; companion Hub/runner deployment is not included.",
+      "files": {
+        "shared/src/schemas.metadata.test.ts": "49a6b813fabc857c48b96d62b68c897b6f2e08de184ba6abfaedca06df248227",
+        "shared/src/schemas.ts": "e32e281f7614aa4b5fc889194ab12bbd3934cdf5f9791b7b59d78591b50518fd",
+        "shared/src/sessionSummary.test.ts": "2a7a05caa21fe951969ff9de45cc028b65022398a3a4a6bbb4bc4b5e4b9f0a6d",
+        "shared/src/sessionSummary.ts": "e9d5725678bf84c84c7ccb3a794a87390f6f8c551689a9b8c5b374e19432c1ab",
+        "web/src/chat/normalize.test.ts": "a3e4c5ed5410fd0682650b2b0dcf38463aa60953b744e2ee0595c07ee51d6f15",
+        "web/src/chat/normalizeAgent.roundSummary.test.ts": "de015ba60e5b7100fcbaf2a1469f99b67c1ba2f0aa846c598f735a01c4ebc81f",
+        "web/src/chat/normalizeAgent.ts": "f79df42ed6f704af8242ec30f0656246b4c521838c36eddd0e3f76934fbc5a3f",
+        "web/src/chat/presentation.test.ts": "73aceff5494c3f2b540575694feeb433429f3e89d8ad4608b74a56541d4cd9dc",
+        "web/src/chat/presentation.ts": "d48455d928c83982a741f3b58e8ead2705b64ed23f493daf3f60ade671f9e0aa",
+        "web/src/chat/reducer.test.ts": "a6008853bdf77e7d656fd42e2d4bcfa14f51be98d1cba5b00d261b145c38a2af",
+        "web/src/chat/reducer.ts": "35867bb510a4a68e6f297d33dd75e827564fe3f577d55aa84eb3cf86b5a98877",
+        "web/src/chat/reducerTimeline.test.ts": "dc7c7a49a99a44244eba19c9e88fa2b0ef38efb7d1c81093c4c0fec94c9ceecb",
+        "web/src/chat/reducerTimeline.ts": "d2dd7001788933ec0ba85ab1901b607c55b54812f66f712ccc3a3fe8db0ce973",
+        "web/src/chat/types.ts": "5e2da69391085ab217a4cbcf2d535c245479a4f3aecc6ffd664982e5c9d3fded",
+        "web/src/components/AssistantChat/codexReasoningEffortOptions.test.ts": "68a864aafa9b1de18c0ac6e70231fd98bf1111c7b56d08c1d00b9939ede7c143",
+        "web/src/components/AssistantChat/codexReasoningEffortOptions.ts": "f7dc11f8f05b3986a64eb6a7b28ec169304ef0ec59fa906b7b4a58cd0a15b188",
+        "web/src/components/AssistantChat/messages/MessageMetadata.test.ts": "a91cc98a63f772e65fc5267f01d7e12c9cc3607f0fbc8cb150cd03a6df314065",
+        "web/src/components/AssistantChat/messages/MessageMetadata.tsx": "3cbaa85f72ffafba1a3d4dd678bd89ee4871848f6bb72931ec14f326ab375ba2",
+        "web/src/components/AssistantChat/messages/UserMessage.tsx": "c3ede58d79d05d00d744ecde6eb7217c930eeea906b1072074fea6efdf932fc2",
+        "web/src/components/SessionChat.tsx": "c6ca55c0a2a0a22767f9c50fed8388255b4e576d80586c01290809898295f2a0",
+        "web/src/components/ToolCard/AskUserQuestionFooter.tsx": "13f1b4e0ba2dfa5deceb3aed5f0534746cb736ae9bd7863cd6cae23c61d76462",
+        "web/src/components/ToolCard/RequestUserInputFooter.test.tsx": "bc97f06c339c2789b74224dab9e33e0e4c9dd0879958bbadcc4f106e6c8409bc",
+        "web/src/components/ToolCard/RequestUserInputFooter.tsx": "0f90bd13136c1e33ef7d39ad2f479b386eafe060285f74278b2864453ef8ecee",
+        "web/src/components/ToolCard/ToolCard.tsx": "8fa74dd47fb22835299780ae9b87d0d5a9750b3f6d02a5167e62dc09915f19ec",
+        "web/src/components/ToolCard/knownTools.test.tsx": "2fe1f21474b77499541a7b8043693ac7232b902e8be4610e0c81c0801b7acb32",
+        "web/src/components/ToolCard/knownTools.tsx": "25bde2abae2bc21d4e863acdbe08cf77b1f9d8c5c38e15c71913ac1e51a28374",
+        "web/src/components/ToolCard/views/_results.test.tsx": "a91bba5602c7dbe28bfa564b5e8d82e6c9cff2471e3977dcf782acca6099d943",
+        "web/src/components/ToolCard/views/_results.tsx": "43caaa1dbddb2d26d5b41c49c37167a5b9fb9cef33a8f29895437d61a2b85174",
+        "web/src/lib/assistant-runtime.ts": "a5e53743355aaad517bd254adbd0dcff35d2fab547583b4bfc75231d4a027025",
+        "web/src/lib/codexStatusLabels.test.ts": "49972a223f1efc3c69c138459f80453cb2abc318234197b321ada7371a771978",
+        "web/src/lib/codexStatusLabels.ts": "2aeb835dce679e1f87258b7aa8c418c904f7086e7263da31624b12cedda49d6b",
+        "web/src/lib/locales/en.ts": "6371eefd68b42af8c51f57e591ada3e604d91b997a10c9e5e705dad6efb49d6a",
+        "web/src/lib/locales/zh-CN.ts": "fe5676b7a00819c878f539908f538f7a9b386ab9d385dd019d329b71e0c03980"
       }
     }
   ]

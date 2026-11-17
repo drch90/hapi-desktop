@@ -49,6 +49,7 @@ import { applySuggestion } from '@/utils/applySuggestion'
 import { findActiveWord } from '@/utils/findActiveWord'
 import type { SessionSummary, Machine } from '@/types/api'
 import {
+  isObject,
   isSteeringSupportedForSession,
   getPermissionModeLabel,
   getPermissionModesForFlavor,
@@ -86,6 +87,8 @@ import {
 } from '../lib/outbox'
 import { MarkdownRenderer, LinkContext } from './Markdown'
 import { MessageActions } from './MessageActions'
+import { SystemMessage } from './SystemMessage'
+import { ModelErrorEvent } from './ModelErrorEvent'
 import { ToolMessage } from './ToolMessage'
 import { Scratchlist } from './Scratchlist'
 import { ContextUsage } from './Usage'
@@ -1549,7 +1552,8 @@ export function Chat({
                     )}
                     {(supportsEffort(session.metadata?.flavor) ||
                       session.metadata?.flavor === 'codex' ||
-                      session.metadata?.flavor === 'opencode') && (
+                      session.metadata?.flavor === 'opencode' ||
+                      session.metadata?.flavor === 'dsh') && (
                       <button
                         type="button"
                         className="composer-pill"
@@ -1844,6 +1848,8 @@ const MessageBlock = memo(function MessageBlock({
         )}
       </div>
     )
+  if (block.kind === 'user-text' && isObject(block.meta) && block.meta.sentFrom === 'hapi-system')
+    return <SystemMessage block={block} />
   if (block.kind === 'user-text' || block.kind === 'agent-text')
     return (
       <article
@@ -1891,6 +1897,8 @@ const MessageBlock = memo(function MessageBlock({
     )
   if (block.kind === 'agent-event') {
     const event = block.event
+    if (event.type === 'modelError' || event.type === 'modelErrorBridged')
+      return <ModelErrorEvent event={event} />
     if (event.type === 'compact-summary') return <CompactSummary event={event} />
     const commandFeedback = [
       'compact',

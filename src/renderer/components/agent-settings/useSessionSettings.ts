@@ -121,7 +121,7 @@ export function useSessionSettings(api: DesktopApi, session: Session, connected:
   const modelOptions = choices.some((option) => (option.value ?? '') === modelValue)
     ? choices
     : [{ value: modelValue || null, label: modelValue || 'Default' }, ...choices]
-  const reasoningAgent = flavor === 'codex' || flavor === 'opencode'
+  const reasoningAgent = flavor === 'codex' || flavor === 'opencode' || flavor === 'dsh'
   const effort = reasoningAgent
     ? session.modelReasoningEffort
     : (session.effort ?? (flavor === 'agy' ? splitAgyModelSelection(session.model).effort : null))
@@ -143,6 +143,9 @@ export function useSessionSettings(api: DesktopApi, session: Session, connected:
           ? getCodexModelReasoningEfforts(catalogs.codex.models, session.model)?.map((value) => ({ value }))
           : catalogs.opencodeEffort.options,
       )
+      break
+    case 'dsh':
+      effortOptions = getCodexComposerReasoningEffortOptions(effort, flavor)
       break
     case 'grok':
       effortOptions = [

@@ -619,6 +619,7 @@ export default {
   'tool.requestUserInput.cancellationRequested': '已请求忽略',
   'tool.requestUserInput.waitingForCancellation': '已请求忽略，正在等待 Agent 确认…',
   'tool.requestUserInput.waitingForConfirmation': '答案已提交，正在等待 Agent 确认…',
+  'tool.waitingForReply': '等待你的回复',
   'toolGroup.title': '工具活动',
   'toolGroup.friendly.inspectTarget': '检查 {target}',
   'toolGroup.friendly.searchTarget': '搜索“{target}”',

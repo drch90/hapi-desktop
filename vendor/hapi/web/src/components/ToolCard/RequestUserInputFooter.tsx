@@ -223,6 +223,10 @@ export function RequestUserInputFooter(props: {
     const currentState = currentQuestion ? stateByQuestion[currentQuestion.id] : null
     const isPureTextQuestion = currentQuestion && currentQuestion.options.length === 0
 
+    let submitLabel = 'tool.submit'
+    if (loading) submitLabel = 'tool.submitting'
+    else if (submitted) submitLabel = 'tool.requestUserInput.submitted'
+
     return (
         <div className={cn('rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3', props.scrollable ? 'flex h-full min-h-0 flex-col' : 'mt-3')}>
             <div className="flex shrink-0 items-start justify-between gap-3">
@@ -356,13 +360,10 @@ export function RequestUserInputFooter(props: {
                             className="gap-2"
                         >
                             {loading ? (
-                                <>
-                                    <Spinner size="sm" label={null} className="text-[var(--app-button-text)]" />
-                                    {t('tool.submitting')}
-                                </>
-                            ) : (
-                                t(submitted ? 'tool.requestUserInput.submitted' : 'tool.submit')
-                            )}
+                                <Spinner size="sm" label={null} className="text-[var(--app-button-text)]" />
+                            ) : null}
+                            {/* Keep the label element stable if browser translation replaces its text node. */}
+                            <span>{t(submitLabel)}</span>
                         </Button>
                     )}
                 </div>

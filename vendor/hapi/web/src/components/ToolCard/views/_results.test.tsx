@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { ToolCallBlock } from '@/chat/types'
 import { extractCodexBashDisplay, extractTextFromResult, getMutationResultRenderMode, getToolResultViewComponent, parseNumberedFileLines } from '@/components/ToolCard/views/_results'
 import { I18nProvider } from '@/lib/i18n-context'
@@ -137,6 +137,18 @@ describe('extractCodexBashDisplay', () => {
 })
 
 describe('getToolResultViewComponent registry', () => {
+    afterEach(cleanup)
+
+    it.each(['AskUserQuestion', 'request_user_input', 'CursorAskQuestion'])('shows %s as waiting for an answer, including a live-only request', (name) => {
+        const ResultView = getToolResultViewComponent(name)
+        const block = makeResultBlock({ name, state: 'pending', result: undefined, permission: { id: 'reply-id', status: 'pending' } })
+        const view = render(<I18nProvider><ResultView block={block} metadata={null} /></I18nProvider>)
+        expect(screen.getByText('Waiting for your reply')).toBeVisible()
+        view.rerender(<I18nProvider><ResultView block={{ ...block, tool: { ...block.tool, state: 'running' } }} metadata={null} /></I18nProvider>)
+        expect(screen.getByText('Waiting for your reply')).toBeVisible()
+        expect(screen.queryByText('Running…')).toBeNull()
+    })
+
     it('uses the same view for Write, Edit, MultiEdit, NotebookEdit', () => {
         const writeView = getToolResultViewComponent('Write')
         const editView = getToolResultViewComponent('Edit')

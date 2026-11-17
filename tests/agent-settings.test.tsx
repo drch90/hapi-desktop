@@ -47,6 +47,68 @@ afterEach(() => {
 })
 
 describe('CLI settings contracts', () => {
+  it('uses DSH native reasoning levels, reads the confirmed field and sends Default as null', async () => {
+    const { api, request, wrapper } = harness()
+    const session = {
+      ...fixtureSession('dsh-session', 'DSH', 'dsh'),
+      modelReasoningEffort: 'high',
+      effort: 'low',
+    }
+    const { result } = renderHook(() => useSessionSettings(api, session, true), { wrapper })
+    await waitFor(() => expect(result.current.effortDisabled).toBe(false))
+    expect(result.current.effort).toBe('high')
+    expect(result.current.effortOptions.map((option) => option.value)).toEqual([
+      null,
+      'off',
+      'low',
+      'high',
+      'max',
+    ])
+    await act(async () => expect(await result.current.apply('effort', 'off')).toBe(true))
+    expect(request).toHaveBeenLastCalledWith({
+      scope,
+      method: 'POST',
+      path: '/api/sessions/dsh-session/model-reasoning-effort',
+      body: { modelReasoningEffort: 'off' },
+    })
+    await act(async () => expect(await result.current.apply('effort', '')).toBe(true))
+    expect(request).toHaveBeenLastCalledWith({
+      scope,
+      method: 'POST',
+      path: '/api/sessions/dsh-session/model-reasoning-effort',
+      body: { modelReasoningEffort: null },
+    })
+    const calls = request.mock.calls.length
+    await act(async () => expect(await result.current.apply('effort', 'xhigh')).toBe(false))
+    expect(request).toHaveBeenCalledTimes(calls)
+    expect(result.current.effort).toBe('high')
+  })
+
+  it('keeps one OpenCode Default and clears the effort through the existing scoped endpoint', async () => {
+    const { api, request, responses, wrapper } = harness()
+    const session = { ...fixtureSession('oc-session', 'OpenCode', 'opencode'), model: 'provider/model' }
+    responses.set('/api/sessions/oc-session/opencode-reasoning-effort-options', {
+      success: true,
+      options: [
+        { value: 'high', name: 'High' },
+        { value: 'default', name: 'Default' },
+      ],
+    })
+    const { result } = renderHook(() => useSessionSettings(api, session, true), { wrapper })
+    await waitFor(() => expect(result.current.effortDisabled).toBe(false))
+    expect(result.current.effortOptions).toEqual([
+      { value: null, label: 'Default' },
+      { value: 'high', label: 'High' },
+    ])
+    await act(async () => expect(await result.current.apply('effort', '')).toBe(true))
+    expect(request).toHaveBeenLastCalledWith({
+      scope,
+      method: 'POST',
+      path: '/api/sessions/oc-session/model-reasoning-effort',
+      body: { modelReasoningEffort: null },
+    })
+  })
+
   it('allows only the specific discovery and configuration endpoints', () => {
     const readPaths = [
       '/api/machines/runner/agent-availability',
